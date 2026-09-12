@@ -25147,6 +25147,11 @@ static int routed_moe_launch(
     if (use_stream_selected_cache) {
         selected = &g_stream_selected_cache.slot_selected_tensor;
     }
+    /* The expert table the kernels index: the compact scratch, or (zero-copy)
+     * the whole resident arena.  Everything below that sizes a histogram,
+     * offset or tile table by expert count uses this, never n_total_expert. */
+    const uint32_t table_experts = use_stream_selected_cache ?
+        g_stream_selected_cache.compact_count : n_total_expert;
     const char *gate_w = use_stream_selected_cache ?
         g_stream_selected_cache.gate_view :
         cuda_resolve_weight_ptr(model_map, gate_offset, gate_bytes,
@@ -25231,7 +25236,7 @@ static int routed_moe_launch(
             n_tokens >= 128u && getenv("DS4_CUDA_MOE_NO_DOWN_TILE16") == NULL;
         const uint32_t use_small_sorted_prep =
             owned_filtered && q4k_path && n_tokens <= 16u && pair_count <= 96u &&
-            n_total_expert <= 128u && use_sorted_pairs && use_expert_tiles &&
+            table_experts <= 128u && use_sorted_pairs && use_expert_tiles &&
             getenv("DS4_CUDA_MOE_NO_SMALL_SORTED_PREP") == NULL;
         const uint32_t force_q4_down_rowspan =
             getenv("DS4_CUDA_MOE_DOWN_ROW512") != NULL ||
@@ -25358,17 +25363,17 @@ static int routed_moe_launch(
         ok = cuda_ok(cudaGetLastError(), "routed_moe x quantize launch");
         if (prof_ev[1]) (void)cudaEventRecord(prof_ev[1], 0);
         if (ok && use_sorted_pairs) {
-            const uint64_t counts_bytes = (uint64_t)n_total_expert * sizeof(uint32_t);
-            const uint64_t offsets_bytes = ((uint64_t)n_total_expert + 1ull) * sizeof(uint32_t);
-            const uint64_t cursors_bytes = (uint64_t)n_total_expert * sizeof(uint32_t);
+            const uint64_t counts_bytes = (uint64_t)table_experts * sizeof(uint32_t);
+            const uint64_t offsets_bytes = ((uint64_t)table_experts + 1ull) * sizeof(uint32_t);
+            const uint64_t cursors_bytes = (uint64_t)table_experts * sizeof(uint32_t);
             const uint64_t sorted_bytes = (uint64_t)pair_count * sizeof(uint32_t);
-            tile_capacity = (pair_count + expert_tile_m - 1u) / expert_tile_m + n_total_expert;
-            tile16_capacity = (use_down_tile16 || use_q4_mma_tiles16) ? ((pair_count + 15u) / 16u + n_total_expert) : 0u;
-            const uint64_t tile_offsets_bytes = ((uint64_t)n_total_expert + 1ull) * sizeof(uint32_t);
+            tile_capacity = (pair_count + expert_tile_m - 1u) / expert_tile_m + table_experts;
+            tile16_capacity = (use_down_tile16 || use_q4_mma_tiles16) ? ((pair_count + 15u) / 16u + table_experts) : 0u;
+            const uint64_t tile_offsets_bytes = ((uint64_t)table_experts + 1ull) * sizeof(uint32_t);
             const uint64_t tile_total_bytes = sizeof(uint32_t);
             const uint64_t tile_experts_bytes = (uint64_t)tile_capacity * sizeof(uint32_t);
             const uint64_t tile_starts_bytes = (uint64_t)tile_capacity * sizeof(uint32_t);
-            const uint64_t tile16_offsets_bytes = (use_down_tile16 || use_q4_mma_tiles16) ? (((uint64_t)n_total_expert + 1ull) * sizeof(uint32_t)) : 0u;
+            const uint64_t tile16_offsets_bytes = (use_down_tile16 || use_q4_mma_tiles16) ? (((uint64_t)table_experts + 1ull) * sizeof(uint32_t)) : 0u;
             const uint64_t tile16_total_bytes = (use_down_tile16 || use_q4_mma_tiles16) ? sizeof(uint32_t) : 0u;
             const uint64_t tile16_experts_bytes = (uint64_t)tile16_capacity * sizeof(uint32_t);
             const uint64_t tile16_starts_bytes = (uint64_t)tile16_capacity * sizeof(uint32_t);
@@ -25405,7 +25410,7 @@ static int routed_moe_launch(
                         counts, offsets, cursors, sorted_pairs,
                         tile_offsets, tile_total, tile_experts, tile_starts,
                         tile16_offsets, tile16_total, tile16_experts, tile16_starts,
-                        (const int32_t *)selected->ptr, pair_count, n_total_expert,
+                        (const int32_t *)selected->ptr, pair_count, table_experts,
                         expert_tile_m, use_down_tile16 || use_q4_mma_tiles16);
                     ok = cuda_ok(cudaGetLastError(),
                                  "routed_moe small sorted setup launch");
@@ -25418,11 +25423,11 @@ static int routed_moe_launch(
                         counts,
                         (const int32_t *)selected->ptr,
                         pair_count,
-                        n_total_expert);
+                        table_experts);
                     ok = cuda_ok(cudaGetLastError(), "routed_moe sorted count launch");
                 }
                 if (ok && !use_small_sorted_prep) {
-                    moe_prefix_sorted_pairs_kernel<<<1, 1, 0, cuda_decode_stream()>>>(offsets, cursors, counts, n_total_expert);
+                    moe_prefix_sorted_pairs_kernel<<<1, 1, 0, cuda_decode_stream()>>>(offsets, cursors, counts, table_experts);
                     ok = cuda_ok(cudaGetLastError(), "routed_moe sorted prefix launch");
                 }
                 if (ok && !use_small_sorted_prep) {
@@ -25431,27 +25436,27 @@ static int routed_moe_launch(
                         cursors,
                         (const int32_t *)selected->ptr,
                         pair_count,
-                        n_total_expert);
+                        table_experts);
                     ok = cuda_ok(cudaGetLastError(), "routed_moe sorted scatter launch");
                 }
                 if (ok && use_expert_tiles && !use_small_sorted_prep) {
-                    moe_build_expert_tile_offsets_kernel<<<1, 1, 0, cuda_decode_stream()>>>(tile_offsets, tile_total, counts, expert_tile_m, n_total_expert);
+                    moe_build_expert_tile_offsets_kernel<<<1, 1, 0, cuda_decode_stream()>>>(tile_offsets, tile_total, counts, expert_tile_m, table_experts);
                     ok = cuda_ok(cudaGetLastError(), "routed_moe expert tile offsets launch");
                 }
                 if (ok && use_expert_tiles && !use_small_sorted_prep) {
-                    moe_build_expert_tiles_kernel<<<(n_total_expert + 255u) / 256u, 256, 0, cuda_decode_stream()>>>(
-                        tile_experts, tile_starts, tile_offsets, counts, expert_tile_m, n_total_expert);
+                    moe_build_expert_tiles_kernel<<<(table_experts + 255u) / 256u, 256, 0, cuda_decode_stream()>>>(
+                        tile_experts, tile_starts, tile_offsets, counts, expert_tile_m, table_experts);
                     ok = cuda_ok(cudaGetLastError(), "routed_moe expert tiles launch");
                 }
                 if (ok && use_expert_tiles && !use_small_sorted_prep &&
                     (use_down_tile16 || use_q4_mma_tiles16)) {
-                    moe_build_expert_tile_offsets_kernel<<<1, 1, 0, cuda_decode_stream()>>>(tile16_offsets, tile16_total, counts, 16u, n_total_expert);
+                    moe_build_expert_tile_offsets_kernel<<<1, 1, 0, cuda_decode_stream()>>>(tile16_offsets, tile16_total, counts, 16u, table_experts);
                     ok = cuda_ok(cudaGetLastError(), "routed_moe expert tile16 offsets launch");
                 }
                 if (ok && use_expert_tiles && !use_small_sorted_prep &&
                     (use_down_tile16 || use_q4_mma_tiles16)) {
-                    moe_build_expert_tiles_kernel<<<(n_total_expert + 255u) / 256u, 256, 0, cuda_decode_stream()>>>(
-                        tile16_experts, tile16_starts, tile16_offsets, counts, 16u, n_total_expert);
+                    moe_build_expert_tiles_kernel<<<(table_experts + 255u) / 256u, 256, 0, cuda_decode_stream()>>>(
+                        tile16_experts, tile16_starts, tile16_offsets, counts, 16u, table_experts);
                     ok = cuda_ok(cudaGetLastError(), "routed_moe expert tile16 launch");
                 }
             }
@@ -25476,7 +25481,7 @@ static int routed_moe_launch(
                         tile16_total && tile16_experts && tile16_starts &&
                         xq_blocks == 16u && cuda_q4_mma_tile16_shmem_ok(0);
                     if (use_q4_mma_t16 && use_gate_row2048) {
-                        const unsigned t16cap = (unsigned)((pair_count + 15u) / 16u + n_total_expert);
+                        const unsigned t16cap = (unsigned)((pair_count + 15u) / 16u + table_experts);
                         const size_t t16sh = 16u * 16u * sizeof(cuda_block_q8_K);
                         if (gate_row_span == 512u) {
                             dim3 tgrid((expert_mid_dim + 511u) / 512u, t16cap, 1);
@@ -25882,7 +25887,7 @@ static int routed_moe_launch(
                         expert_mid_dim,
                         n_tokens * n_expert,
                         0u,
-                        n_total_expert);
+                        table_experts);
                 ok = cuda_ok(cudaGetLastError(),
                              "owned routed_moe active mid quantize launch");
             } else {
@@ -25987,7 +25992,7 @@ static int routed_moe_launch(
                         tile16_total && tile16_experts && tile16_starts &&
                         midq_blocks <= 16u && cuda_q4_mma_tile16_shmem_ok(1);
                     if (use_q4_down_t16 && use_q4_down_rowspan) {
-                        const unsigned t16cap = (unsigned)((pair_count + 15u) / 16u + n_total_expert);
+                        const unsigned t16cap = (unsigned)((pair_count + 15u) / 16u + table_experts);
                         const size_t dt16sh = 16u * (size_t)midq_blocks * sizeof(cuda_block_q8_K);
                         if (down_row_span == 512u) {
                             dim3 tgrid((out_dim + 511u) / 512u, t16cap, 1);
@@ -28199,13 +28204,13 @@ static int cuda_stream_selected_cache_begin_load(
             cuda_stream_selected_cache_invalidate();
             return 0;
         }
-        if (resident_ok && slot_count <= 16u && cuda_resident_zero_copy_enabled()) {
+        if (resident_ok && cuda_resident_zero_copy_enabled()) {
             /* Zero-copy decode: the kernels index an expert as
              * base + id * expert_bytes, and the arena is planar with the
              * same per-tensor stride, so point the views at the arena and
              * remap the ids to arena slots.  No bytes move for a hit.
-             * Prefill keeps the compact scratch (its paths may size tables
-             * by the largest id), so this is decode-sized batches only.
+             * Prefill takes it too: the sorted-pairs path sizes its tables
+             * from table_experts (the arena slot count), not from 384.
              * 2.2 GiB/token of device-to-device copy measured at 30 ms. */
             for (uint32_t i = 0; i < slot_count; i++) {
                 slot_ids[i] = (int32_t)slot_of[(uint32_t)slot_ids[i]];
