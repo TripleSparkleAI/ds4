@@ -20316,6 +20316,16 @@ __device__ static float half_warp_sum_f32(float v, uint32_t lane16) {
     return v;
 }
 
+/* DS4_CUDA_MOE_LUT16=0 restores the 8-lane LUT gate/up decode kernel. */
+static int cuda_moe_lut16_enabled(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *e = getenv("DS4_CUDA_MOE_LUT16");
+        cached = !(e && e[0] == '0');
+    }
+    return cached;
+}
+
 __device__ static float quarter_warp_sum_f32(float v, uint32_t lane8) {
     uint32_t mask = 0xffu << (threadIdx.x & 24u);
     for (int offset = 4; offset > 0; offset >>= 1) {
@@ -20902,6 +20912,77 @@ __global__ static void moe_gate_up_mid_decode_lut_qwarp32_kernel(
             }
             mid_out[off] = (gate / (1.0f + expf(-gate))) * up * weights[(uint64_t)tok * n_expert + slot];
         }
+    }
+}
+
+/* SPARKPORT: the LUT gate/up decode kernel with 16 lanes per row - lanes 0-7
+ * accumulate the gate row and lanes 8-15 the up row, each over the same
+ * block sequence (lane8, lane8+8, ...) and the same 8-lane tree the 8-lane
+ * kernel used, so every partial sum is bit-identical; the change is that
+ * twice as many loads are in flight per row.  nsys had the 8-lane form at
+ * 372 us per layer = 98 GB/s, 43% of the box, against the down kernel's 61%. */
+__global__ static void moe_gate_up_mid_decode_lut16_qwarp_kernel(
+        float *gate_out,
+        float *up_out,
+        float *mid_out,
+        const char *gate_base,
+        const char *up_base,
+        const cuda_block_q8_K *xq,
+        const int32_t *selected,
+        const float *weights,
+        uint64_t gate_expert_bytes,
+        uint64_t gate_row_bytes,
+        uint32_t xq_blocks,
+        uint32_t expert_mid_dim,
+        uint32_t n_expert,
+        uint32_t write_aux,
+        float clamp) {
+    const uint32_t lane16 = threadIdx.x & 15u;
+    const uint32_t lane = lane16 & 7u;
+    const uint32_t half = lane16 >> 3u;           /* 0 = gate, 1 = up */
+    const uint32_t row_lane = threadIdx.x >> 4u;
+    const uint32_t pair = blockIdx.y;
+    const uint32_t tok = pair / n_expert;
+    const uint32_t slot = pair - tok * n_expert;
+    int32_t expert_i = selected[(uint64_t)tok * n_expert + slot];
+    if (expert_i < 0) expert_i = 0;
+    const uint32_t expert = (uint32_t)expert_i;
+    const cuda_block_q8_K *xqb = xq + (uint64_t)tok * xq_blocks;
+    __shared__ cuda_block_q8_K sxq[32];
+    __shared__ uint64_t s_iq2_grid[256];
+    __shared__ uint8_t s_iq2_signs[128];
+    if (xq_blocks <= 32u) {
+        for (uint32_t i = threadIdx.x; i < xq_blocks; i += blockDim.x) sxq[i] = xqb[i];
+        for (uint32_t i = threadIdx.x; i < 256u; i += blockDim.x) s_iq2_grid[i] = cuda_iq2xxs_grid[i];
+        for (uint32_t i = threadIdx.x; i < 128u; i += blockDim.x) s_iq2_signs[i] = cuda_ksigns_iq2xs[i];
+        __syncthreads();
+        xqb = sxq;
+    }
+    const uint32_t row = blockIdx.x * 16u + row_lane;
+    if (row >= expert_mid_dim) return;
+    const char *base = half ? up_base : gate_base;
+    const cuda_block_iq2_xxs *wr = (const cuda_block_iq2_xxs *)(base + (uint64_t)expert * gate_expert_bytes + (uint64_t)row * gate_row_bytes);
+    float acc = 0.0f;
+    for (uint32_t b = lane; b < xq_blocks; b += 8u) {
+        acc += dev_dot_iq2_xxs_q8_K_block_lut(wr + b, xqb + b, s_iq2_grid, s_iq2_signs);
+    }
+    acc = quarter_warp_sum_f32(acc, lane);
+    const uint32_t mask16 = 0xffffu << (threadIdx.x & 16u);
+    const float other = __shfl_sync(mask16, acc, lane16 ^ 8u, 16);
+    if (lane16 == 0) {
+        float gate = acc;
+        float up = other;
+        if (clamp > 1.0e-6f) {
+            if (gate > clamp) gate = clamp;
+            if (up > clamp) up = clamp;
+            if (up < -clamp) up = -clamp;
+        }
+        const uint64_t off = (uint64_t)pair * expert_mid_dim + row;
+        if (write_aux) {
+            gate_out[off] = gate;
+            up_out[off] = up;
+        }
+        mid_out[off] = (gate / (1.0f + expf(-gate))) * up * weights[(uint64_t)tok * n_expert + slot];
     }
 }
 
@@ -25628,6 +25709,24 @@ static int routed_moe_launch(
                             write_gate_up,
                             clamp);
                     }
+                } else if (use_decode_lut_gate && cuda_moe_lut16_enabled()) {
+                    const dim3 qgrid16((expert_mid_dim + 15u) / 16u, n_tokens * n_expert, 1);
+                    moe_gate_up_mid_decode_lut16_qwarp_kernel<<<qgrid16, 256, 0, cuda_decode_stream()>>>(
+                        (float *)gate->ptr,
+                        (float *)up->ptr,
+                        (float *)mid->ptr,
+                        gate_w,
+                        up_w,
+                        xq,
+                        (const int32_t *)selected->ptr,
+                        (const float *)weights->ptr,
+                        gate_expert_bytes,
+                        gate_row_bytes,
+                        xq_blocks,
+                        expert_mid_dim,
+                        n_expert,
+                        write_gate_up,
+                        clamp);
                 } else if (use_decode_lut_gate) {
                     moe_gate_up_mid_decode_lut_qwarp32_kernel<<<qgrid, 256, 0, cuda_decode_stream()>>>(
                         (float *)gate->ptr,
