@@ -27170,9 +27170,11 @@ static int cuda_stream_selected_ranges_valid(
  * ------------------------------------------------------------------------ */
 
 struct cuda_resident_expert_cache {
-    char    *arena_gate;         /* three planes, one per tensor, so an arena
-    char    *arena_up;            * slot index addresses an expert exactly the
-    char    *arena_down;          * way a compact scratch index does */
+    /* Three planes, one per tensor, so an arena slot index addresses an
+     * expert exactly the way a compact scratch index does. */
+    char    *arena_gate;
+    char    *arena_up;
+    char    *arena_down;
     uint64_t stride;             /* 2 * gate_expert_bytes + down_expert_bytes */
     uint64_t gate_expert_bytes;
     uint64_t down_expert_bytes;
