@@ -39774,6 +39774,38 @@ static bool ds41_cuda_stream_selected_load(const ds41_gpu_graph *g, const ds4_mo
 #endif
 }
 
+/* SPARKPORT: the batched prefill's routed MoE.  Metal maps a whole layer's
+ * experts as file-backed buffers; the CUDA launch, given no selected cache,
+ * resolves the whole expert tensors into its device cache - 3.6 GiB a layer,
+ * never released, and an OOM kill around layer 13 for prompts of ~300 tokens
+ * (measured).  Load the batch's selected experts through the same resident
+ * cache decode uses: read the ids back, one begin_selected_load per layer. */
+static bool ds41_cuda_stream_selected_load_batch(const ds41_gpu_graph *g, const ds4_model *m,
+                                                 const ds4_layer_weights *l, uint32_t il,
+                                                 uint64_t gate_expert_bytes, uint64_t down_expert_bytes,
+                                                 const ds4_gpu_tensor *selected, uint32_t count) {
+#if !defined(DS4_ROCM_BUILD) && !defined(DS4_NO_GPU) && !defined(__APPLE__)
+    if (!g->streaming || !m || !l || !selected || !count) return true;
+    const uint64_t n_ids = (uint64_t)count * DS4_N_EXPERT_USED;
+    int32_t *ids = malloc((size_t)n_ids * sizeof(int32_t));
+    if (!ids) return false;
+    bool ok = ds4_gpu_end_commands() != 0 &&
+              ds4_gpu_tensor_read(selected, 0, ids, n_ids * sizeof(int32_t)) != 0;
+    if (ok) {
+        const ds4_gpu_stream_expert_table table =
+            graph_stream_expert_table_make(m, l, il, gate_expert_bytes, down_expert_bytes);
+        ok = ds4_gpu_stream_expert_cache_begin_selected_load(&table, ids, (uint32_t)n_ids) != 0;
+    }
+    free(ids);
+    if (ds4_gpu_begin_commands() == 0) ok = false;
+    return ok;
+#else
+    (void)g; (void)m; (void)l; (void)il; (void)gate_expert_bytes; (void)down_expert_bytes;
+    (void)selected; (void)count;
+    return true;
+#endif
+}
+
 static bool ds41_moe(ds41_gpu_graph *g, const ds4_model *m,
                      const ds4_layer_weights *l, uint32_t il, uint32_t token) {
     uint64_t gate_row = 0, down_row = 0;
@@ -40187,6 +40219,8 @@ static bool ds41_moe_batch(ds41_gpu_graph *g, const ds4_model *m,
             count * DS4_N_FF_EXP, DS4_SWIGLU_CLAMP_EXP, 1.0f) &&
         ds4_gpu_dsv41_quantize(b->shared_mid, DS4_N_FF_EXP, count, DS4_V41_BF16) &&
         ds41_matmul_batch(b->shared, m, l->ffn_down_shexp, b->shared_mid, count, true))) &&
+        ds41_cuda_stream_selected_load_batch(g, m, l, il, gate_row * DS4_N_FF_EXP,
+            down_row * DS4_N_EMBD, b->selected, count) &&
         ds4_gpu_routed_moe_batch_tensor(b->routed, b->gate, b->up, b->mid, b->experts,
             m->map, m->size, l->ffn_gate_exps->abs_offset, l->ffn_up_exps->abs_offset,
             l->ffn_down_exps->abs_offset, l->ffn_gate_exps->type, l->ffn_down_exps->type,
