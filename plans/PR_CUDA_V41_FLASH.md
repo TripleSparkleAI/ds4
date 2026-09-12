@@ -1,6 +1,6 @@
 # PR: CUDA support for DeepSeek V4.1 Flash
 
-Branch `cuda-deepseek-v4.1-flash`, one commit, forked from `bd66c40`
+Branch `v4.1-flash-cuda`, one commit, forked from `bd66c40`
 ("DeepSeek v4.1 Flash support for Metal"). Engine files only - no plans,
 no notes, no working material.
 
@@ -57,26 +57,38 @@ what they call.
 `DS4_V41_TRACE=1` names the failing graph step. Without it a V4.1 fault
 surfaces as "gpu layer 0 ffn batch encode failed", which points nowhere.
 
-## Performance - honest, and not yet good
+## Performance - the bottleneck was found and it was not the port
 
-**1.63 prefill / 1.69 generation t/s** on the Spark.
-
-The cost is not the port's control flow. Timing split, per MoE layer:
+Initial: **1.63 prefill / 1.69 generation t/s** on the Spark. Timing split, per MoE layer:
 
 ```
   GPU drain (sync + id readback)   1.1 ms   ████
   synchronous expert fetch        12.4 ms   ████████████████████████████████████████████████
 ```
 
-V4.1 is 20 causal encoder + 20 decoder layers, every one of them MoE.
-Forty layers pulling six 9.5 MiB experts each is ~2.3 GiB per token, and
-the fetch does not overlap with compute - so **~87% of every token is
-spent waiting on SSD**.
+V4.1 is 20 causal encoder + 20 decoder layers, every one MoE. Forty layers pulling
+six 9.5 MiB experts each is ~2.3 GiB per token, and the fetch did not overlap with
+compute - **~87% of every token was SSD reads.**
 
-An 87 GiB expert cache was tested and moved generation 1.61 -> 1.79 t/s,
-so the cache is not the lever either. Prefetching each layer's experts
-against the previous layer's compute is the obvious next step. It is not
-attempted here; this PR is about correctness.
+The cause is upstream's, at the fork point, not this port's: the five
+`ds4_gpu_stream_expert_cache_*` entry points are stubs in `ds4_cuda.cu`
+(`configured_count()` returns 0, the budget setters are `(void)` no-ops). Metal has
+a full resident expert cache; CUDA had none, and `--ssd-streaming-cache-experts`
+printed an 87 GiB plan nothing ever allocated. That is fixed on its own branch,
+**`cuda-resident-expert-cache`**, because it helps any CUDA streaming model:
+
+```
+  generation  1.69 -> 5.28 t/s   (3.1x)   steady state, hit rate 0.868, driver 580.159.03
+  prefill     1.63 -> 2.84 t/s
+```
+
+Verified byte-identical: greedy `--temp 0 --dump-logprobs`, 32 steps x 20
+alternatives, cache on vs `DS4_CUDA_EXPERT_CACHE=0`, same sha256.
+
+Still open, in flight on four lanes: parallel preads on the miss path, a persistent
+hot list so the cache starts warm, page-cache eviction, and the 44 ms/token of
+per-layer drain (now ~23% of a token). No published antirez V4.1 number exists to
+compare against; his README says V4.1 Q2 streams from SSD on a 128 GB Mac too.
 
 ## Submitting
 
