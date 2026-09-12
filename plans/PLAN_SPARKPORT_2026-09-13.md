@@ -91,3 +91,19 @@ PAGECACHE readahead, then the PREADPOOL pool block. Builds on the Spark rc=0, 8 
 Its own correctness gate + (if quiet) speed gate are in flight. Box memory contested all evening: the
 arena sized 2184-3657 experts where an empty box gives ~5500, so no speed number today is comparable
 to this morning's 5.28 t/s.
+
+## 2026-09-14 ~03:50 THE FIRST V4.1 PER-PHASE PROFILE (DS4_V41_PROFILE=1, commit 4efacc59f)
+Integrated tree, load 4.60 / gpu 6% / driver 580.159.03 / ctx 32768, arena 3450 (box-capped, 64 GiB
+avail), hit 0.769, wall 4.87 t/s = 205 ms/token WITH profiling syncs. Marginal over tokens 88->96,
+un-nesting moe.prime/moe.routed from moe:
+   moe.prime  72 ms 32%   misses at hit 0.77 - contention-capped arena, hotlist+full arena is the fix
+   before_moe 48 ms 21%   UNEXPECTED - candidate: Engram rows read from DISK synchronously mid-token
+   moe.routed 35 ms 15%
+   attention  34 ms 15%
+   other      30 ms 13%   (router+shared expert inside moe, loop driver, sampling)
+   before/after_attention, after_moe ~12 ms 5%
+   sum ~228 ms vs wall 205: the loop driver's own syncs are NOT a big hidden term.
+Byte census: 9.1 GiB/token at 5.4 t/s = 49 GB/s = 21% of the 230.5 GB/s ceiling -> the wall is
+latency/serialisation, not bytes. Roofline ceiling ~25 t/s at achieved bandwidth.
+LEVER CANDIDATE (paper-backed, our own kgraph EngramContestedNotSettled notes it): Engram's hash
+depends only on token IDs, so its rows can be PREFETCHED before layer 1 - we read them synchronously.
