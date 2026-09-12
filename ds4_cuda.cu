@@ -21292,7 +21292,7 @@ __global__ static void moe_gate_up_mid_expert_tile4_row32_kernel(
         slot[np] = pair[np] - tok[np] * n_expert;
         xqb[np] = xq + (uint64_t)tok[np] * xq_blocks;
     }
-    if (xq_blocks <= 32u) {
+    if (xq_blocks <= 16u) {
         for (uint32_t i = threadIdx.x; i < np * xq_blocks; i += blockDim.x) {
             uint32_t p = i / xq_blocks;
             uint32_t b = i - p * xq_blocks;
@@ -21374,7 +21374,7 @@ __global__ static void moe_gate_up_mid_expert_tile8_row32_kernel(
         slot[np] = pair[np] - tok[np] * n_expert;
         xqb[np] = xq + (uint64_t)tok[np] * xq_blocks;
     }
-    if (xq_blocks <= 32u) {
+    if (xq_blocks <= 16u) {
         for (uint32_t i = threadIdx.x; i < np * xq_blocks; i += blockDim.x) {
             uint32_t p = i / xq_blocks;
             uint32_t b = i - p * xq_blocks;
@@ -21464,7 +21464,7 @@ __global__ static void moe_gate_up_mid_expert_tile8_row2048_kernel(
         slot[np] = pair[np] - tok[np] * n_expert;
         xqb[np] = xq + (uint64_t)tok[np] * xq_blocks;
     }
-    if (xq_blocks <= 32u) {
+    if (xq_blocks <= 16u) {
         for (uint32_t i = threadIdx.x; i < np * xq_blocks; i += blockDim.x) {
             uint32_t p = i / xq_blocks;
             uint32_t b = i - p * xq_blocks;
@@ -21558,7 +21558,7 @@ __global__ static void moe_gate_up_mid_expert_tile8_rowspan_kernel(
         slot[np] = pair[np] - tok[np] * n_expert;
         xqb[np] = xq + (uint64_t)tok[np] * xq_blocks;
     }
-    if (xq_blocks <= 32u) {
+    if (xq_blocks <= 16u) {
         for (uint32_t i = threadIdx.x; i < np * xq_blocks; i += blockDim.x) {
             uint32_t p = i / xq_blocks;
             uint32_t b = i - p * xq_blocks;
@@ -21795,8 +21795,8 @@ __global__ static void moe_gate_up_mid_decode_q4K_qwarp32_kernel(
     if (expert_i < 0) expert_i = 0;
     uint32_t expert = (uint32_t)expert_i;
     const cuda_block_q8_K *xqb = xq + (uint64_t)tok * xq_blocks;
-    __shared__ cuda_block_q8_K sxq[32];
-    if (xq_blocks <= 32u) {
+    __shared__ cuda_block_q8_K sxq[16];
+    if (xq_blocks <= 16u) {
         for (uint32_t i = threadIdx.x; i < xq_blocks; i += blockDim.x) sxq[i] = xqb[i];
         __syncthreads();
         xqb = sxq;
@@ -21856,8 +21856,8 @@ __global__ static void moe_gate_up_mid_decode_q4K_hwarp16_kernel(
     if (expert_i < 0) expert_i = 0;
     uint32_t expert = (uint32_t)expert_i;
     const cuda_block_q8_K *xqb = xq + (uint64_t)tok * xq_blocks;
-    __shared__ cuda_block_q8_K sxq[32];
-    if (xq_blocks <= 32u) {
+    __shared__ cuda_block_q8_K sxq[16];
+    if (xq_blocks <= 16u) {
         for (uint32_t i = threadIdx.x; i < xq_blocks; i += blockDim.x) sxq[i] = xqb[i];
         __syncthreads();
         xqb = sxq;
@@ -21913,8 +21913,8 @@ __global__ static void moe_gate_up_mid_decode_q4K_hwarp16_row8_kernel(
     if (expert_i < 0) expert_i = 0;
     uint32_t expert = (uint32_t)expert_i;
     const cuda_block_q8_K *xqb = xq + (uint64_t)tok * xq_blocks;
-    __shared__ cuda_block_q8_K sxq[32];
-    if (xq_blocks <= 32u) {
+    __shared__ cuda_block_q8_K sxq[16];
+    if (xq_blocks <= 16u) {
         for (uint32_t i = threadIdx.x; i < xq_blocks; i += blockDim.x) sxq[i] = xqb[i];
         __syncthreads();
         xqb = sxq;
@@ -21974,8 +21974,8 @@ __global__ static void moe_gate_up_mid_decode_q4K_warp32_kernel(
     if (expert_i < 0) expert_i = 0;
     uint32_t expert = (uint32_t)expert_i;
     const cuda_block_q8_K *xqb = xq + (uint64_t)tok * xq_blocks;
-    __shared__ cuda_block_q8_K sxq[32];
-    if (xq_blocks <= 32u) {
+    __shared__ cuda_block_q8_K sxq[16];
+    if (xq_blocks <= 16u) {
         for (uint32_t i = threadIdx.x; i < xq_blocks; i += blockDim.x) sxq[i] = xqb[i];
         __syncthreads();
         xqb = sxq;
@@ -22029,8 +22029,8 @@ __global__ static void moe_gate_up_mid_decode_q4K_warp32_noaux_kernel(
     if (expert_i < 0) expert_i = 0;
     uint32_t expert = (uint32_t)expert_i;
     const cuda_block_q8_K *xqb = xq + (uint64_t)tok * xq_blocks;
-    __shared__ cuda_block_q8_K sxq[32];
-    if (xq_blocks <= 32u) {
+    __shared__ cuda_block_q8_K sxq[16];
+    if (xq_blocks <= 16u) {
         /* Word-wise cooperative staging copy (same bytes, all lanes busy). */
         const uint32_t words = xq_blocks * (uint32_t)(sizeof(cuda_block_q8_K) / 4u);
         uint32_t *dst = (uint32_t *)sxq;
@@ -22093,8 +22093,8 @@ __global__ static void moe_gate_up_mid_decode_q4K_owned_warp32_noaux_kernel(
     if (!moe_owned_local_expert(selected[pair], expert_base, expert_count,
                                 &expert)) return;
     const cuda_block_q8_K *xqb = xq;
-    __shared__ cuda_block_q8_K sxq[32];
-    if (xq_blocks <= 32u) {
+    __shared__ cuda_block_q8_K sxq[16];
+    if (xq_blocks <= 16u) {
         const uint32_t words = xq_blocks * (uint32_t)(sizeof(cuda_block_q8_K) / 4u);
         uint32_t *dst = (uint32_t *)sxq;
         const uint32_t *srcw = (const uint32_t *)xqb;
@@ -22156,10 +22156,10 @@ __global__ static void moe_gate_up_mid_decode_q4K_warp32_noaux_sidecar_kernel(
     if (expert_i < 0) expert_i = 0;
     const uint32_t expert = (uint32_t)expert_i;
     const cuda_block_q8_K *xqb = xq + (uint64_t)tok * xq_blocks;
-    __shared__ cuda_block_q8_K sxq[32];
+    __shared__ cuda_block_q8_K sxq[16];
     __shared__ float tile_vals[8];
     __shared__ float tile_abs[8];
-    if (xq_blocks <= 32u) {
+    if (xq_blocks <= 16u) {
         for (uint32_t i = threadIdx.x; i < xq_blocks; i += blockDim.x) sxq[i] = xqb[i];
         __syncthreads();
         xqb = sxq;
@@ -22241,8 +22241,8 @@ __global__ static void moe_gate_up_mid_decode_q4K_warp32_row16_kernel(
     if (expert_i < 0) expert_i = 0;
     uint32_t expert = (uint32_t)expert_i;
     const cuda_block_q8_K *xqb = xq + (uint64_t)tok * xq_blocks;
-    __shared__ cuda_block_q8_K sxq[32];
-    if (xq_blocks <= 32u) {
+    __shared__ cuda_block_q8_K sxq[16];
+    if (xq_blocks <= 16u) {
         for (uint32_t i = threadIdx.x; i < xq_blocks; i += blockDim.x) sxq[i] = xqb[i];
         __syncthreads();
         xqb = sxq;
@@ -22297,13 +22297,13 @@ __global__ static void moe_gate_up_midq_decode_q4K_qwarp32_kernel(
     if (expert_i < 0) expert_i = 0;
     const uint32_t expert = (uint32_t)expert_i;
     const cuda_block_q8_K *xqb = xq + (uint64_t)tok * xq_blocks;
-    __shared__ cuda_block_q8_K sxq[32];
+    __shared__ cuda_block_q8_K sxq[16];
     __shared__ float vals[CUDA_QK_K];
     __shared__ float abs_part[CUDA_QK_K];
     __shared__ float val_part[CUDA_QK_K];
     __shared__ float iscale_s;
 
-    if (xq_blocks <= 32u) {
+    if (xq_blocks <= 16u) {
         for (uint32_t i = threadIdx.x; i < xq_blocks; i += blockDim.x) sxq[i] = xqb[i];
         __syncthreads();
         xqb = sxq;
@@ -22420,7 +22420,7 @@ __global__ static void moe_gate_up_mid_q4K_expert_tile8_rowspan_kernel(
         slot[np] = pair[np] - tok[np] * n_expert;
         xqb[np] = xq + (uint64_t)tok[np] * xq_blocks;
     }
-    if (xq_blocks <= 32u) {
+    if (xq_blocks <= 16u) {
         for (uint32_t i = threadIdx.x; i < np * xq_blocks; i += blockDim.x) {
             uint32_t p = i / xq_blocks;
             uint32_t b = i - p * xq_blocks;
@@ -23330,7 +23330,7 @@ __global__ static void moe_gate_up_mid_q4K_tile8_mma_kernel(
     }
     __syncthreads();
     const uint32_t np = s_np;
-    if (xq_blocks <= 32u) {
+    if (xq_blocks <= 16u) {
         for (uint32_t i = threadIdx.x; i < np * xq_blocks * (uint32_t)(sizeof(cuda_block_q8_K) / 4u); i += blockDim.x) {
             const uint32_t words_per_tok = xq_blocks * (uint32_t)(sizeof(cuda_block_q8_K) / 4u);
             uint32_t p = i / words_per_tok;
@@ -23699,7 +23699,7 @@ __global__ static void moe_gate_up_mid_q4K_tile16_mma_kernel(
     }
     __syncthreads();
     const uint32_t np = s_np;
-    if (xq_blocks <= 32u) {
+    if (xq_blocks <= 16u) {
         const uint32_t words_per_tok = xq_blocks * (uint32_t)(sizeof(cuda_block_q8_K) / 4u);
         for (uint32_t i = threadIdx.x; i < np * words_per_tok; i += blockDim.x) {
             uint32_t p = i / words_per_tok;
@@ -25074,11 +25074,11 @@ static int routed_moe_launch(
             q4k_path && use_expert_tiles && expert_tile_m == 8u &&
             (q4_owned_batch || n_tokens >= 128u || force_q4_down_rowspan) &&
             getenv("DS4_CUDA_MOE_NO_Q4_DOWN_ROWSPAN") == NULL;
-        /* The LUT kernel stages the IQ2 codebook and signs in shared memory;
-         * its x stage was sized for 16 blocks (in_dim 4096).  DeepSeek V4.1
+        /* The LUT kernels stage the IQ2 codebook and signs in shared memory;
+         * their x stage was sized for 16 blocks (in_dim 4096).  DeepSeek V4.1
          * Flash has in_dim 5120 = 20 blocks and fell through to the generic
-         * kernel, running gate/up at ~55 GB/s against ~141 for the Q2_K down
-         * in the same layer (DS4_CUDA_MOE_PROFILE).  32 blocks covers it. */
+         * kernel: gate/up ran at ~55 GB/s against ~141 for the Q2_K down in
+         * the same layer (DS4_CUDA_MOE_PROFILE).  32 blocks covers it. */
         const uint32_t use_decode_lut_gate =
             n_tokens == 1u && xq_blocks <= 32u &&
             getenv("DS4_CUDA_MOE_NO_DECODE_LUT_GATE") == NULL;
