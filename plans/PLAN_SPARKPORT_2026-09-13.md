@@ -107,3 +107,13 @@ Byte census: 9.1 GiB/token at 5.4 t/s = 49 GB/s = 21% of the 230.5 GB/s ceiling 
 latency/serialisation, not bytes. Roofline ceiling ~25 t/s at achieved bandwidth.
 LEVER CANDIDATE (paper-backed, our own kgraph EngramContestedNotSettled notes it): Engram's hash
 depends only on token IDs, so its rows can be PREFETCHED before layer 1 - we read them synchronously.
+- CORRECTION to the profile reading above (same hour): `before_moe` is NOT a separate 48 ms - the
+  function ds41_graph_before_moe IS the nested attention triple (before_attention + attention +
+  after_attention = 6+34+5), the same nesting as moe containing moe.prime. And Sinkhorn is ONE
+  kernel launch with the iterations inside - not a launch storm. Two hypotheses (Engram disk reads,
+  Sinkhorn storm) died on reading: Engram rows are already prefetched on a thread by antirez.
+  UN-NESTED marginal per token (wall 205): prime 72 · routed 35 · attention 34 · router+shared 26 ·
+  untraced 26 · small phases 12. After the prime, the kernels run at 27-42% of the 230.5 GB/s
+  ceiling (routed: 2.2 GiB in 35 ms = 63 GB/s). The lever after residency is BATCH-1 KERNEL
+  EFFICIENCY - the same finding as V4 on this box, worse on V4.1. Antirez's Metal fuses gate+up+swiglu
+  (mul_mv_addr_iq2_pair_swiglu); whether CUDA does is being read.
