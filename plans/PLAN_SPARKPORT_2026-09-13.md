@@ -124,3 +124,11 @@ depends only on token IDs, so its rows can be PREFETCHED before layer 1 - we rea
   foreign allocation then kills whichever tree is running; integrate is a few hundred MiB heavier
   (pinned pool staging, hot-list tables) so it dies first. Not a lane bug - a margin. Fix: margin ->
   a knob, DS4_CUDA_EXPERT_CACHE_MARGIN_GB, default 12; costs ~430 experts of arena on this box.
+- SHAPE from the tensor header: n_embd 5120, n_ff_exp 2304, 384 experts (5120x2304 = 11,796,480 -
+  my earlier 2048x5760 was a wrong factorisation). xq_blocks = 20 > the LUT kernel's cap of 16.
+  DISCRIMINATING RUN: DS4_CUDA_MOE_NO_DECODE_LUT_GATE=1 leaves gateup at 0.664 ms - identical - so
+  V4.1 was never on the LUT path (premise verified per the CALL-PATH GATE).
+  PATCH (lane-integrate + clean branch cuda-iq2-lut-gate-32 off bd66c40): sxq[16]->[32], both
+  <=16u guards -> <=32u. Same arithmetic; the IQ2 codebook + signs move to shared memory. Build +
+  his profiler + correctness gate in flight. Expected (unverified): gateup toward the down kernel's
+  141 GB/s, routed 34 -> ~17 ms/token.
