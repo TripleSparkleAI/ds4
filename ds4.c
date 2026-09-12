@@ -40204,14 +40204,20 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model 
     if (!g || !g->valid || g->pos >= g->ctx || token < 0 || (uint32_t)token >= DS4_N_VOCAB) return false;
     uint32_t ids[2][DS4_ENGRAM_COLS];
     ds4_engram_history next_history = g->history;
-    if (!ds41_hash_tokens(g, &next_history, &token, 1, &ids[0][0])) return false;
-    for (uint32_t i = 0; !ds41_image_at(g, g->pos) && i < 2; i++) {
-        if (!ds4_engram_read(&g->table[i], ids[i], DS4_ENGRAM_COLS, g->rows[i])) return false;
+    {   /* SPARKPORT profiler: the Engram rows are read from the file, per token */
+        struct timespec e0, e1; const bool prof = ds41_prof_enabled();
+        if (prof) clock_gettime(CLOCK_MONOTONIC, &e0);
+        if (!ds41_hash_tokens(g, &next_history, &token, 1, &ids[0][0])) return false;
+        for (uint32_t i = 0; !ds41_image_at(g, g->pos) && i < 2; i++) {
+            if (!ds4_engram_read(&g->table[i], ids[i], DS4_ENGRAM_COLS, g->rows[i])) return false;
+        }
+        if (prof) { clock_gettime(CLOCK_MONOTONIC, &e1);
+            ds41_prof_add("token.engram", (e1.tv_sec - e0.tv_sec) * 1.0e6 + (e1.tv_nsec - e0.tv_nsec) / 1.0e3); }
     }
     const float initial_pre[] = {1, 0, 0, 0};
     if (!ds4_gpu_tensor_write(g->pre, 0, initial_pre, sizeof(initial_pre)) ||
         !ds4_gpu_begin_commands()) return false;
-    bool ok = ds41_embed(g, m, w, g->residual, g->x, token, g->pos);
+    bool ok = DS41_TRACE("token.embed", ds41_embed(g, m, w, g->residual, g->x, token, g->pos));
     /* Unfused quality kernels bind whole expert tensors. Keep just the current
      * layer mapped, using the same admitted reserve as layer-major prefill. */
     const bool layer_resident = g->streaming && g->quality;
@@ -40231,7 +40237,7 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model 
          * before overwriting the first Engram table's shared input at layer
          * 14, and before publishing the completed token to the CPU. */
         const bool drain = !queue_layers || il == 13 || il + 1u == DS4_N_LAYER;
-        if (drain && !ds4_gpu_end_commands()) ok = false;
+        if (drain && !DS41_TRACE("token.drain", ds4_gpu_end_commands() != 0)) ok = false;
         if (g->tp_world == 2 && ds4_gpu_tp_failed()) ok = false;
         if (ok && g->imatrix)
             ok = imatrix_collect_tensor_batch(g->imatrix, g->norm, g->mid,
@@ -40243,7 +40249,7 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model 
     if (ds4_gpu_commands_active() && !ds4_gpu_end_commands()) ok = false;
     if (layer_resident && !metal_graph_stream_map_decode_static_all(m, w)) ok = false;
     if (g->tp_world == 2 && ds4_gpu_tp_failed()) ok = false;
-    if (ok && logits) ok = ds41_graph_logits(g, m, w, logits);
+    if (ok && logits) ok = DS41_TRACE("token.logits", ds41_graph_logits(g, m, w, logits));
     if (!ok) {
         g->valid = false;
         return false;
