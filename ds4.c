@@ -39676,16 +39676,46 @@ static bool ds41_attention(ds41_gpu_graph *g, const ds4_model *m,
 /* SPARKPORT: CUDA's routed MoE requires the per-layer selected-expert streaming cache to be
  * primed with this token's experts (the V4 decode path does the same via
  * metal_graph_decode_cuda_selected_load). Metal seeds its cache elsewhere, so this is CUDA-only. */
+/* DRAINCUT: the readback is split in two so the shared-expert matmuls can be
+ * queued BETWEEN the router and the wait.  arm() queues an async copy of the
+ * router's ids plus an event straight after the router select; the wait then
+ * blocks only until that event, so the GPU keeps running the shared-expert
+ * work (and, after the ids arrive, keeps running it while the host primes the
+ * expert cache) instead of being drained to idle at every layer.  The old
+ * full drain (cudaDeviceSynchronize + blocking pageable memcpy) is kept as the
+ * fallback and can be forced with DS4_CUDA_SELECTED_DRAIN_SYNC=1 for A/B.
+ * Graph order is unchanged: every kernel is queued in the same order as before. */
+static bool ds41_cuda_selected_readback_arm(const ds41_gpu_graph *g) {
+#if !defined(DS4_ROCM_BUILD) && !defined(DS4_NO_GPU) && !defined(__APPLE__)
+    if (!g->streaming || !g->selected) return false;
+    if (DS4_N_EXPERT_USED == 0 || DS4_N_EXPERT_USED > DS4_MAX_EXPERT_USED) return false;
+    static int drain_sync = -1;
+    if (drain_sync < 0) drain_sync = getenv("DS4_CUDA_SELECTED_DRAIN_SYNC") != NULL;
+    if (drain_sync) return false;
+    return ds4_gpu_selected_readback_begin(g->selected, 0,
+                                           (uint64_t)DS4_N_EXPERT_USED * sizeof(int32_t)) != 0;
+#else
+    (void)g;
+    return false;
+#endif
+}
+
 static bool ds41_cuda_stream_selected_load(const ds41_gpu_graph *g, const ds4_model *m,
                                            const ds4_layer_weights *l, uint32_t il,
-                                           uint64_t gate_expert_bytes, uint64_t down_expert_bytes) {
+                                           uint64_t gate_expert_bytes, uint64_t down_expert_bytes,
+                                           bool armed) {
 #if !defined(DS4_ROCM_BUILD) && !defined(DS4_NO_GPU) && !defined(__APPLE__)
     if (!g->streaming || !m || !l || !g->selected) return true;
     if (DS4_N_EXPERT_USED == 0 || DS4_N_EXPERT_USED > DS4_MAX_EXPERT_USED) return false;
-    if (ds4_gpu_end_commands() == 0) return false;
     int32_t ids[DS4_MAX_EXPERT_USED] = {0};
-    bool ok = ds4_gpu_tensor_read(g->selected, 0, ids,
-                                  (uint64_t)DS4_N_EXPERT_USED * sizeof(ids[0])) != 0;
+    const uint64_t id_bytes = (uint64_t)DS4_N_EXPERT_USED * sizeof(ids[0]);
+    bool ok;
+    if (armed) {
+        ok = ds4_gpu_selected_readback_wait(ids, id_bytes) != 0;
+    } else {
+        if (ds4_gpu_end_commands() == 0) return false;
+        ok = ds4_gpu_tensor_read(g->selected, 0, ids, id_bytes) != 0;
+    }
     if (ok) {
         const ds4_gpu_stream_expert_table table =
             graph_stream_expert_table_make(m, l, il, gate_expert_bytes, down_expert_bytes);
@@ -39694,7 +39724,7 @@ static bool ds41_cuda_stream_selected_load(const ds41_gpu_graph *g, const ds4_mo
     if (ds4_gpu_begin_commands() == 0) ok = false;
     return ok;
 #else
-    (void)g; (void)m; (void)l; (void)il; (void)gate_expert_bytes; (void)down_expert_bytes;
+    (void)g; (void)m; (void)l; (void)il; (void)gate_expert_bytes; (void)down_expert_bytes; (void)armed;
     return true;
 #endif
 }
@@ -39714,6 +39744,9 @@ static bool ds41_moe(ds41_gpu_graph *g, const ds4_model *m,
             m->map, m->size, bias->abs_offset, 0, 0, token,
             DS4_N_EXPERT, DS4_N_EXPERT_USED, DS4_EXPERT_WEIGHT_SCALE, 0, 0, true, false,
             g->route_logits)) return false;
+    /* DRAINCUT: queue the id readback now, before the shared-expert work below,
+     * so the wait in ds41_cuda_stream_selected_load covers only the router. */
+    const bool selected_armed = ds41_cuda_selected_readback_arm(g);
     if ((!shared_owner || g->tp_rank == (il & 1u)) &&
         (!ds41_matmul(g->shared_gate, m, l->ffn_gate_shexp, g->norm, true) ||
         !ds41_matmul(g->shared_up, m, l->ffn_up_shexp, g->norm, true) ||
@@ -39721,7 +39754,8 @@ static bool ds41_moe(ds41_gpu_graph *g, const ds4_model *m,
                               DS4_N_FF_EXP, DS4_SWIGLU_CLAMP_EXP, 1.0f) ||
         !ds41_bf16(g->shared_mid, DS4_N_FF_EXP) ||
         !ds41_matmul(g->shared, m, l->ffn_down_shexp, g->shared_mid, true))) return false;
-    if (!ds41_cuda_stream_selected_load(g, m, l, il, gate_row * DS4_N_FF_EXP, down_row * DS4_N_EMBD))
+    if (!ds41_cuda_stream_selected_load(g, m, l, il, gate_row * DS4_N_FF_EXP, down_row * DS4_N_EMBD,
+                                        selected_armed))
         return false;
     if (!ds4_gpu_routed_moe_one_tensor(routed, g->gate, g->up, g->mid, g->experts,
             m->map, m->size, l->ffn_gate_exps->abs_offset, l->ffn_up_exps->abs_offset,
