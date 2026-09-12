@@ -2018,7 +2018,41 @@ static void cuda_model_discard_source_pages(const void *model_map, uint64_t mode
 static void cuda_model_drop_file_pages(uint64_t offset, uint64_t bytes) {
 #if defined(POSIX_FADV_DONTNEED)
     if (g_model_fd < 0 || getenv("DS4_CUDA_KEEP_MODEL_PAGES") != NULL || bytes == 0) return;
+    /* Advisory: the kernel may keep the pages and we do not care. */
     (void)posix_fadvise(g_model_fd, (off_t)offset, (off_t)bytes, POSIX_FADV_DONTNEED);
+#else
+    (void)offset;
+    (void)bytes;
+#endif
+}
+
+/* Release a model range we just staged into device memory.  The device copy
+ * is now the only reader of these bytes: every consumer resolves through the
+ * arena / the resident expert cache, and a later miss goes back to the SSD,
+ * never to page cache.  So the page copy only competes with the arena for
+ * the unified pool.
+ *
+ * Order matters on Linux.  FADV_DONTNEED skips any page still mapped into a
+ * process, and the model file is mmap'd by the loader, so a page touched
+ * through that mapping survives the fadvise.  Zap our PTEs first, then drop
+ * the cache.  On the O_DIRECT path there is nothing cached and both calls are
+ * cheap no-ops. */
+static void cuda_model_release_read_range(const void *model_map, uint64_t model_size,
+                                          uint64_t offset, uint64_t bytes) {
+    cuda_model_discard_source_pages(model_map, model_size, offset, bytes);
+    cuda_model_drop_file_pages(offset, bytes);
+}
+
+/* Ask the kernel to start reading a range we are about to pread.  Only on the
+ * buffered path: with O_DIRECT the read bypasses page cache, so a WILLNEED
+ * would fill exactly the cache we drop above and the read would not use it. */
+static void cuda_model_readahead_range(uint64_t offset, uint64_t bytes) {
+#if defined(POSIX_FADV_WILLNEED)
+    if (g_model_fd < 0 || g_model_direct_fd >= 0 || bytes == 0 ||
+        getenv("DS4_CUDA_NO_EXPERT_READAHEAD") != NULL) return;
+    if (g_model_file_size != 0 &&
+        (offset > g_model_file_size || bytes > g_model_file_size - offset)) return;
+    (void)posix_fadvise(g_model_fd, (off_t)offset, (off_t)bytes, POSIX_FADV_WILLNEED);
 #else
     (void)offset;
     (void)bytes;
@@ -2266,9 +2300,7 @@ static int cuda_model_copy_to_device_streamed(
             (void)cudaGetLastError();
             return 0;
         }
-        cuda_model_drop_file_pages(offset + copied, n);
-        cuda_model_discard_source_pages(model_map, model_size,
-                                        offset + copied, n);
+        cuda_model_release_read_range(model_map, model_size, offset + copied, n);
         copied += n;
         chunk_idx++;
     }
@@ -2425,8 +2457,7 @@ static const char *cuda_model_range_ptr_from_fd(
             (void)cudaGetLastError();
             return NULL;
         }
-        cuda_model_drop_file_pages(offset + copied, n);
-        cuda_model_discard_source_pages(model_map, g_model_registered_size, offset + copied, n);
+        cuda_model_release_read_range(model_map, g_model_registered_size, offset + copied, n);
         copied += n;
         cuda_model_load_progress_note(g_model_range_bytes + copied);
         chunk_idx++;
@@ -27006,6 +27037,23 @@ static int cuda_stream_selected_cache_begin_load(
 
     const int resident_ok = cuda_resident_expert_cache_ensure(
             table->gate_expert_bytes, table->down_expert_bytes);
+    /* Kick off every miss's read before the serial fill loop, so the disk
+     * works on expert k+1 while we upload expert k.  Peek the cache map
+     * without touching the LRU clock: the fetch below does that. */
+    for (uint32_t i = 0; i < compact_ids.size(); i++) {
+        const uint64_t expert = (uint32_t)compact_ids[i];
+        if (resident_ok &&
+            g_resident_experts.key_slot.count(
+                    cuda_resident_key(table->layer, (int32_t)expert)) != 0) {
+            continue;
+        }
+        cuda_model_readahead_range(table->gate_offset + expert * table->gate_expert_bytes,
+                                   table->gate_expert_bytes);
+        cuda_model_readahead_range(table->up_offset + expert * table->gate_expert_bytes,
+                                   table->gate_expert_bytes);
+        cuda_model_readahead_range(table->down_offset + expert * table->down_expert_bytes,
+                                   table->down_expert_bytes);
+    }
     for (uint32_t i = 0; i < compact_ids.size(); i++) {
         const uint64_t expert = (uint32_t)compact_ids[i];
         const uint64_t gate_src =
