@@ -39043,7 +39043,7 @@ bool ds4_tokens_starts_with(const ds4_tokens *tokens, const ds4_tokens *prefix) 
     return true;
 }
 
-#if defined(__APPLE__) && !defined(DS4_NO_GPU)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 graph on Metal AND CUDA */
 /* =========================================================================
  * DeepSeek V4.1 Metal Graph.
  * =========================================================================
@@ -40145,7 +40145,7 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model 
  * routes take precedence over the rest of the prompt's popular experts. */
 static bool ds41_prefill_seed(ds41_gpu_graph *g, const ds4_model *m,
                              const ds4_layer_weights *l, uint32_t il, uint32_t count) {
-#if defined(__APPLE__) && !defined(DS4_NO_GPU)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 graph on Metal AND CUDA */
     if (!g->streaming || getenv("DS4_METAL_DISABLE_STREAMING_PREFILL_CACHE_SEED")) return true;
     uint32_t target = ds4_gpu_stream_expert_cache_configured_count() / DS4_N_LAYER;
     if (target > DS4_N_EXPERT) target = DS4_N_EXPERT;
@@ -40204,7 +40204,7 @@ static uint32_t ds41_prefill_count(const ds41_gpu_graph *g, uint32_t remaining) 
     /* Resident appends do not pay for an SSD layer sweep. In particular,
      * the server's 128-token mixed quantum must not become scalar prefill. */
     if (!g->streaming && g->tp_world == 1) minimum = 8u;
-#if defined(__APPLE__) && !defined(DS4_NO_GPU)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 graph on Metal AND CUDA */
     /* With at least half the experts cached, warm short appends beat a full
      * disk sweep. Leave a token-major tail to warm the following decode too. */
     if (g->streaming && g->pos &&
@@ -65651,7 +65651,7 @@ static int ds4_engine_open_internal(ds4_engine **out,
     }
     config_validate_model(&e->model);
     if (DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_DEEPSEEK41 && !opt->inspect_only) {
-        const bool supported = e->backend == DS4_BACKEND_METAL &&
+        const bool supported = (e->backend == DS4_BACKEND_METAL || e->backend == DS4_BACKEND_CUDA) &&
             opt->distributed.role == DS4_DISTRIBUTED_NONE &&
             !load_slice && !opt->dspark && !opt->glm_mtp &&
             !opt->first_token_test && !opt->metal_graph_test &&
@@ -65659,7 +65659,7 @@ static int ds4_engine_open_internal(ds4_engine **out,
             (!opt->directional_steering_file || !opt->directional_steering_file[0]) &&
             e->power_percent == 100 && opt->context_size <= 1048576;
         if (!supported) {
-            fprintf(stderr, "ds4: V4.1 requires Metal inference, with optional tensor parallelism; "
+            fprintf(stderr, "ds4: V4.1 requires Metal or CUDA inference (tensor parallelism: Metal only); "
                             "DSpark, steering and legacy diagnostics are not supported (maximum context 1048576)\n");
             ds4_engine_close(e);
             *out = NULL;

@@ -46,3 +46,9 @@ token-identity gate against the Metal reference on the M5 with the same GGUF.
 ## Log
 - 2026-09-12: branch + plan created. GGUF Q2 on Spark (byte-exact). Vision GGUF on Spark.
   Official safetensors pulling (~13 h). M5 golden copy started.
+- 2026-09-13: PORT COMPILES ON BOTH BACKENDS. New ds4_cuda_dsv41.cuh (10 kernels 1:1 with metal/dsv41.metal,
+  all-lane warp reductions; wrappers mirror ds4_metal.m validation; packed Metal-tensor-op indexer path reported
+  unavailable so ds4.c takes the unpacked path; TP off). ds4_cuda.cu: attention-output split into an impl with a
+  round_low_bf16 hook (V4.1 BF16-rounds `low` between the two Q8 projections). ds4.c: 3 guards flipped to
+  !DS4_NO_GPU, backend gate accepts CUDA. ds4_gpu.h: V4.1 types in a DS4_V41_TYPES_DEFINED block (ds4_cuda.cu
+  does not include the header). Spark CUDA build 48.9 MB clean; Metal build unchanged. Steps 1-3 done, 4 = first run.

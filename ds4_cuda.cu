@@ -18615,7 +18615,8 @@ extern "C" int ds4_gpu_attention_visual_mixed_batch_heads_tensor(
             (float *)heads->ptr, out_tmp, n_tokens, n_head, head_dim);
     return cuda_ok(cudaGetLastError(), "visual attention unpack launch");
 }
-extern "C" int ds4_gpu_attention_output_q8_batch_tensor(
+static int dsv41_round_low_bf16_launch(ds4_gpu_tensor *low, uint64_t count);
+static int ds4_gpu_attention_output_q8_batch_impl_cuda(
         ds4_gpu_tensor       *out,
         ds4_gpu_tensor       *low,
         ds4_gpu_tensor       *group_tmp,
@@ -18629,7 +18630,8 @@ extern "C" int ds4_gpu_attention_output_q8_batch_tensor(
         uint32_t                n_groups,
         uint64_t                out_dim,
         const ds4_gpu_tensor *heads,
-        uint32_t                n_tokens) {
+        uint32_t                n_tokens,
+        int                     round_low_bf16) {
     (void)group_tmp;
     (void)low_tmp;
     if (!out || !low || !heads || !model_map ||
@@ -18802,6 +18804,8 @@ extern "C" int ds4_gpu_attention_output_q8_batch_tensor(
     }
 
     if (prof_ev[1]) (void)cudaEventRecord(prof_ev[1], 0);
+    /* DeepSeek V4.1: BF16-round the low projection between the two Q8 projections. */
+    if (round_low_bf16 && !dsv41_round_low_bf16_launch(low, (uint64_t)n_tokens * low_dim)) return 0;
     (void)out_b;
     int ok = cuda_matmul_q8_0_tensor_labeled(out,
                                              model_map,
@@ -33216,3 +33220,5 @@ extern "C" int ds4_gpu_tp_batch_gate_encode(uint32_t layer, uint32_t rows) {
 #define DS4_GLM53_VISION_STREAM cuda_decode_stream()
 #include "ds4_glm53_vision_gpu.cuh"
 #include "ds4_deepseek4_vision_gpu.cuh"
+
+#include "ds4_cuda_dsv41.cuh"

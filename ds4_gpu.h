@@ -78,7 +78,9 @@ int ds4_gpu_begin_commands(void);
 int ds4_gpu_flush_encoder(void);
 int ds4_gpu_flush_commands(void);
 int ds4_gpu_commands_active(void);
-#ifdef __APPLE__
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: DeepSeek V4.1 GPU API is Metal AND CUDA */
+#ifndef DS4_V41_TYPES_DEFINED
+#define DS4_V41_TYPES_DEFINED
 /* V4.1 activation/cache formats. Buffers are float-addressable but the
  * rounded values follow the released BF16/FP8/FP4 inference graph. */
 typedef enum {
@@ -87,6 +89,8 @@ typedef enum {
     DS4_V41_FP4_E8M0 = 2,
     DS4_V41_FP4_E4M3 = 3,
 } ds4_v41_activation_format;
+enum { DS4_V41_CARRY_BF16, DS4_V41_CARRY_MASK, DS4_V41_CARRY_F32 };
+#endif /* DS4_V41_TYPES_DEFINED */
 int ds4_gpu_dsv41_quantize(ds4_gpu_tensor *x, uint32_t width, uint32_t rows,
                           ds4_v41_activation_format format);
 /* Full-head prefill, with BF16 rounding between the two Q8 projections. */
@@ -160,7 +164,6 @@ int ds4_gpu_dsv41_indexer_topk_batch(ds4_gpu_tensor *selected,
                                     const ds4_gpu_tensor *scores,
                                     uint32_t width, uint32_t rows,
                                     uint32_t start, uint32_t ratio);
-enum { DS4_V41_CARRY_BF16, DS4_V41_CARRY_MASK, DS4_V41_CARRY_F32 };
 /* Lossless storage for already-BF16 activations or 0/-inf candidate masks.
  * Packed rows are padded to whole uint32_t words. Plain rows remain F32. */
 int ds4_gpu_dsv41_carry_copy(ds4_gpu_tensor *packed, uint32_t row_offset,
