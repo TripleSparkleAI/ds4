@@ -27,3 +27,43 @@ prefill 1.38 t/s, generation 1.50-1.90 t/s (untuned; DS4_CUDA_DIRECT_MODEL=1 sti
   Batch the seeding or prime from the previous layer's selection.
 - Gate: quality batch (gguf-tools/quality-testing/deepseek-v4.1-flash-20260910-batch) + M5 Metal golden
   (rsync at 41/366 GB) for greedy top-1 agreement.
+
+## Later that day: the speed question, answered and then moved
+- DS4_CUDA_DIRECT_MODEL=1 requirement removed (model cache skips unmapped tensors). Committed.
+- Debug scaffolding stripped; 6 layer-level DS4_V41_TRACE calls kept. Metal still builds clean.
+- Two PR branches cut off bd66c40, engine files only, named to upstream house style
+  (glm-tp-rocm / glm-5.3-flash pattern): `v4.1-flash-cuda` (the port) and
+  `cuda-resident-expert-cache` (the perf fix, general to any CUDA streaming model).
+- MEASURED with a split timer: per MoE layer the GPU drain (sync + id readback) is 1.1 ms and the
+  expert fetch is 12.4 ms. 40 layers -> 496 ms of a 575 ms token was SSD reads. The per-layer sync
+  I suspected was NOT the cost.
+- ROOT CAUSE: the five ds4_gpu_stream_expert_cache_* entry points are STUBS in upstream ds4_cuda.cu
+  at bd66c40 (configured_count returns 0, setters are (void) no-ops). Metal has a full resident
+  cache; CUDA had none. --ssd-streaming-cache-experts printed an 87 GiB plan nothing honoured.
+  Verified at the fork point: not our error. Also not better than his - Metal's cache is richer.
+- BUILT the cache: device arena of expert triples keyed (layer, expert), LRU. Byte-identical greedy
+  logprob A/B (32 steps x 20 alts, same sha256) between cache on and DS4_CUDA_EXPERT_CACHE=0.
+  generation 1.69 -> 4.56 t/s.
+- OOM lesson: on GB10 unified memory cudaMalloc overcommits and the OOM killer fires on first
+  touch, so a halving loop never triggers. Cap against real free memory.
+- SECOND lesson: cudaMemGetInfo reports MemFree; MemAvailable was 59.68 vs MemFree 31.62 because
+  28.76 GiB was reclaimable page cache. Sizing from MemAvailable: 5512 experts / 51 GiB, stable.
+  generation -> 5.28 t/s steady state, hit rate 0.868 and still climbing at 72k lookups.
+- NEGATIVE: hotness-with-decay eviction measured worse than LRU (0.851 vs 0.868; 4.95 vs 5.28).
+  Reverted. Confounded by non-greedy text; not re-run because it is the smallest lever.
+- V4.1 Q2 file is 340.6 GiB, NOT ~142 GiB as earlier notes said. That is why it streams on 121 GB.
+- antirez publishes NO V4.1 t/s. The 39.35 tok/s M5 number is V4 Flash (81 GB, resident). His
+  README: V4.1 Q2 "runs with SSD streaming on one 128 GB Mac" - same regime as us.
+- NAVIGATOR RULE: never run models on the M5; Spark only. M5 partial V4.1 copy deleted (+115 GiB).
+
+## Fleet (2026-09-13 evening): port the rest of Metal's streaming subsystem to CUDA
+Census of ds4_metal.m vs ds4_cuda.cu found the gaps cluster in one subsystem. Four lanes, own
+worktree + branch each, off sparkport-v41-cuda at dc09a1969. Spark contested: BUILD ONLY, no runs.
+  PREADPOOL  lane-preadpool  parallel pread worker pool (CUDA reads serially)
+  HOTLIST    lane-hotlist    persistent hot-expert list, warm start (hit rate starts at 0 every run)
+  PAGECACHE  lane-pagecache  posix_fadvise DONTNEED + readahead (page cache fights the arena)
+  DRAINCUT   lane-draincut   the 44 ms/token of per-layer sync, ~23% of a token now; exploratory
+All four died on a rate limit seconds in, resumed on the new login with context intact.
+Verification: sparkport-verify.sh (committed 3d50648a5) - correctness gate is load-independent
+and runs now; speed gate refuses a busy box. Driver stamp 580.159.03 captured; earlier numbers
+were driver-unstamped.
