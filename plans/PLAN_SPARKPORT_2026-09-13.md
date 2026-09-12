@@ -117,3 +117,10 @@ depends only on token IDs, so its rows can be PREFETCHED before layer 1 - we rea
   ceiling (routed: 2.2 GiB in 35 ms = 63 GB/s). The lever after residency is BATCH-1 KERNEL
   EFFICIENCY - the same finding as V4 on this box, worse on V4.1. Antirez's Metal fuses gate+up+swiglu
   (mul_mv_addr_iq2_pair_swiglu); whether CUDA does is being read.
+- MEMORY TRACE (each tree alone, 5 s samples): morning tree MemAvailable 69 -> 7 -> 7 GiB, min 3,
+  survived; integrated 69 -> 1 GiB, min 1, killed rc=137 with a foreign job at load 12 on top. Cache
+  build saw ~44 GiB avail both times and took ~36 GiB of arena. ⇒ BOTH trees run the box to 1-7 GiB
+  free; the 8 GiB margin is too thin once KV, staging and the streaming reads' page cache land. Any
+  foreign allocation then kills whichever tree is running; integrate is a few hundred MiB heavier
+  (pinned pool staging, hot-list tables) so it dies first. Not a lane bug - a margin. Fix: margin ->
+  a knob, DS4_CUDA_EXPERT_CACHE_MARGIN_GB, default 12; costs ~430 experts of arena on this box.
