@@ -40675,9 +40675,12 @@ static bool ds41_graph_prefill_sweep(ds41_gpu_graph *g, const ds4_model *m,
                 if (ok) ds41_text_mask(g, start, count, mask);
             }
             if (ok && !il && batch_core) {
-                void *selection = ds4_gpu_tensor_contents(g->batch.selected_comp);
-                if (!selection) ok = false;
-                else memset(selection, 0xff, (size_t)count * DS4_N_INDEXER_TOP_K * sizeof(int32_t));
+                /* SPARKPORT: a device-side fill.  The host memset of the tensor's
+                 * contents was fine on Metal (shared storage) and a segfault on
+                 * CUDA (the contents pointer is the device pointer) for any
+                 * prompt long enough to reach the pages the CPU cannot touch. */
+                ok = ds4_gpu_tensor_memset(g->batch.selected_comp, 0,
+                    0xff, (uint64_t)count * DS4_N_INDEXER_TOP_K * sizeof(int32_t)) != 0;
             }
             if (ok) ok = ds4_gpu_begin_commands() != 0;
             if (!il) {

@@ -9278,6 +9278,15 @@ void *ds4_gpu_tensor_contents(ds4_gpu_tensor *tensor) {
     return (uint8_t *)[obj.buffer contents] + obj.offset;
 }
 
+int ds4_gpu_tensor_memset(ds4_gpu_tensor *tensor, uint64_t offset, int value, uint64_t bytes) {
+    if (!tensor || offset > ds4_gpu_tensor_bytes(tensor) || bytes > ds4_gpu_tensor_bytes(tensor) - offset) return 0;
+    if (bytes == 0) return 1;
+    uint8_t *p = ds4_gpu_tensor_contents(tensor);
+    if (!p) return 0;
+    memset(p + offset, value, (size_t)bytes);
+    return 1;
+}
+
 int ds4_gpu_tensor_fill_f32(ds4_gpu_tensor *tensor, float value, uint64_t count) {
     if (!tensor || count > ds4_gpu_tensor_bytes(tensor) / sizeof(float)) return 0;
     float *p = ds4_gpu_tensor_contents(tensor);

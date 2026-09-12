@@ -3526,6 +3526,17 @@ extern "C" void *ds4_gpu_tensor_contents(ds4_gpu_tensor *tensor) {
     return tensor->ptr;
 }
 
+extern "C" int ds4_gpu_tensor_memset(ds4_gpu_tensor *tensor, uint64_t offset, int value, uint64_t bytes) {
+    if (!tensor || offset > tensor->bytes || bytes > tensor->bytes - offset) return 0;
+    if (bytes == 0) return 1;
+    int d = ds4_tensor_device_idx(tensor);
+    int ok = 0;
+    WITH_DEVICE(g_gpu[d].device_id) {
+        ok = cuda_ok(cudaMemset((char *)tensor->ptr + offset, value, (size_t)bytes), "tensor memset");
+    }
+    return ok;
+}
+
 extern "C" int ds4_gpu_tensor_fill_f32(ds4_gpu_tensor *tensor, float value, uint64_t count) {
     if (!tensor || count > tensor->bytes / sizeof(float)) return 0;
     if (count == 0) return 1;
