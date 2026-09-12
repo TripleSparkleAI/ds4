@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#include <pthread.h>
 #include <unordered_map>
 #include <vector>
 #include <algorithm>
@@ -2315,6 +2316,372 @@ static int cuda_model_copy_to_device_streamed(
         return 0;
     }
     return 1;
+}
+
+/* ------------------------------------------------------------------------
+ * Parallel expert pread pool.
+ *
+ * One MoE layer that misses the resident cache needs up to 6 experts x 3
+ * tensors, each a separate few-MiB file read.  cuda_model_copy_to_device_
+ * streamed issues them one after another through a single staging pipeline,
+ * so the SSD sees queue depth 1 and the layer pays the full latency of every
+ * read in series.  This pool runs those reads on worker threads at once,
+ * mirroring the Metal port's ds4_gpu_stream_expert_pread_pool.
+ *
+ * Each worker owns a pinned staging buffer and a CUDA stream, so its read and
+ * its upload never wait on another worker's.  The pool never mutates the
+ * O_DIRECT globals from a worker: a rejected direct read is reported in the
+ * task and applied on the calling thread after the join.  Any setup failure
+ * makes dispatch return 0 before a single byte is read, and the caller falls
+ * back to the serial path.
+ * ------------------------------------------------------------------------ */
+
+#define DS4_CUDA_EXPERT_PREAD_MAX 16u
+
+typedef struct {
+    uint64_t    offset;        /* byte offset in the model file */
+    uint64_t    bytes;
+    char       *dst;           /* device pointer */
+    const void *model_map;     /* page-discard advice only */
+    uint64_t    model_size;
+    const char *what;
+    int         ok;
+    int         direct_unsupported;
+} cuda_expert_pread_task;
+
+typedef struct {
+    void        *stage_raw;
+    void        *stage;
+    uint64_t     stage_bytes;
+    cudaStream_t stream;
+} cuda_expert_pread_ctx;
+
+static pthread_mutex_t g_expert_pread_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  g_expert_pread_start = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t  g_expert_pread_done  = PTHREAD_COND_INITIALIZER;
+static pthread_t       g_expert_pread_thread[DS4_CUDA_EXPERT_PREAD_MAX];
+static cuda_expert_pread_ctx g_expert_pread_ctx[DS4_CUDA_EXPERT_PREAD_MAX];
+static uint32_t g_expert_pread_thread_count;
+static uint32_t g_expert_pread_active;
+static uint32_t g_expert_pread_remaining;
+static uint32_t g_expert_pread_n_tasks;
+static uint32_t g_expert_pread_next_task;
+static uint64_t g_expert_pread_generation;
+static cuda_expert_pread_task *g_expert_pread_tasks;
+static int g_expert_pread_device;
+static int g_expert_pread_initialized;
+static int g_expert_pread_stopping;
+static int g_expert_pread_failed;    /* pool broke once; stay serial */
+
+static int cuda_expert_pread_pool_enabled(void) {
+    const char *env = getenv("DS4_CUDA_STREAMING_EXPERT_PREAD_POOL");
+    return !(env && strcmp(env, "0") == 0);
+}
+
+static uint32_t cuda_expert_pread_thread_limit(void) {
+    uint32_t threads = 8;
+    const char *env = getenv("DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS");
+    if (env && env[0]) {
+        char *end = NULL;
+        unsigned long v = strtoul(env, &end, 10);
+        if (end != env && *end == '\0') threads = v > UINT32_MAX ? UINT32_MAX : (uint32_t)v;
+    }
+    if (threads == 0) threads = 1;
+    if (threads > DS4_CUDA_EXPERT_PREAD_MAX) threads = DS4_CUDA_EXPERT_PREAD_MAX;
+    return threads;
+}
+
+/* Thread-safe twin of cuda_model_stage_read.  Snapshots the O_DIRECT globals
+ * and never writes them: several workers are in here at once. */
+static int cuda_expert_stage_read_mt(void *stage, uint64_t stage_bytes,
+                                     uint64_t offset, uint64_t bytes,
+                                     const char **payload,
+                                     int *direct_unsupported) {
+    *payload = (const char *)stage;
+#if defined(__linux__) && defined(O_DIRECT)
+    const int direct_fd = g_model_direct_fd;
+    const uint64_t align = g_model_direct_align;
+    if (direct_fd >= 0 && align > 1 && g_model_file_size != 0) {
+        const uint64_t aligned_off = cuda_round_down(offset, align);
+        const uint64_t delta = offset - aligned_off;
+        const uint64_t read_size = cuda_round_up(delta + bytes, align);
+        if (aligned_off <= g_model_file_size &&
+            read_size <= stage_bytes &&
+            read_size <= g_model_file_size - aligned_off) {
+            errno = 0;
+            if (cuda_pread_full(direct_fd, stage, read_size, aligned_off)) {
+                *payload = (const char *)stage + delta;
+                return 1;
+            }
+            const int e = errno;
+            if (e == EINVAL || e == EFAULT || e == ENOTSUP || e == EOPNOTSUPP) {
+                *direct_unsupported = 1;
+            }
+        }
+    }
+#else
+    (void)stage_bytes;
+    (void)direct_unsupported;
+#endif
+    return cuda_pread_full(g_model_fd, stage, bytes, offset);
+}
+
+/* Same chunk loop as cuda_model_copy_to_device_streamed, on private state.
+ * One buffer, one stream: read a chunk, upload it, wait, repeat.  A few-MiB
+ * expert tensor is a single chunk, so the loop body normally runs once. */
+static int cuda_expert_pread_task_run(cuda_expert_pread_ctx *ctx,
+                                      cuda_expert_pread_task *t) {
+    const uint64_t chunk = cuda_model_copy_chunk_bytes();
+    uint64_t copied = 0;
+    while (copied < t->bytes) {
+        const uint64_t n = t->bytes - copied < chunk ? t->bytes - copied : chunk;
+        const char *payload = NULL;
+        if (!cuda_expert_stage_read_mt(ctx->stage, ctx->stage_bytes,
+                                       t->offset + copied, n, &payload,
+                                       &t->direct_unsupported)) {
+            fprintf(stderr,
+                    "ds4: CUDA expert pread pool read failed for %s at %.2f MiB: %s\n",
+                    t->what ? t->what : "expert", (double)copied / 1048576.0,
+                    strerror(errno));
+            return 0;
+        }
+        cudaError_t err = cudaMemcpyAsync(t->dst + copied, payload, (size_t)n,
+                                          cudaMemcpyHostToDevice, ctx->stream);
+        if (err == cudaSuccess) err = cudaStreamSynchronize(ctx->stream);
+        if (err != cudaSuccess) {
+            fprintf(stderr,
+                    "ds4: CUDA expert pread pool upload failed for %s at %.2f MiB: %s\n",
+                    t->what ? t->what : "expert", (double)copied / 1048576.0,
+                    cudaGetErrorString(err));
+            (void)cudaGetLastError();
+            return 0;
+        }
+        cuda_model_drop_file_pages(t->offset + copied, n);
+        cuda_model_discard_source_pages(t->model_map, t->model_size,
+                                        t->offset + copied, n);
+        copied += n;
+    }
+    return 1;
+}
+
+static void *cuda_expert_pread_worker(void *arg) {
+    const uint32_t worker_index = (uint32_t)(uintptr_t)arg;
+    cuda_expert_pread_ctx *ctx = &g_expert_pread_ctx[worker_index];
+    uint64_t seen_generation = 0;
+    int device = -1;
+
+    for (;;) {
+        pthread_mutex_lock(&g_expert_pread_mutex);
+        while (!g_expert_pread_stopping &&
+               g_expert_pread_generation == seen_generation) {
+            pthread_cond_wait(&g_expert_pread_start, &g_expert_pread_mutex);
+        }
+        if (g_expert_pread_stopping) {
+            pthread_mutex_unlock(&g_expert_pread_mutex);
+            break;
+        }
+        seen_generation = g_expert_pread_generation;
+        if (worker_index >= g_expert_pread_active) {
+            pthread_mutex_unlock(&g_expert_pread_mutex);
+            continue;
+        }
+        /* The current device is per-thread state; follow the dispatcher's. */
+        if (device != g_expert_pread_device) {
+            device = g_expert_pread_device;
+            if (cudaSetDevice(device) != cudaSuccess) {
+                (void)cudaGetLastError();
+                device = -1;
+            }
+        }
+        for (;;) {
+            const uint32_t task_index = g_expert_pread_next_task++;
+            if (task_index >= g_expert_pread_n_tasks) break;
+            cuda_expert_pread_task *t = &g_expert_pread_tasks[task_index];
+            pthread_mutex_unlock(&g_expert_pread_mutex);
+            t->ok = device >= 0 && cuda_expert_pread_task_run(ctx, t);
+            pthread_mutex_lock(&g_expert_pread_mutex);
+        }
+        if (g_expert_pread_remaining > 0 && --g_expert_pread_remaining == 0) {
+            g_expert_pread_tasks = NULL;
+            g_expert_pread_n_tasks = 0;
+            g_expert_pread_active = 0;
+            pthread_cond_signal(&g_expert_pread_done);
+        }
+        pthread_mutex_unlock(&g_expert_pread_mutex);
+    }
+    return NULL;
+}
+
+/* Pinned buffers and streams are made on the calling thread, which already
+ * has the right device current; workers only ever use them. */
+static int cuda_expert_pread_ctx_ensure(uint32_t n_workers, uint64_t stage_bytes) {
+    for (uint32_t i = 0; i < n_workers; i++) {
+        cuda_expert_pread_ctx *ctx = &g_expert_pread_ctx[i];
+        if (!ctx->stream) {
+            cudaError_t err = cudaStreamCreateWithFlags(&ctx->stream, cudaStreamNonBlocking);
+            if (err != cudaSuccess) {
+                fprintf(stderr, "ds4: CUDA expert pread pool stream creation failed: %s\n",
+                        cudaGetErrorString(err));
+                (void)cudaGetLastError();
+                ctx->stream = NULL;
+                return 0;
+            }
+        }
+        if (ctx->stage_bytes >= stage_bytes) continue;
+        if (ctx->stage_raw) {
+            (void)cudaFreeHost(ctx->stage_raw);
+            ctx->stage_raw = NULL;
+            ctx->stage = NULL;
+            ctx->stage_bytes = 0;
+        }
+        /* Over-allocate by one alignment unit so the aligned pointer still
+         * leaves stage_bytes usable behind it. */
+        const uint64_t raw_bytes = stage_bytes + (g_model_direct_align > 1 ? g_model_direct_align : 0);
+        cudaError_t err = cudaMallocHost(&ctx->stage_raw, (size_t)raw_bytes);
+        if (err != cudaSuccess) {
+            fprintf(stderr, "ds4: CUDA expert pread pool staging allocation failed (%.2f MiB): %s\n",
+                    (double)stage_bytes / 1048576.0, cudaGetErrorString(err));
+            (void)cudaGetLastError();
+            ctx->stage_raw = NULL;
+            return 0;
+        }
+        ctx->stage = cuda_align_ptr(ctx->stage_raw, g_model_direct_align);
+        ctx->stage_bytes = stage_bytes;
+    }
+    return 1;
+}
+
+static int cuda_expert_pread_pool_init(uint32_t n_threads) {
+    if (g_expert_pread_initialized) return 1;
+    if (g_expert_pread_failed || !cuda_expert_pread_pool_enabled() || n_threads <= 1) return 0;
+    if (n_threads > DS4_CUDA_EXPERT_PREAD_MAX) n_threads = DS4_CUDA_EXPERT_PREAD_MAX;
+
+    pthread_mutex_lock(&g_expert_pread_mutex);
+    g_expert_pread_thread_count = n_threads;
+    g_expert_pread_stopping = 0;
+    g_expert_pread_generation = 0;
+    g_expert_pread_tasks = NULL;
+    g_expert_pread_n_tasks = 0;
+    g_expert_pread_next_task = 0;
+    g_expert_pread_active = 0;
+    g_expert_pread_remaining = 0;
+    pthread_mutex_unlock(&g_expert_pread_mutex);
+
+    uint32_t started = 0;
+    for (uint32_t i = 0; i < n_threads; i++) {
+        const int rc = pthread_create(&g_expert_pread_thread[i], NULL,
+                                      cuda_expert_pread_worker, (void *)(uintptr_t)i);
+        if (rc != 0) {
+            fprintf(stderr, "ds4: CUDA expert pread pool thread creation failed: %s\n",
+                    strerror(rc));
+            pthread_mutex_lock(&g_expert_pread_mutex);
+            g_expert_pread_stopping = 1;
+            g_expert_pread_generation++;
+            pthread_cond_broadcast(&g_expert_pread_start);
+            pthread_mutex_unlock(&g_expert_pread_mutex);
+            for (uint32_t j = 0; j < started; j++) (void)pthread_join(g_expert_pread_thread[j], NULL);
+            pthread_mutex_lock(&g_expert_pread_mutex);
+            g_expert_pread_thread_count = 0;
+            g_expert_pread_stopping = 0;
+            pthread_mutex_unlock(&g_expert_pread_mutex);
+            g_expert_pread_failed = 1;
+            return 0;
+        }
+        started++;
+    }
+    g_expert_pread_initialized = 1;
+    fprintf(stderr, "ds4: CUDA expert pread pool: %u threads\n", n_threads);
+    return 1;
+}
+
+/* Run every task through the pool and wait.  Returns 1 when the batch ran
+ * (check each task's ok flag), 0 when the pool declined before touching
+ * anything, in which case the caller must do the reads itself. */
+static int cuda_expert_pread_pool_dispatch(cuda_expert_pread_task *tasks, uint32_t n_tasks) {
+    if (!tasks || n_tasks <= 1) return 0;
+    if (g_model_fd < 0) return 0;
+    uint32_t n_workers = cuda_expert_pread_thread_limit();
+    if (n_workers > n_tasks) n_workers = n_tasks;
+    if (n_workers <= 1) return 0;
+    if (!cuda_expert_pread_pool_init(cuda_expert_pread_thread_limit())) return 0;
+
+    /* Staging is sized to the largest task, capped at the chunk size, so a
+     * few-MiB expert costs a few MiB per worker and not a 64 MiB chunk. */
+    uint64_t largest = 0;
+    for (uint32_t i = 0; i < n_tasks; i++) {
+        if (!tasks[i].dst || tasks[i].bytes == 0) return 0;
+        if (tasks[i].bytes > largest) largest = tasks[i].bytes;
+        tasks[i].ok = 0;
+        tasks[i].direct_unsupported = 0;
+    }
+    const uint64_t chunk = cuda_model_copy_chunk_bytes();
+    const uint64_t align = g_model_direct_align > 1 ? g_model_direct_align : 1;
+    const uint64_t stage_bytes = (largest < chunk ? largest : chunk) + 2u * align;
+    if (!cuda_expert_pread_ctx_ensure(n_workers, stage_bytes)) {
+        g_expert_pread_failed = 1;
+        return 0;
+    }
+    int device = 0;
+    if (cudaGetDevice(&device) != cudaSuccess) {
+        (void)cudaGetLastError();
+        return 0;
+    }
+
+    pthread_mutex_lock(&g_expert_pread_mutex);
+    if (!g_expert_pread_initialized || g_expert_pread_stopping ||
+        g_expert_pread_thread_count == 0 ||
+        g_expert_pread_remaining != 0 || g_expert_pread_tasks != NULL) {
+        pthread_mutex_unlock(&g_expert_pread_mutex);
+        return 0;
+    }
+    if (n_workers > g_expert_pread_thread_count) n_workers = g_expert_pread_thread_count;
+    g_expert_pread_device = device;
+    g_expert_pread_tasks = tasks;
+    g_expert_pread_n_tasks = n_tasks;
+    g_expert_pread_next_task = 0;
+    g_expert_pread_active = n_workers;
+    g_expert_pread_remaining = n_workers;
+    g_expert_pread_generation++;
+    pthread_cond_broadcast(&g_expert_pread_start);
+    while (g_expert_pread_remaining != 0) {
+        pthread_cond_wait(&g_expert_pread_done, &g_expert_pread_mutex);
+    }
+    pthread_mutex_unlock(&g_expert_pread_mutex);
+
+    /* Apply the O_DIRECT disable here, once, on the only thread that may. */
+    int direct_unsupported = 0;
+    for (uint32_t i = 0; i < n_tasks; i++) direct_unsupported |= tasks[i].direct_unsupported;
+    if (direct_unsupported && g_model_direct_fd >= 0) {
+        if (getenv("DS4_CUDA_WEIGHT_CACHE_VERBOSE")) {
+            fprintf(stderr, "ds4: CUDA direct model read disabled by pread pool\n");
+        }
+        (void)close(g_model_direct_fd);
+        g_model_direct_fd = -1;
+        g_model_direct_align = 1;
+    }
+    return 1;
+}
+
+static void cuda_expert_pread_pool_shutdown(void) {
+    if (g_expert_pread_initialized) {
+        pthread_mutex_lock(&g_expert_pread_mutex);
+        g_expert_pread_stopping = 1;
+        g_expert_pread_generation++;
+        pthread_cond_broadcast(&g_expert_pread_start);
+        pthread_mutex_unlock(&g_expert_pread_mutex);
+        for (uint32_t i = 0; i < g_expert_pread_thread_count; i++) {
+            (void)pthread_join(g_expert_pread_thread[i], NULL);
+        }
+        g_expert_pread_thread_count = 0;
+        g_expert_pread_initialized = 0;
+        g_expert_pread_stopping = 0;
+    }
+    for (uint32_t i = 0; i < DS4_CUDA_EXPERT_PREAD_MAX; i++) {
+        cuda_expert_pread_ctx *ctx = &g_expert_pread_ctx[i];
+        if (ctx->stream) (void)cudaStreamDestroy(ctx->stream);
+        if (ctx->stage_raw) (void)cudaFreeHost(ctx->stage_raw);
+        memset(ctx, 0, sizeof *ctx);
+    }
 }
 
 static uint64_t cuda_model_cache_limit_bytes(void) {
@@ -27124,6 +27491,127 @@ static int cuda_stream_selected_cache_begin_load(
         cuda_model_readahead_range(table->down_offset + expert * table->down_expert_bytes,
                                    table->down_expert_bytes);
     }
+
+    /* Parallel path: claim every slot first, then hand all the misses to the
+     * pread pool at once, then copy out.  Slot claiming stays on this thread
+     * because the LRU maps are not thread-safe.  Claiming N slots up front is
+     * only safe when the arena holds at least N: a fresh claim is the newest
+     * entry, so with enough slots no claim in this batch can evict another.
+     * On any failure the caller invalidates the whole selected cache, so the
+     * only per-expert cleanup needed is dropping arena slots that did not
+     * fully fill. */
+    if (cuda_expert_pread_pool_enabled() && compact_ids.size() > 1 &&
+        g_model_fd >= 0 &&
+        (g_model_fd_host_base == NULL || table->model_map == g_model_fd_host_base) &&
+        (!resident_ok || g_resident_experts.slot_count >= compact_ids.size())) {
+        const uint32_t n_experts = (uint32_t)compact_ids.size();
+        std::vector<cuda_expert_pread_task> tasks;
+        std::vector<uint32_t> slot_of;
+        std::vector<uint32_t> first_task_of;   /* index into tasks, or UINT32_MAX */
+        try {
+            tasks.reserve((size_t)n_experts * 3u);
+            slot_of.assign(n_experts, 0);
+            first_task_of.assign(n_experts, UINT32_MAX);
+        } catch (...) {
+            cuda_stream_selected_cache_invalidate();
+            return 0;
+        }
+        for (uint32_t i = 0; i < n_experts; i++) {
+            const uint64_t expert = (uint32_t)compact_ids[i];
+            char *gate_dst, *up_dst, *down_dst;
+            if (resident_ok) {
+                int hit = 0;  /* hit: bytes already resident, no task */
+                const uint32_t slot = cuda_resident_expert_slot(
+                        table->layer, (int32_t)expert, &hit);
+                slot_of[i] = slot;
+                if (hit) continue;
+                gate_dst = cuda_resident_gate_ptr(slot);
+                up_dst = cuda_resident_up_ptr(slot);
+                down_dst = cuda_resident_down_ptr(slot);
+            } else {
+                gate_dst = g_stream_selected_cache.gate_ptr + (uint64_t)i * table->gate_expert_bytes;
+                up_dst = g_stream_selected_cache.up_ptr + (uint64_t)i * table->gate_expert_bytes;
+                down_dst = g_stream_selected_cache.down_ptr + (uint64_t)i * table->down_expert_bytes;
+            }
+            first_task_of[i] = (uint32_t)tasks.size();
+            cuda_expert_pread_task t;
+            memset(&t, 0, sizeof t);
+            t.model_map = table->model_map;
+            t.model_size = table->model_size;
+            t.offset = table->gate_offset + expert * table->gate_expert_bytes;
+            t.bytes = table->gate_expert_bytes;
+            t.dst = gate_dst;
+            t.what = "pool gate expert read";
+            tasks.push_back(t);
+            t.offset = table->up_offset + expert * table->gate_expert_bytes;
+            t.dst = up_dst;
+            t.what = "pool up expert read";
+            tasks.push_back(t);
+            t.offset = table->down_offset + expert * table->down_expert_bytes;
+            t.bytes = table->down_expert_bytes;
+            t.dst = down_dst;
+            t.what = "pool down expert read";
+            tasks.push_back(t);
+        }
+
+        int pooled = 0;
+        if (!tasks.empty()) {
+            pooled = cuda_expert_pread_pool_dispatch(tasks.data(), (uint32_t)tasks.size());
+            if (!pooled) {
+                /* The pool declined before reading anything: do the same
+                 * reads serially through the existing path. */
+                for (size_t k = 0; k < tasks.size(); k++) {
+                    tasks[k].ok = cuda_model_copy_to_device_streamed(
+                            tasks[k].dst, tasks[k].model_map, tasks[k].model_size,
+                            tasks[k].offset, tasks[k].bytes, tasks[k].what);
+                }
+            }
+        }
+
+        int all_ok = 1;
+        for (uint32_t i = 0; i < n_experts; i++) {
+            const uint32_t f = first_task_of[i];
+            if (f == UINT32_MAX) continue;
+            const int ok = tasks[f].ok && tasks[f + 1].ok && tasks[f + 2].ok;
+            if (!ok) {
+                all_ok = 0;
+                if (resident_ok) {
+                    /* Drop the slot: it holds nothing we can trust now. */
+                    g_resident_experts.key_slot.erase(
+                            cuda_resident_key(table->layer, compact_ids[i]));
+                    g_resident_experts.slot_key[slot_of[i]] = CUDA_RESIDENT_EMPTY_KEY;
+                }
+            }
+        }
+        if (!all_ok) {
+            cuda_stream_selected_cache_invalidate();
+            return 0;
+        }
+        if (resident_ok) {
+            for (uint32_t i = 0; i < n_experts; i++) {
+                const uint64_t gate_dst = (uint64_t)i * table->gate_expert_bytes;
+                const uint64_t down_dst = (uint64_t)i * table->down_expert_bytes;
+                const uint32_t slot = slot_of[i];
+                if (!cuda_ok(cudaMemcpy(g_stream_selected_cache.gate_ptr + gate_dst,
+                                        cuda_resident_gate_ptr(slot),
+                                        (size_t)table->gate_expert_bytes,
+                                        cudaMemcpyDeviceToDevice), "resident gate expert copy") ||
+                    !cuda_ok(cudaMemcpy(g_stream_selected_cache.up_ptr + gate_dst,
+                                        cuda_resident_up_ptr(slot),
+                                        (size_t)table->gate_expert_bytes,
+                                        cudaMemcpyDeviceToDevice), "resident up expert copy") ||
+                    !cuda_ok(cudaMemcpy(g_stream_selected_cache.down_ptr + down_dst,
+                                        cuda_resident_down_ptr(slot),
+                                        (size_t)table->down_expert_bytes,
+                                        cudaMemcpyDeviceToDevice), "resident down expert copy")) {
+                    cuda_stream_selected_cache_invalidate();
+                    return 0;
+                }
+            }
+        }
+        goto experts_loaded;
+    }
+
     for (uint32_t i = 0; i < compact_ids.size(); i++) {
         const uint64_t expert = (uint32_t)compact_ids[i];
         const uint64_t gate_src =
@@ -27164,6 +27652,7 @@ static int cuda_stream_selected_cache_begin_load(
             return 0;
         }
     }
+experts_loaded:
     if (!cuda_ok(cudaMemcpy(g_stream_selected_cache.slot_selected_ptr,
                             slot_ids.data(),
                             (size_t)slot_count * sizeof(int32_t),
@@ -33346,6 +33835,7 @@ extern "C" void ds4_gpu_stream_expert_cache_reset_route_hotness(void) {
 extern "C" void ds4_gpu_stream_expert_cache_release_resident(void) {
     cuda_stream_selected_cache_release();
     cuda_resident_expert_cache_release();
+    cuda_expert_pread_pool_shutdown();
 }
 
 extern "C" int ds4_gpu_stream_expert_cache_seed_selected(
