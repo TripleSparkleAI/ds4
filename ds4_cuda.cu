@@ -147,6 +147,11 @@ typedef struct {
     char *gate_ptr;
     char *up_ptr;
     char *down_ptr;
+    /* What the MoE kernels read: the compact scratch above, or (zero-copy
+     * decode) the resident arena's planes.  Never freed here. */
+    const char *gate_view;
+    const char *up_view;
+    const char *down_view;
     uint64_t gate_capacity;
     uint64_t up_capacity;
     uint64_t down_capacity;
@@ -24789,15 +24794,15 @@ static int routed_moe_launch(
         const uint32_t weight_experts = use_stream_selected_cache ?
             g_stream_selected_cache.compact_count : n_total_expert;
         const char *gate_w = use_stream_selected_cache ?
-            g_stream_selected_cache.gate_ptr :
+            g_stream_selected_cache.gate_view :
             cuda_resolve_weight_ptr(model_map, gate_offset, gate_total,
                                     logical_tier, "mxfp4 moe gate");
         const char *up_w = use_stream_selected_cache ?
-            g_stream_selected_cache.up_ptr :
+            g_stream_selected_cache.up_view :
             cuda_resolve_weight_ptr(model_map, up_offset, gate_total,
                                     logical_tier, "mxfp4 moe up");
         const char *down_w = use_stream_selected_cache ?
-            g_stream_selected_cache.down_ptr :
+            g_stream_selected_cache.down_view :
             cuda_resolve_weight_ptr(model_map, down_offset, down_total,
                                     logical_tier, "mxfp4 moe down");
         if (!gate_w || !up_w || !down_w || weight_experts == 0u) return 0;
@@ -24981,15 +24986,15 @@ static int routed_moe_launch(
         selected = &g_stream_selected_cache.slot_selected_tensor;
     }
     const char *gate_w = use_stream_selected_cache ?
-        g_stream_selected_cache.gate_ptr :
+        g_stream_selected_cache.gate_view :
         cuda_resolve_weight_ptr(model_map, gate_offset, gate_bytes,
                                 logical_tier, "moe_gate");
     const char *up_w = use_stream_selected_cache ?
-        g_stream_selected_cache.up_ptr :
+        g_stream_selected_cache.up_view :
         cuda_resolve_weight_ptr(model_map, up_offset, gate_bytes,
                                 logical_tier, "moe_up");
     const char *down_w = use_stream_selected_cache ?
-        g_stream_selected_cache.down_ptr :
+        g_stream_selected_cache.down_view :
         cuda_resolve_weight_ptr(model_map, down_offset, down_bytes,
                                 logical_tier, "moe_down");
     if (!gate_w || !up_w || !down_w) return 0;
@@ -27165,7 +27170,9 @@ static int cuda_stream_selected_ranges_valid(
  * ------------------------------------------------------------------------ */
 
 struct cuda_resident_expert_cache {
-    char    *arena;
+    char    *arena_gate;         /* three planes, one per tensor, so an arena
+    char    *arena_up;            * slot index addresses an expert exactly the
+    char    *arena_down;          * way a compact scratch index does */
     uint64_t stride;             /* 2 * gate_expert_bytes + down_expert_bytes */
     uint64_t gate_expert_bytes;
     uint64_t down_expert_bytes;
@@ -27184,6 +27191,16 @@ struct cuda_resident_expert_cache {
 static cuda_resident_expert_cache g_resident_experts;
 
 #define CUDA_RESIDENT_EMPTY_KEY UINT64_MAX
+
+/* DS4_CUDA_EXPERT_ZERO_COPY=0 restores the arena -> scratch copy-out. */
+static int cuda_resident_zero_copy_enabled(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *e = getenv("DS4_CUDA_EXPERT_ZERO_COPY");
+        cached = !(e && e[0] == '0');
+    }
+    return cached;
+}
 
 static inline uint64_t cuda_resident_key(uint32_t layer, int32_t expert) {
     return ((uint64_t)layer << 32) | (uint64_t)(uint32_t)expert;
@@ -27208,8 +27225,12 @@ static uint64_t cuda_host_available_bytes(void) {
 }
 
 static void cuda_resident_expert_cache_release(void) {
-    if (g_resident_experts.arena) (void)cudaFree(g_resident_experts.arena);
-    g_resident_experts.arena = NULL;
+    if (g_resident_experts.arena_gate) (void)cudaFree(g_resident_experts.arena_gate);
+    if (g_resident_experts.arena_up) (void)cudaFree(g_resident_experts.arena_up);
+    if (g_resident_experts.arena_down) (void)cudaFree(g_resident_experts.arena_down);
+    g_resident_experts.arena_gate = NULL;
+    g_resident_experts.arena_up = NULL;
+    g_resident_experts.arena_down = NULL;
     g_resident_experts.stride = 0;
     g_resident_experts.gate_expert_bytes = 0;
     g_resident_experts.down_expert_bytes = 0;
@@ -27237,7 +27258,7 @@ static int cuda_resident_expert_cache_ensure(uint64_t gate_expert_bytes,
     }
     if (g_resident_experts.budget_experts == 0) return 0;
     if (gate_expert_bytes == 0 || down_expert_bytes == 0) return 0;
-    if (g_resident_experts.arena &&
+    if (g_resident_experts.arena_gate &&
         g_resident_experts.gate_expert_bytes == gate_expert_bytes &&
         g_resident_experts.down_expert_bytes == down_expert_bytes) {
         return g_resident_experts.slot_count != 0;
@@ -27294,14 +27315,19 @@ static int cuda_resident_expert_cache_ensure(uint64_t gate_expert_bytes,
         const uint64_t max_slots = usable / stride;
         if ((uint64_t)slots > max_slots) slots = (uint32_t)max_slots;
     }
-    char *arena = NULL;
+    char *arena_gate = NULL, *arena_up = NULL, *arena_down = NULL;
     while (slots > 0) {
-        if (cudaMalloc((void **)&arena, (size_t)slots * (size_t)stride) == cudaSuccess) break;
+        if (cudaMalloc((void **)&arena_gate, (size_t)slots * (size_t)gate_expert_bytes) == cudaSuccess &&
+            cudaMalloc((void **)&arena_up, (size_t)slots * (size_t)gate_expert_bytes) == cudaSuccess &&
+            cudaMalloc((void **)&arena_down, (size_t)slots * (size_t)down_expert_bytes) == cudaSuccess) break;
         (void)cudaGetLastError();
-        arena = NULL;
+        if (arena_gate) (void)cudaFree(arena_gate);
+        if (arena_up) (void)cudaFree(arena_up);
+        if (arena_down) (void)cudaFree(arena_down);
+        arena_gate = arena_up = arena_down = NULL;
         slots /= 2u;
     }
-    if (!arena || slots == 0) {
+    if (!arena_gate || slots == 0) {
         fprintf(stderr, "ds4: CUDA resident expert cache unavailable, streaming every expert\n");
         return 0;
     }
@@ -27310,10 +27336,14 @@ static int cuda_resident_expert_cache_ensure(uint64_t gate_expert_bytes,
         g_resident_experts.slot_clock.assign(slots, 0);
         g_resident_experts.key_slot.reserve(slots * 2u);
     } catch (...) {
-        (void)cudaFree(arena);
+        (void)cudaFree(arena_gate);
+        (void)cudaFree(arena_up);
+        (void)cudaFree(arena_down);
         return 0;
     }
-    g_resident_experts.arena = arena;
+    g_resident_experts.arena_gate = arena_gate;
+    g_resident_experts.arena_up = arena_up;
+    g_resident_experts.arena_down = arena_down;
     g_resident_experts.stride = stride;
     g_resident_experts.gate_expert_bytes = gate_expert_bytes;
     g_resident_experts.down_expert_bytes = down_expert_bytes;
@@ -27366,13 +27396,13 @@ static uint32_t cuda_resident_expert_slot(uint32_t layer, int32_t expert, int *h
 }
 
 static inline char *cuda_resident_gate_ptr(uint32_t slot) {
-    return g_resident_experts.arena + (uint64_t)slot * g_resident_experts.stride;
+    return g_resident_experts.arena_gate + (uint64_t)slot * g_resident_experts.gate_expert_bytes;
 }
 static inline char *cuda_resident_up_ptr(uint32_t slot) {
-    return cuda_resident_gate_ptr(slot) + g_resident_experts.gate_expert_bytes;
+    return g_resident_experts.arena_up + (uint64_t)slot * g_resident_experts.gate_expert_bytes;
 }
 static inline char *cuda_resident_down_ptr(uint32_t slot) {
-    return cuda_resident_gate_ptr(slot) + 2u * g_resident_experts.gate_expert_bytes;
+    return g_resident_experts.arena_down + (uint64_t)slot * g_resident_experts.down_expert_bytes;
 }
 
 /* On a miss the arena slot is filled from the model file, then every path
@@ -27824,6 +27854,7 @@ static int cuda_stream_selected_cache_begin_load(
     const uint64_t gate_bytes = compact_count * table->gate_expert_bytes;
     const uint64_t down_bytes = compact_count * table->down_expert_bytes;
     const int logical_tier = 0;
+    int zero_copy = 0;
     if (g_stream_selected_cache.logical_tier != logical_tier &&
         (g_stream_selected_cache.gate_ptr ||
          g_stream_selected_cache.up_ptr ||
@@ -27968,7 +27999,19 @@ static int cuda_stream_selected_cache_begin_load(
             cuda_stream_selected_cache_invalidate();
             return 0;
         }
-        if (resident_ok) {
+        if (resident_ok && slot_count <= 16u && cuda_resident_zero_copy_enabled()) {
+            /* Zero-copy decode: the kernels index an expert as
+             * base + id * expert_bytes, and the arena is planar with the
+             * same per-tensor stride, so point the views at the arena and
+             * remap the ids to arena slots.  No bytes move for a hit.
+             * Prefill keeps the compact scratch (its paths may size tables
+             * by the largest id), so this is decode-sized batches only.
+             * 2.2 GiB/token of device-to-device copy measured at 30 ms. */
+            for (uint32_t i = 0; i < slot_count; i++) {
+                slot_ids[i] = (int32_t)slot_of[(uint32_t)slot_ids[i]];
+            }
+            zero_copy = 1;
+        } else if (resident_ok) {
             /* Arena -> scratch, device to device.  Queued on the selected
              * upload stream and synchronised once at the end: 18 blocking
              * cudaMemcpy calls per layer became one wait, and the caller's
@@ -28060,7 +28103,11 @@ experts_loaded:
     g_stream_selected_cache.layer = table->layer;
     g_stream_selected_cache.n_total_expert = table->n_total_expert;
     g_stream_selected_cache.slot_count = slot_count;
-    g_stream_selected_cache.compact_count = (uint32_t)compact_count;
+    g_stream_selected_cache.compact_count = zero_copy ?
+        g_resident_experts.slot_count : (uint32_t)compact_count;
+    g_stream_selected_cache.gate_view = zero_copy ? g_resident_experts.arena_gate : g_stream_selected_cache.gate_ptr;
+    g_stream_selected_cache.up_view = zero_copy ? g_resident_experts.arena_up : g_stream_selected_cache.up_ptr;
+    g_stream_selected_cache.down_view = zero_copy ? g_resident_experts.arena_down : g_stream_selected_cache.down_ptr;
     g_stream_selected_cache.gate_offset = table->gate_offset;
     g_stream_selected_cache.up_offset = table->up_offset;
     g_stream_selected_cache.down_offset = table->down_offset;
