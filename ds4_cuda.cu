@@ -27175,6 +27175,8 @@ struct cuda_resident_expert_cache {
     uint64_t lookups;
     uint64_t hits;
     uint64_t evictions;
+    double   sec_read;           /* wall seconds inside the miss reads */
+    double   sec_copy;           /* wall seconds inside the arena -> scratch copy-out */
     std::vector<uint64_t> slot_key;
     std::vector<uint64_t> slot_clock;
     std::unordered_map<uint64_t, uint32_t> key_slot;
@@ -27331,11 +27333,12 @@ static int cuda_resident_expert_cache_ensure(uint64_t gate_expert_bytes,
 static uint32_t cuda_resident_expert_slot(uint32_t layer, int32_t expert, int *hit) {
     g_resident_experts.lookups++;
     if ((g_resident_experts.lookups % 4000u) == 0u && getenv("DS4_CUDA_EXPERT_CACHE_STATS"))
-        fprintf(stderr, "ds4: [expert-cache] %llu lookups, hit_rate=%.3f, resident=%zu/%u, evictions=%llu\n",
+        fprintf(stderr, "ds4: [expert-cache] %llu lookups, hit_rate=%.3f, resident=%zu/%u, evictions=%llu, read %.1f s, copy %.1f s\n",
                 (unsigned long long)g_resident_experts.lookups,
                 (double)g_resident_experts.hits / (double)g_resident_experts.lookups,
                 g_resident_experts.key_slot.size(), g_resident_experts.slot_count,
-                (unsigned long long)g_resident_experts.evictions);
+                (unsigned long long)g_resident_experts.evictions,
+                g_resident_experts.sec_read, g_resident_experts.sec_copy);
     const uint64_t key = cuda_resident_key(layer, expert);
     auto it = g_resident_experts.key_slot.find(key);
     if (it != g_resident_experts.key_slot.end()) {
@@ -27931,6 +27934,7 @@ static int cuda_stream_selected_cache_begin_load(
         }
 
         int pooled = 0;
+        const double t_read0 = cuda_wall_sec();
         if (!tasks.empty()) {
             pooled = cuda_expert_pread_pool_dispatch(tasks.data(), (uint32_t)tasks.size());
             if (!pooled) {
@@ -27943,6 +27947,7 @@ static int cuda_stream_selected_cache_begin_load(
                 }
             }
         }
+        g_resident_experts.sec_read += cuda_wall_sec() - t_read0;
 
         int all_ok = 1;
         for (uint32_t i = 0; i < n_experts; i++) {
@@ -27964,26 +27969,38 @@ static int cuda_stream_selected_cache_begin_load(
             return 0;
         }
         if (resident_ok) {
+            /* Arena -> scratch, device to device.  Queued on the selected
+             * upload stream and synchronised once at the end: 18 blocking
+             * cudaMemcpy calls per layer became one wait, and the caller's
+             * contract (bytes on device when we return) is the one the H2D
+             * miss path above already keeps on this same stream. */
+            const double t_copy0 = cuda_wall_sec();
+            cudaStream_t cs = g_stream_selected_upload_stream;
             for (uint32_t i = 0; i < n_experts; i++) {
                 const uint64_t gate_dst = (uint64_t)i * table->gate_expert_bytes;
                 const uint64_t down_dst = (uint64_t)i * table->down_expert_bytes;
                 const uint32_t slot = slot_of[i];
-                if (!cuda_ok(cudaMemcpy(g_stream_selected_cache.gate_ptr + gate_dst,
-                                        cuda_resident_gate_ptr(slot),
-                                        (size_t)table->gate_expert_bytes,
-                                        cudaMemcpyDeviceToDevice), "resident gate expert copy") ||
-                    !cuda_ok(cudaMemcpy(g_stream_selected_cache.up_ptr + gate_dst,
-                                        cuda_resident_up_ptr(slot),
-                                        (size_t)table->gate_expert_bytes,
-                                        cudaMemcpyDeviceToDevice), "resident up expert copy") ||
-                    !cuda_ok(cudaMemcpy(g_stream_selected_cache.down_ptr + down_dst,
-                                        cuda_resident_down_ptr(slot),
-                                        (size_t)table->down_expert_bytes,
-                                        cudaMemcpyDeviceToDevice), "resident down expert copy")) {
+                if (!cuda_ok(cudaMemcpyAsync(g_stream_selected_cache.gate_ptr + gate_dst,
+                                             cuda_resident_gate_ptr(slot),
+                                             (size_t)table->gate_expert_bytes,
+                                             cudaMemcpyDeviceToDevice, cs), "resident gate expert copy") ||
+                    !cuda_ok(cudaMemcpyAsync(g_stream_selected_cache.up_ptr + gate_dst,
+                                             cuda_resident_up_ptr(slot),
+                                             (size_t)table->gate_expert_bytes,
+                                             cudaMemcpyDeviceToDevice, cs), "resident up expert copy") ||
+                    !cuda_ok(cudaMemcpyAsync(g_stream_selected_cache.down_ptr + down_dst,
+                                             cuda_resident_down_ptr(slot),
+                                             (size_t)table->down_expert_bytes,
+                                             cudaMemcpyDeviceToDevice, cs), "resident down expert copy")) {
                     cuda_stream_selected_cache_invalidate();
                     return 0;
                 }
             }
+            if (!cuda_ok(cudaStreamSynchronize(cs), "resident expert copy-out wait")) {
+                cuda_stream_selected_cache_invalidate();
+                return 0;
+            }
+            g_resident_experts.sec_copy += cuda_wall_sec() - t_copy0;
         }
         goto experts_loaded;
     }
