@@ -501,30 +501,63 @@ __global__ static void dsv41_router_select_general_kernel(
         int32_t *selected, float *weights, float *probs,
         const float *bias, const float *logits,
         uint32_t n_expert, uint32_t n_expert_used, float scale, int has_bias) {
+    /* SPARKPORT: the reference selection is an insertion sort run by one
+     * thread, 384 x 6 compares per token per layer = 197 us on the GB10, 8 ms
+     * of every decode token.  This is the same selection as n_expert_used
+     * rounds of block-wide argmax: largest score wins, equal scores go to
+     * the LOWER expert index, exactly the order the insertion sort produced
+     * (a later equal score never displaces an earlier one).  The weights are
+     * then summed in the same j order, so the result is bit-identical. */
     const uint32_t t = blockIdx.x;
     const float *log_row = logits + (uint64_t)t * n_expert;
     float *prob = probs + (uint64_t)t * n_expert;
     int32_t *sel = selected + (uint64_t)t * n_expert_used;
     float *w = weights + (uint64_t)t * n_expert_used;
-    extern __shared__ float sprob[];
+    extern __shared__ float sprob[];          /* [n_expert] p, then [n_expert] live score */
+    float *sscore = sprob + n_expert;
+    __shared__ float s_wval[32];
+    __shared__ uint32_t s_widx[32];
+    __shared__ int32_t s_sel[64];
     for (uint32_t i = threadIdx.x; i < n_expert; i += blockDim.x) {
         const float p = sqrtf(softplus_dev(log_row[i]));
         sprob[i] = p;
         prob[i] = p;
+        sscore[i] = p + (has_bias ? bias[i] : 0.0f);
     }
     __syncthreads();
-    if (threadIdx.x != 0) return;
-    for (uint32_t j = 0; j < n_expert_used; j++) sel[j] = -1;
-    for (uint32_t e = 0; e < n_expert; e++) {
-        const float score = sprob[e] + (has_bias ? bias[e] : 0.0f);
-        for (uint32_t j = 0; j < n_expert_used; j++) {
-            if (sel[j] < 0 || score > sprob[sel[j]] + (has_bias ? bias[sel[j]] : 0.0f)) {
-                for (uint32_t k = n_expert_used - 1u; k > j; k--) sel[k] = sel[k - 1u];
-                sel[j] = (int32_t)e;
-                break;
-            }
+    const uint32_t lane = threadIdx.x & 31u;
+    const uint32_t warp = threadIdx.x >> 5u;
+    const uint32_t n_warps = (blockDim.x + 31u) >> 5u;
+    const uint32_t rounds = n_expert_used < 64u ? n_expert_used : 64u;
+    for (uint32_t j = 0; j < rounds; j++) {
+        float best = -INFINITY;
+        uint32_t best_i = 0xffffffffu;
+        for (uint32_t i = threadIdx.x; i < n_expert; i += blockDim.x) {
+            const float v = sscore[i];
+            if (v > best || (v == best && i < best_i)) { best = v; best_i = i; }
         }
+        for (uint32_t off = 16; off > 0; off >>= 1) {
+            const float ov = __shfl_down_sync(0xffffffffu, best, off);
+            const uint32_t oi = __shfl_down_sync(0xffffffffu, best_i, off);
+            if (ov > best || (ov == best && oi < best_i)) { best = ov; best_i = oi; }
+        }
+        if (lane == 0) { s_wval[warp] = best; s_widx[warp] = best_i; }
+        __syncthreads();
+        if (threadIdx.x == 0) {
+            float bv = -INFINITY;
+            uint32_t bi = 0xffffffffu;
+            for (uint32_t k = 0; k < n_warps; k++) {
+                const float v = s_wval[k];
+                const uint32_t i = s_widx[k];
+                if (v > bv || (v == bv && i < bi)) { bv = v; bi = i; }
+            }
+            s_sel[j] = bi == 0xffffffffu ? -1 : (int32_t)bi;
+            if (bi != 0xffffffffu) sscore[bi] = -INFINITY;
+        }
+        __syncthreads();
     }
+    if (threadIdx.x != 0) return;
+    for (uint32_t j = 0; j < n_expert_used; j++) sel[j] = j < rounds ? s_sel[j] : -1;
     float sum = 0.0f;
     for (uint32_t j = 0; j < n_expert_used; j++) {
         const int32_t e = sel[j];
@@ -542,7 +575,7 @@ static int dsv41_router_select_general(ds4_gpu_tensor *selected, ds4_gpu_tensor 
                                        uint32_t n_expert, uint32_t n_expert_used, float expert_weight_scale,
                                        uint32_t n_tokens) {
     if (!selected || !weights || !probs || !logits || !model_map || !n_tokens ||
-        !n_expert || !n_expert_used || n_expert_used > n_expert || n_expert > 8192u ||
+        !n_expert || !n_expert_used || n_expert_used > n_expert || n_expert_used > 64u || n_expert > 8192u ||
         logits->bytes < (uint64_t)n_tokens * n_expert * sizeof(float) ||
         probs->bytes < (uint64_t)n_tokens * n_expert * sizeof(float) ||
         selected->bytes < (uint64_t)n_tokens * n_expert_used * sizeof(int32_t) ||
@@ -556,7 +589,7 @@ static int dsv41_router_select_general(ds4_gpu_tensor *selected, ds4_gpu_tensor 
         if (!bias) return 0;
     }
     const unsigned threads = n_expert < 1024u ? ((n_expert + 31u) & ~31u) : 1024u;
-    dsv41_router_select_general_kernel<<<n_tokens, threads, n_expert * sizeof(float), cuda_decode_stream()>>>(
+    dsv41_router_select_general_kernel<<<n_tokens, threads, 2u * n_expert * sizeof(float), cuda_decode_stream()>>>(
         (int32_t *)selected->ptr, (float *)weights->ptr, (float *)probs->ptr, bias,
         (const float *)logits->ptr, n_expert, n_expert_used, expert_weight_scale, has_bias ? 1 : 0);
     return cuda_ok(cudaGetLastError(), "V4.1 general router select");
