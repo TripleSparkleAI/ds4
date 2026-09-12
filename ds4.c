@@ -39044,7 +39044,52 @@ bool ds4_tokens_starts_with(const ds4_tokens *tokens, const ds4_tokens *prefix) 
 
 #if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 graph on Metal AND CUDA */
 /* SPARKPORT: name the failing step of the V4.1 chain (DS4_V41_TRACE=1). */
-#define DS41_TRACE(name, expr) ({ const bool _r41 = (expr); \
+/* DS4_V41_TRACE=1 names a failing graph step.  DS4_V41_PROFILE=1 additionally
+ * syncs the device around every traced step and accumulates wall time per
+ * step, printing a per-token breakdown every 8 tokens.  The syncs perturb the
+ * absolute t/s, so a profiled run is for ATTRIBUTION, never for a headline
+ * number - it says where the token goes, not how fast the token is. */
+typedef struct { const char *name; double us; uint64_t n; } ds41_prof_slot;
+static ds41_prof_slot g_ds41_prof[16];
+static int g_ds41_prof_on = -1;
+static uint64_t g_ds41_prof_tokens = 0;
+static inline bool ds41_prof_enabled(void) {
+    if (g_ds41_prof_on < 0) g_ds41_prof_on = getenv("DS4_V41_PROFILE") ? 1 : 0;
+    return g_ds41_prof_on == 1;
+}
+static void ds41_prof_add(const char *name, double us) {
+    for (int i = 0; i < 16; i++) {
+        if (g_ds41_prof[i].name == name || g_ds41_prof[i].name == NULL) {
+            g_ds41_prof[i].name = name; g_ds41_prof[i].us += us; g_ds41_prof[i].n++;
+            return;
+        }
+    }
+}
+/* A token is 40 after_moe calls (20 encoder + 20 decoder MoE layers). */
+static void ds41_prof_maybe_report(void) {
+    uint64_t after_moe = 0;
+    for (int i = 0; i < 16 && g_ds41_prof[i].name; i++)
+        if (strcmp(g_ds41_prof[i].name, "after_moe") == 0) after_moe = g_ds41_prof[i].n;
+    const uint64_t tokens = after_moe / 40u;
+    if (tokens == 0 || tokens == g_ds41_prof_tokens || tokens % 8u) return;
+    g_ds41_prof_tokens = tokens;
+    double total = 0.0;
+    for (int i = 0; i < 16 && g_ds41_prof[i].name; i++) total += g_ds41_prof[i].us;
+    fprintf(stderr, "ds4: [v41-profile] %llu tokens, %.1f ms/token:", (unsigned long long)tokens,
+            total / 1000.0 / (double)tokens);
+    for (int i = 0; i < 16 && g_ds41_prof[i].name; i++)
+        fprintf(stderr, "  %s %.1fms(%.0f%%)", g_ds41_prof[i].name,
+                g_ds41_prof[i].us / 1000.0 / (double)tokens,
+                100.0 * g_ds41_prof[i].us / (total > 0 ? total : 1.0));
+    fputc('\n', stderr);
+}
+#define DS41_TRACE(name, expr) ({ \
+    struct timespec _p0, _p1; const bool _prof = ds41_prof_enabled(); \
+    if (_prof) { ds4_gpu_synchronize(); clock_gettime(CLOCK_MONOTONIC, &_p0); } \
+    const bool _r41 = (expr); \
+    if (_prof) { ds4_gpu_synchronize(); clock_gettime(CLOCK_MONOTONIC, &_p1); \
+        ds41_prof_add((name), (_p1.tv_sec - _p0.tv_sec) * 1.0e6 + (_p1.tv_nsec - _p0.tv_nsec) / 1.0e3); \
+        if (strcmp((name), "after_moe") == 0) ds41_prof_maybe_report(); } \
     if (!_r41 && getenv("DS4_V41_TRACE")) fprintf(stderr, "ds4: [v41-trace] FAILED %s\n", (name)); _r41; })
 
 /* =========================================================================
@@ -39754,16 +39799,16 @@ static bool ds41_moe(ds41_gpu_graph *g, const ds4_model *m,
                               DS4_N_FF_EXP, DS4_SWIGLU_CLAMP_EXP, 1.0f) ||
         !ds41_bf16(g->shared_mid, DS4_N_FF_EXP) ||
         !ds41_matmul(g->shared, m, l->ffn_down_shexp, g->shared_mid, true))) return false;
-    if (!ds41_cuda_stream_selected_load(g, m, l, il, gate_row * DS4_N_FF_EXP, down_row * DS4_N_EMBD,
-                                        selected_armed))
+    if (!DS41_TRACE("moe.prime", ds41_cuda_stream_selected_load(g, m, l, il, gate_row * DS4_N_FF_EXP, down_row * DS4_N_EMBD,
+                                        selected_armed)))
         return false;
-    if (!ds4_gpu_routed_moe_one_tensor(routed, g->gate, g->up, g->mid, g->experts,
+    if (!DS41_TRACE("moe.routed", ds4_gpu_routed_moe_one_tensor(routed, g->gate, g->up, g->mid, g->experts,
             m->map, m->size, l->ffn_gate_exps->abs_offset, l->ffn_up_exps->abs_offset,
             l->ffn_down_exps->abs_offset, l->ffn_gate_exps->type, l->ffn_down_exps->type,
             gate_row * DS4_N_FF_EXP, gate_row, down_row * DS4_N_EMBD, down_row,
             DS4_N_EMBD, DS4_N_FF_EXP, DS4_N_EMBD, g->selected, g->route_weights,
             DS4_N_EXPERT, DS4_N_EXPERT_USED, DS4_SWIGLU_CLAMP_EXP, g->norm, NULL, il,
-            !g->streaming)) return false;
+            !g->streaming))) return false;
     /* Keep the shared expert's BF16 boundary, then include it exactly once
      * in the existing F32 reduction. Alternate ownership across layers. */
     if (shared_owner && g->tp_rank == (il & 1u) &&
