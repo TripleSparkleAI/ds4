@@ -40268,17 +40268,25 @@ static bool ds41_prefill_seed(ds41_gpu_graph *g, const ds4_model *m,
     uint32_t target = ds4_gpu_stream_expert_cache_configured_count() / DS4_N_LAYER;
     if (target > DS4_N_EXPERT) target = DS4_N_EXPERT;
     if (!target) return true;
-    const int32_t *selected = ds4_gpu_tensor_contents(g->batch.selected);
+    /* SPARKPORT: read the ids back explicitly.  The host view of a device
+     * tensor is shared memory on Metal and the raw device pointer on CUDA. */
+    int32_t *selected = malloc((size_t)count * DS4_N_EXPERT_USED * sizeof(int32_t));
     if (!selected) return false;
+    if (!ds4_gpu_tensor_read(g->batch.selected, 0, selected,
+                             (uint64_t)count * DS4_N_EXPERT_USED * sizeof(int32_t))) {
+        free(selected);
+        return false;
+    }
     uint32_t frequency[DS4_MAX_EXPERT] = {0};
     const uint32_t recent = count < 32u ? count : 32u;
     for (uint32_t t = 0; t < count; t++) {
         for (uint32_t j = 0; j < DS4_N_EXPERT_USED; j++) {
             const int32_t id = selected[t * DS4_N_EXPERT_USED + j];
-            if (id < 0 || (uint32_t)id >= DS4_N_EXPERT) return false;
+            if (id < 0 || (uint32_t)id >= DS4_N_EXPERT) { free(selected); return false; }
             frequency[id] += 1u + (t >= count - recent ? count * DS4_N_EXPERT_USED : 0u);
         }
     }
+    free(selected);
     int32_t experts[DS4_MAX_EXPERT];
     uint32_t priority[DS4_MAX_EXPERT], n = 0;
     while (n < target) {
@@ -40701,13 +40709,23 @@ static bool ds41_graph_prefill_sweep(ds41_gpu_graph *g, const ds4_model *m,
                     ok = pipeline_engram ?
                         ds41_engram_prefetch_wait(&engram_prefetch, off + count, cancel, cancel_ud) :
                         ds41_engram_prefetch_join(&engram_prefetch, false);
-                } else if (getenv("DS4_METAL_DISABLE_V41_BATCH_ENGRAM")) {
-                    for (uint32_t t = 0; ok && t < count; t++)
-                        ok = ds4_engram_read(&g->table[engram], ids[off + t][engram], DS4_ENGRAM_COLS,
-                                             ds4_gpu_tensor_contents(g->rows_view[t].engram_rows));
                 } else {
-                    ok = ds4_engram_read_batch(&g->table[engram], ids[off][engram], count,
-                        2u * DS4_ENGRAM_COLS, ds4_gpu_tensor_contents(g->batch.engram_rows));
+                    /* SPARKPORT: stage the rows on the host and upload them; the
+                     * tensor's host view is the device pointer on CUDA. */
+                    const uint64_t row_floats = (uint64_t)DS4_ENGRAM_COLS * DS4_ENGRAM_DIM;
+                    float *stage = malloc((size_t)count * row_floats * sizeof(float));
+                    ok = stage != NULL;
+                    if (ok && getenv("DS4_METAL_DISABLE_V41_BATCH_ENGRAM")) {
+                        for (uint32_t t = 0; ok && t < count; t++)
+                            ok = ds4_engram_read(&g->table[engram], ids[off + t][engram], DS4_ENGRAM_COLS,
+                                                 stage + t * row_floats);
+                    } else if (ok) {
+                        ok = ds4_engram_read_batch(&g->table[engram], ids[off][engram], count,
+                            2u * DS4_ENGRAM_COLS, stage);
+                    }
+                    if (ok) ok = ds4_gpu_tensor_write(g->batch.engram_rows, 0, stage,
+                                                     (uint64_t)count * row_floats * sizeof(float)) != 0;
+                    free(stage);
                 }
             }
             const double t_engram = profile ? now_sec() : 0;
