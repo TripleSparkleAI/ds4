@@ -40515,10 +40515,15 @@ typedef struct {
     pthread_t thread;
     const ds4_engram_table *table;
     const uint32_t *ids;
-    float *out;
+    float *out;                 /* host stage, owned; uploaded per chunk at the consume site */
     uint32_t count, ready;
     bool active, ok, cancel, done;
 } ds41_engram_prefetch;
+
+static void ds41_engram_prefetch_release(ds41_engram_prefetch *p) {
+    free(p->out);
+    p->out = NULL;
+}
 
 static void *ds41_engram_prefetch_read(void *arg) {
     ds41_engram_prefetch *p = arg;
@@ -40562,10 +40567,17 @@ static bool ds41_engram_prefetch_join(ds41_engram_prefetch *p, bool cancel) {
 
 static bool ds41_engram_prefetch_start(ds41_engram_prefetch *p, ds41_gpu_graph *g,
                                       uint32_t table, uint32_t count) {
+    /* SPARKPORT: the reader thread fills a host stage, not the tensor's host
+     * view (the device pointer on CUDA); the consume site uploads each chunk. */
+    ds41_engram_prefetch_release(p);
     *p = (ds41_engram_prefetch){.table = &g->table[table], .count = count,
-        .ids = g->prefill_ids[0][table], .out = ds4_gpu_tensor_contents(g->engram_prefetch)};
-    if (!p->out || pthread_create(&p->thread, NULL, ds41_engram_prefetch_read, p))
+        .ids = g->prefill_ids[0][table],
+        .out = malloc((size_t)count * DS4_ENGRAM_COLS * DS4_ENGRAM_DIM * sizeof(float))};
+    if (!p->out) return false;
+    if (pthread_create(&p->thread, NULL, ds41_engram_prefetch_read, p)) {
+        ds41_engram_prefetch_release(p);
         return false;
+    }
     p->active = true;
     return true;
 }
@@ -40743,8 +40755,9 @@ static bool ds41_graph_prefill_sweep(ds41_gpu_graph *g, const ds4_model *m,
             if (ok) ok = ds4_gpu_begin_commands() != 0;
             if (ok && engram_prefetched && ds41_engram_layer(il)) {
                 const uint64_t bytes = (uint64_t)DS4_ENGRAM_COLS * DS4_ENGRAM_DIM * sizeof(float);
-                ok = ds4_gpu_tensor_copy(g->batch.engram_rows, 0, g->engram_prefetch,
-                                         off * bytes, count * bytes) != 0;
+                ok = ds4_gpu_tensor_write(g->batch.engram_rows, 0,
+                        engram_prefetch.out + (size_t)off * DS4_ENGRAM_COLS * DS4_ENGRAM_DIM,
+                        count * bytes) != 0;
             }
             if (ok && batch_hc)
                 ok = ds41_before_attention_batch(g, &active, m, &w->layer[il], il, count);
@@ -40859,6 +40872,7 @@ static bool ds41_graph_prefill_sweep(ds41_gpu_graph *g, const ds4_model *m,
         }
     }
     if (!ds41_engram_prefetch_join(&engram_prefetch, !ok)) ok = false;
+    ds41_engram_prefetch_release(&engram_prefetch);
     if (!metal_graph_stream_prepare_join_all(&prepare, 1)) ok = false;
     if (g->streaming && !metal_graph_stream_map_decode_static_all(m, w)) ok = false;
     if (ok && !encoder_only) {
