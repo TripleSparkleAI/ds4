@@ -26713,6 +26713,24 @@ static inline uint64_t cuda_resident_key(uint32_t layer, int32_t expert) {
     return ((uint64_t)layer << 32) | (uint64_t)(uint32_t)expert;
 }
 
+/* cudaMemGetInfo reports MemFree on a unified-memory part, which counts
+ * reclaimable page cache as unavailable.  Streaming a multi-hundred-GiB model
+ * keeps tens of GiB of clean page cache resident, so sizing the arena off
+ * MemFree gives away memory the kernel would return on demand - and makes the
+ * cache size depend on how much of the model has been read so far.  Prefer
+ * MemAvailable, which is the kernel's own estimate of exactly that. */
+static uint64_t cuda_host_available_bytes(void) {
+    FILE *mi = fopen("/proc/meminfo", "r");
+    if (!mi) return 0;
+    char line[256];
+    unsigned long long avail_kb = 0;
+    while (fgets(line, sizeof line, mi)) {
+        if (sscanf(line, "MemAvailable: %llu kB", &avail_kb) == 1) break;
+    }
+    fclose(mi);
+    return (uint64_t)avail_kb * 1024ull;
+}
+
 static void cuda_resident_expert_cache_release(void) {
     if (g_resident_experts.arena) (void)cudaFree(g_resident_experts.arena);
     g_resident_experts.arena = NULL;
@@ -26762,10 +26780,32 @@ static int cuda_resident_expert_cache_ensure(uint64_t gate_expert_bytes,
      * against what the driver says is actually free, keeping a margin for the
      * KV cache, the staging pool and the host page cache that feeds it. */
     size_t free_bytes = 0, total_bytes = 0;
+    if (getenv("DS4_CUDA_EXPERT_CACHE_STATS")) {
+        size_t f = 0, tt = 0;
+        (void)cudaMemGetInfo(&f, &tt);
+        unsigned long long mem_free = 0, mem_avail = 0, cached = 0;
+        FILE *mi = fopen("/proc/meminfo", "r");
+        if (mi) {
+            char line[256];
+            while (fgets(line, sizeof line, mi)) {
+                sscanf(line, "MemFree: %llu kB", &mem_free);
+                sscanf(line, "MemAvailable: %llu kB", &mem_avail);
+                sscanf(line, "Cached: %llu kB", &cached);
+            }
+            fclose(mi);
+        }
+        fprintf(stderr,
+                "ds4: [expert-cache] cuda free %.2f / %.2f GiB | host free %.2f avail %.2f cached %.2f GiB\n",
+                (double)f / 1073741824.0, (double)tt / 1073741824.0,
+                (double)mem_free / 1048576.0, (double)mem_avail / 1048576.0,
+                (double)cached / 1048576.0);
+    }
     if (cudaMemGetInfo(&free_bytes, &total_bytes) == cudaSuccess) {
+        const uint64_t host_avail = cuda_host_available_bytes();
+        uint64_t pool = (uint64_t)free_bytes;
+        if (host_avail > pool) pool = host_avail;
         const uint64_t margin = 8ull << 30;
-        const uint64_t usable = (uint64_t)free_bytes > margin ?
-            (uint64_t)free_bytes - margin : 0;
+        const uint64_t usable = pool > margin ? pool - margin : 0;
         const uint64_t max_slots = usable / stride;
         if ((uint64_t)slots > max_slots) slots = (uint32_t)max_slots;
     }
