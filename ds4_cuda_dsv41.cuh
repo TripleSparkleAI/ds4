@@ -491,3 +491,103 @@ extern "C" int ds4_gpu_attention_output_q8_batch_tensor(
     return ds4_gpu_attention_output_q8_batch_impl_cuda(out, low, group_tmp, low_tmp, model_map, model_size,
         out_a_offset, out_b_offset, group_dim, rank, n_groups, out_dim, heads, n_tokens, 0);
 }
+
+/* ---- general router (arbitrary expert count) ----
+ * The V4 CUDA router is hard-locked to 256 experts / top-6 / scale 1.5. V4.1 routes 6 of 384,
+ * so the shipped shape is kept on its tuned kernels and any other shape lands here. The math is
+ * the reference router verbatim: p = sqrt(softplus(logit)), rank by p+bias, then renormalize the
+ * selected weights and apply the expert scale. */
+__global__ static void dsv41_router_select_general_kernel(
+        int32_t *selected, float *weights, float *probs,
+        const float *bias, const float *logits,
+        uint32_t n_expert, uint32_t n_expert_used, float scale, int has_bias) {
+    const uint32_t t = blockIdx.x;
+    const float *log_row = logits + (uint64_t)t * n_expert;
+    float *prob = probs + (uint64_t)t * n_expert;
+    int32_t *sel = selected + (uint64_t)t * n_expert_used;
+    float *w = weights + (uint64_t)t * n_expert_used;
+    extern __shared__ float sprob[];
+    for (uint32_t i = threadIdx.x; i < n_expert; i += blockDim.x) {
+        const float p = sqrtf(softplus_dev(log_row[i]));
+        sprob[i] = p;
+        prob[i] = p;
+    }
+    __syncthreads();
+    if (threadIdx.x != 0) return;
+    for (uint32_t j = 0; j < n_expert_used; j++) sel[j] = -1;
+    for (uint32_t e = 0; e < n_expert; e++) {
+        const float score = sprob[e] + (has_bias ? bias[e] : 0.0f);
+        for (uint32_t j = 0; j < n_expert_used; j++) {
+            if (sel[j] < 0 || score > sprob[sel[j]] + (has_bias ? bias[sel[j]] : 0.0f)) {
+                for (uint32_t k = n_expert_used - 1u; k > j; k--) sel[k] = sel[k - 1u];
+                sel[j] = (int32_t)e;
+                break;
+            }
+        }
+    }
+    float sum = 0.0f;
+    for (uint32_t j = 0; j < n_expert_used; j++) {
+        const int32_t e = sel[j];
+        const float v = (e >= 0 && (uint32_t)e < n_expert) ? sprob[e] : 0.0f;
+        w[j] = v;
+        sum += v;
+    }
+    sum = fmaxf(sum, 6.103515625e-5f);
+    for (uint32_t j = 0; j < n_expert_used; j++) w[j] = w[j] / sum * scale;
+}
+
+static int dsv41_router_select_general(ds4_gpu_tensor *selected, ds4_gpu_tensor *weights,
+                                       ds4_gpu_tensor *probs, const void *model_map, uint64_t model_size,
+                                       uint64_t bias_offset, bool has_bias, const ds4_gpu_tensor *logits,
+                                       uint32_t n_expert, uint32_t n_expert_used, float expert_weight_scale,
+                                       uint32_t n_tokens) {
+    if (!selected || !weights || !probs || !logits || !model_map || !n_tokens ||
+        !n_expert || !n_expert_used || n_expert_used > n_expert || n_expert > 8192u ||
+        logits->bytes < (uint64_t)n_tokens * n_expert * sizeof(float) ||
+        probs->bytes < (uint64_t)n_tokens * n_expert * sizeof(float) ||
+        selected->bytes < (uint64_t)n_tokens * n_expert_used * sizeof(int32_t) ||
+        weights->bytes < (uint64_t)n_tokens * n_expert_used * sizeof(float)) return 0;
+    const float *bias = NULL;
+    if (has_bias) {
+        const uint64_t bias_bytes = (uint64_t)n_expert * sizeof(float);
+        if (bias_offset > model_size || bias_bytes > model_size - bias_offset) return 0;
+        bias = (const float *)cuda_resolve_weight_ptr(model_map, bias_offset, bias_bytes,
+                                                      ds4_tensor_device_idx(selected), "router_bias");
+        if (!bias) return 0;
+    }
+    const unsigned threads = n_expert < 1024u ? ((n_expert + 31u) & ~31u) : 1024u;
+    dsv41_router_select_general_kernel<<<n_tokens, threads, n_expert * sizeof(float), cuda_decode_stream()>>>(
+        (int32_t *)selected->ptr, (float *)weights->ptr, (float *)probs->ptr, bias,
+        (const float *)logits->ptr, n_expert, n_expert_used, expert_weight_scale, has_bias ? 1 : 0);
+    return cuda_ok(cudaGetLastError(), "V4.1 general router select");
+}
+
+extern "C" int ds4_gpu_router_select_tensor(
+        ds4_gpu_tensor *selected, ds4_gpu_tensor *weights, ds4_gpu_tensor *probs,
+        const void *model_map, uint64_t model_size, uint64_t bias_offset, uint64_t hash_offset,
+        uint32_t hash_rows, uint32_t token, uint32_t n_expert, uint32_t n_expert_used,
+        float expert_weight_scale, uint32_t n_expert_groups, uint32_t n_group_used,
+        bool has_bias, bool hash_mode, const ds4_gpu_tensor *logits) {
+    if (n_expert == 256u && n_expert_used == 6u && fabsf(expert_weight_scale - 1.5f) <= 1.0e-6f)
+        return ds4_gpu_router_select_tensor_v4_impl(selected, weights, probs, model_map, model_size,
+            bias_offset, hash_offset, hash_rows, token, n_expert, n_expert_used, expert_weight_scale,
+            n_expert_groups, n_group_used, has_bias, hash_mode, logits);
+    if (hash_mode || n_expert_groups > 1u || n_group_used > 0u) return 0;
+    return dsv41_router_select_general(selected, weights, probs, model_map, model_size, bias_offset,
+                                       has_bias, logits, n_expert, n_expert_used, expert_weight_scale, 1u);
+}
+
+extern "C" int ds4_gpu_router_select_batch_tensor(
+        ds4_gpu_tensor *selected, ds4_gpu_tensor *weights, ds4_gpu_tensor *probs,
+        const void *model_map, uint64_t model_size, uint64_t bias_offset, uint64_t hash_offset,
+        uint32_t hash_rows, uint32_t n_expert_groups, uint32_t n_group_used, bool has_bias,
+        bool hash_mode, const ds4_gpu_tensor *logits, const ds4_gpu_tensor *tokens,
+        uint32_t n_expert, uint32_t n_expert_used, float expert_weight_scale, uint32_t n_tokens) {
+    if (n_expert == 256u && n_expert_used == 6u && fabsf(expert_weight_scale - 1.5f) <= 1.0e-6f)
+        return ds4_gpu_router_select_batch_tensor_v4_impl(selected, weights, probs, model_map, model_size,
+            bias_offset, hash_offset, hash_rows, n_expert_groups, n_group_used, has_bias, hash_mode,
+            logits, tokens, n_expert, n_expert_used, expert_weight_scale, n_tokens);
+    if (hash_mode || n_expert_groups > 1u || n_group_used > 0u) return 0;
+    return dsv41_router_select_general(selected, weights, probs, model_map, model_size, bias_offset,
+                                       has_bias, logits, n_expert, n_expert_used, expert_weight_scale, n_tokens);
+}

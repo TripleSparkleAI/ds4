@@ -19180,7 +19180,7 @@ extern "C" int ds4_gpu_directional_steering_project_tensor(
             scale);
     return cuda_ok(cudaGetLastError(), "directional steering launch");
 }
-extern "C" int ds4_gpu_router_select_tensor(ds4_gpu_tensor *selected, ds4_gpu_tensor *weights, ds4_gpu_tensor *probs, const void *model_map, uint64_t model_size, uint64_t bias_offset, uint64_t hash_offset, uint32_t hash_rows, uint32_t token, uint32_t n_expert, uint32_t n_expert_used, float expert_weight_scale, uint32_t n_expert_groups, uint32_t n_group_used, bool has_bias, bool hash_mode, const ds4_gpu_tensor *logits) {
+static int ds4_gpu_router_select_tensor_v4_impl(ds4_gpu_tensor *selected, ds4_gpu_tensor *weights, ds4_gpu_tensor *probs, const void *model_map, uint64_t model_size, uint64_t bias_offset, uint64_t hash_offset, uint32_t hash_rows, uint32_t token, uint32_t n_expert, uint32_t n_expert_used, float expert_weight_scale, uint32_t n_expert_groups, uint32_t n_group_used, bool has_bias, bool hash_mode, const ds4_gpu_tensor *logits) {
     if (!selected || !weights || !probs || !logits || !model_map || n_expert_groups > 1u || n_group_used > 0u) return 0;
     if (n_expert != 256u || n_expert_used != 6u || fabsf(expert_weight_scale - 1.5f) > 1.0e-6f) return 0;
     int32_t tok = (int32_t)token;
@@ -19219,7 +19219,7 @@ extern "C" int ds4_gpu_router_select_tensor(ds4_gpu_tensor *selected, ds4_gpu_te
     }
     return ok;
 }
-extern "C" int ds4_gpu_router_select_batch_tensor(ds4_gpu_tensor *selected, ds4_gpu_tensor *weights, ds4_gpu_tensor *probs, const void *model_map, uint64_t model_size, uint64_t bias_offset, uint64_t hash_offset, uint32_t hash_rows, uint32_t n_expert_groups, uint32_t n_group_used, bool has_bias, bool hash_mode, const ds4_gpu_tensor *logits, const ds4_gpu_tensor *tokens, uint32_t n_expert, uint32_t n_expert_used, float expert_weight_scale, uint32_t n_tokens) {
+static int ds4_gpu_router_select_batch_tensor_v4_impl(ds4_gpu_tensor *selected, ds4_gpu_tensor *weights, ds4_gpu_tensor *probs, const void *model_map, uint64_t model_size, uint64_t bias_offset, uint64_t hash_offset, uint32_t hash_rows, uint32_t n_expert_groups, uint32_t n_group_used, bool has_bias, bool hash_mode, const ds4_gpu_tensor *logits, const ds4_gpu_tensor *tokens, uint32_t n_expert, uint32_t n_expert_used, float expert_weight_scale, uint32_t n_tokens) {
     if (n_expert != 256u || n_expert_used != 6u || fabsf(expert_weight_scale - 1.5f) > 1.0e-6f) return 0;
     if (!selected || !weights || !probs || !logits || !tokens || !model_map || n_tokens == 0 ||
         n_expert_groups > 1u || n_group_used > 0u ||
@@ -24125,8 +24125,19 @@ static int routed_moe_launch(
         mid->bytes < (uint64_t)n_tokens * n_expert * expert_mid_dim * sizeof(float) ||
         down->bytes < (uint64_t)n_tokens * n_expert * out_dim * sizeof(float) ||
         out->bytes < (uint64_t)n_tokens * out_dim * sizeof(float)) {
-        return 0;
+        if (getenv("DS4_V41_TRACE")) {
+            fprintf(stderr, "ds4: [v41-trace] routed_moe reject: in_dim=%u mid_dim=%u out_dim=%u "
+                    "n_tok=%u n_exp=%u n_total=%u | x=%llu sel=%llu w=%llu gate=%llu up=%llu mid=%llu down=%llu out=%llu\n",
+                    expert_in_dim, expert_mid_dim, out_dim, n_tokens, n_expert, n_total_expert,
+                    (unsigned long long)(x?x->bytes:0), (unsigned long long)(selected?selected->bytes:0),
+                    (unsigned long long)(weights?weights->bytes:0), (unsigned long long)(gate?gate->bytes:0),
+                    (unsigned long long)(up?up->bytes:0), (unsigned long long)(mid?mid->bytes:0),
+                    (unsigned long long)(down?down->bytes:0), (unsigned long long)(out?out->bytes:0));
+        }
+        { if (getenv("DS4_V41_TRACE")) fprintf(stderr, "ds4: [v41-trace] routed_moe exit @ds4_cuda.cu:%d\n", 24137); return 0; }
     }
+    if (getenv("DS4_V41_TRACE") && (gate_type != 16u || down_type != 10u))
+        fprintf(stderr, "ds4: [v41-trace] routed_moe types gate=%u down=%u\n", gate_type, down_type);
     const int q4k_path = (gate_type == 12u && down_type == 12u);
     const int iq2_path = (gate_type == 16u && down_type == 10u);
     const int mxfp4_path = (gate_type == 39u && down_type == 39u);
@@ -24273,7 +24284,7 @@ static int routed_moe_launch(
     if (mxfp4_path) {
         if (!cuda_use_mxfp4_mmq()) {
             fprintf(stderr, "ds4: CUDA MXFP4 requires the MMQ backend\n");
-            return 0;
+            { if (getenv("DS4_V41_TRACE")) fprintf(stderr, "ds4: [v41-trace] routed_moe exit @ds4_cuda.cu:%d\n", 24287); return 0; }
         }
         const uint64_t gate_total =
             (uint64_t)n_total_expert * gate_expert_bytes;
@@ -24282,7 +24293,7 @@ static int routed_moe_launch(
         if (gate_total > model_size - gate_offset ||
             gate_total > model_size - up_offset ||
             down_total > model_size - down_offset) {
-            return 0;
+            { if (getenv("DS4_V41_TRACE")) fprintf(stderr, "ds4: [v41-trace] routed_moe exit @ds4_cuda.cu:%d\n", 24296); return 0; }
         }
 
         const uint64_t slot_count = (uint64_t)n_tokens * n_expert;
@@ -24312,7 +24323,7 @@ static int routed_moe_launch(
             fprintf(stderr,
                     "ds4: CUDA streaming MXFP4 experts are unavailable for layer %u\n",
                     layer_index);
-            return 0;
+            { if (getenv("DS4_V41_TRACE")) fprintf(stderr, "ds4: [v41-trace] routed_moe exit @ds4_cuda.cu:%d\n", 24326); return 0; }
         }
 
         const ds4_gpu_tensor *mx_selected = use_stream_selected_cache ?
@@ -24399,7 +24410,7 @@ static int routed_moe_launch(
                 "ds4: CUDA MXFP4 routed-MoE returned %d "
                 "(layer=%u n_tokens=%u)\n",
                 rc, layer_index, n_tokens);
-        return 0;
+        { if (getenv("DS4_V41_TRACE")) fprintf(stderr, "ds4: [v41-trace] routed_moe exit @ds4_cuda.cu:%d\n", 24413); return 0; }
     }
     /* mmq routed-MoE prefill tier (ported from the Entrpi/ds4 fork).
      * IQ2_XXS gate/up pair (one shared activation quantize + routing
@@ -24477,7 +24488,7 @@ static int routed_moe_launch(
     if (gate_bytes > model_size - gate_offset ||
         gate_bytes > model_size - up_offset ||
         down_bytes > model_size - down_offset) {
-        return 0;
+        { if (getenv("DS4_V41_TRACE")) fprintf(stderr, "ds4: [v41-trace] routed_moe exit @ds4_cuda.cu:%d\n", 24491); return 0; }
     }
     const uint64_t required_slot_count = (uint64_t)n_tokens * n_expert;
     const int logical_tier = ds4_tensor_device_idx(out);
@@ -24506,7 +24517,7 @@ static int routed_moe_launch(
         fprintf(stderr,
                 "ds4: CUDA streaming selected experts are unavailable for layer %u\n",
                 layer_index);
-        return 0;
+        { if (getenv("DS4_V41_TRACE")) fprintf(stderr, "ds4: [v41-trace] routed_moe exit @ds4_cuda.cu:%d\n", 24520); return 0; }
     }
     if (use_stream_selected_cache) {
         selected = &g_stream_selected_cache.slot_selected_tensor;

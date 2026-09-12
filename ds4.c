@@ -38628,7 +38628,7 @@ static ds4_context_memory glm_graph_context_memory_estimate_for_compact_cap(
             normal_layers - 1u);
 }
 
-#if defined(__APPLE__)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
 static ds4_context_memory ds41_graph_memory(uint32_t ctx);
 #endif
 
@@ -38641,7 +38641,7 @@ ds4_context_memory ds4_context_memory_estimate_with_prefill_mode(
     uint32_t ctx = ctx_size > 0 ? (uint32_t)ctx_size : 1u;
 
     if (ds4_backend_uses_graph(backend)) {
-#if defined(__APPLE__)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
         if (DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_DEEPSEEK41)
             return ds41_graph_memory(ctx);
 #endif
@@ -39044,6 +39044,10 @@ bool ds4_tokens_starts_with(const ds4_tokens *tokens, const ds4_tokens *prefix) 
 }
 
 #if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 graph on Metal AND CUDA */
+/* SPARKPORT: name the failing step of the V4.1 chain (DS4_V41_TRACE=1). */
+#define DS41_TRACE(name, expr) ({ const bool _r41 = (expr); \
+    if (!_r41 && getenv("DS4_V41_TRACE")) fprintf(stderr, "ds4: [v41-trace] FAILED %s\n", (name)); _r41; })
+
 /* =========================================================================
  * DeepSeek V4.1 Metal Graph.
  * =========================================================================
@@ -39670,6 +39674,32 @@ static bool ds41_attention(ds41_gpu_graph *g, const ds4_model *m,
            ds41_bf16(g->block, DS4_N_EMBD);
 }
 
+/* SPARKPORT: CUDA's routed MoE requires the per-layer selected-expert streaming cache to be
+ * primed with this token's experts (the V4 decode path does the same via
+ * metal_graph_decode_cuda_selected_load). Metal seeds its cache elsewhere, so this is CUDA-only. */
+static bool ds41_cuda_stream_selected_load(const ds41_gpu_graph *g, const ds4_model *m,
+                                           const ds4_layer_weights *l, uint32_t il,
+                                           uint64_t gate_expert_bytes, uint64_t down_expert_bytes) {
+#if !defined(DS4_ROCM_BUILD) && !defined(DS4_NO_GPU) && !defined(__APPLE__)
+    if (!g->streaming || !m || !l || !g->selected) return true;
+    if (DS4_N_EXPERT_USED == 0 || DS4_N_EXPERT_USED > DS4_MAX_EXPERT_USED) return false;
+    if (ds4_gpu_end_commands() == 0) return false;
+    int32_t ids[DS4_MAX_EXPERT_USED] = {0};
+    bool ok = ds4_gpu_tensor_read(g->selected, 0, ids,
+                                  (uint64_t)DS4_N_EXPERT_USED * sizeof(ids[0])) != 0;
+    if (ok) {
+        const ds4_gpu_stream_expert_table table =
+            graph_stream_expert_table_make(m, l, il, gate_expert_bytes, down_expert_bytes);
+        ok = ds4_gpu_stream_expert_cache_begin_selected_load(&table, ids, DS4_N_EXPERT_USED) != 0;
+    }
+    if (ds4_gpu_begin_commands() == 0) ok = false;
+    return ok;
+#else
+    (void)g; (void)m; (void)l; (void)il; (void)gate_expert_bytes; (void)down_expert_bytes;
+    return true;
+#endif
+}
+
 static bool ds41_moe(ds41_gpu_graph *g, const ds4_model *m,
                      const ds4_layer_weights *l, uint32_t il, uint32_t token) {
     uint64_t gate_row = 0, down_row = 0;
@@ -39680,25 +39710,28 @@ static bool ds41_moe(ds41_gpu_graph *g, const ds4_model *m,
     ds4_gpu_tensor *routed = shared_owner ? g->block : g->routed;
     const ds4_tensor *bias = ds41_image_at(g, g->pos) ? l->ffn_exp_probs_vl : l->ffn_exp_probs_b;
     if (!bias) return false;
-    if (!ds41_matmul(g->route_logits, m, l->ffn_gate_inp, g->norm, false) ||
-        !ds4_gpu_router_select_tensor(g->selected, g->route_weights, g->route_probs,
+    if (!DS41_TRACE("moe.route_matmul", ds41_matmul(g->route_logits, m, l->ffn_gate_inp, g->norm, false)) ||
+        !DS41_TRACE("moe.router_select", ds4_gpu_router_select_tensor(g->selected, g->route_weights, g->route_probs,
             m->map, m->size, bias->abs_offset, 0, 0, token,
             DS4_N_EXPERT, DS4_N_EXPERT_USED, DS4_EXPERT_WEIGHT_SCALE, 0, 0, true, false,
-            g->route_logits)) return false;
+            g->route_logits))) return false;
     if ((!shared_owner || g->tp_rank == (il & 1u)) &&
-        (!ds41_matmul(g->shared_gate, m, l->ffn_gate_shexp, g->norm, true) ||
-        !ds41_matmul(g->shared_up, m, l->ffn_up_shexp, g->norm, true) ||
-        !ds4_gpu_swiglu_tensor(g->shared_mid, g->shared_gate, g->shared_up,
-                              DS4_N_FF_EXP, DS4_SWIGLU_CLAMP_EXP, 1.0f) ||
-        !ds41_bf16(g->shared_mid, DS4_N_FF_EXP) ||
-        !ds41_matmul(g->shared, m, l->ffn_down_shexp, g->shared_mid, true))) return false;
-    if (!ds4_gpu_routed_moe_one_tensor(routed, g->gate, g->up, g->mid, g->experts,
+        (!DS41_TRACE("moe.shared_gate", ds41_matmul(g->shared_gate, m, l->ffn_gate_shexp, g->norm, true)) ||
+        !DS41_TRACE("moe.shared_up", ds41_matmul(g->shared_up, m, l->ffn_up_shexp, g->norm, true)) ||
+        !DS41_TRACE("moe.swiglu", ds4_gpu_swiglu_tensor(g->shared_mid, g->shared_gate, g->shared_up,
+                              DS4_N_FF_EXP, DS4_SWIGLU_CLAMP_EXP, 1.0f)) ||
+        !DS41_TRACE("moe.shared_bf16", ds41_bf16(g->shared_mid, DS4_N_FF_EXP)) ||
+        !DS41_TRACE("moe.shared_down", ds41_matmul(g->shared, m, l->ffn_down_shexp, g->shared_mid, true)))) return false;
+    if (!DS41_TRACE("moe.stream_selected_load",
+            ds41_cuda_stream_selected_load(g, m, l, il, gate_row * DS4_N_FF_EXP, down_row * DS4_N_EMBD)))
+        return false;
+    if (!DS41_TRACE("moe.routed_moe_one", ds4_gpu_routed_moe_one_tensor(routed, g->gate, g->up, g->mid, g->experts,
             m->map, m->size, l->ffn_gate_exps->abs_offset, l->ffn_up_exps->abs_offset,
             l->ffn_down_exps->abs_offset, l->ffn_gate_exps->type, l->ffn_down_exps->type,
             gate_row * DS4_N_FF_EXP, gate_row, down_row * DS4_N_EMBD, down_row,
             DS4_N_EMBD, DS4_N_FF_EXP, DS4_N_EMBD, g->selected, g->route_weights,
             DS4_N_EXPERT, DS4_N_EXPERT_USED, DS4_SWIGLU_CLAMP_EXP, g->norm, NULL, il,
-            !g->streaming)) return false;
+            !g->streaming))) return false;
     /* Keep the shared expert's BF16 boundary, then include it exactly once
      * in the existing F32 reduction. Alternate ownership across layers. */
     if (shared_owner && g->tp_rank == (il & 1u) &&
@@ -39744,8 +39777,9 @@ static bool ds41_graph_after_attention(ds41_gpu_graph *g, const ds4_model *m,
 
 static bool ds41_graph_before_moe(ds41_gpu_graph *g, const ds4_model *m,
                                  const ds4_layer_weights *l, uint32_t il) {
-    return ds41_graph_before_attention(g, m, l, il) && ds41_attention(g, m, l, il, false) &&
-        ds41_graph_after_attention(g, m, l);
+    return DS41_TRACE("before_attention", ds41_graph_before_attention(g, m, l, il)) &&
+        DS41_TRACE("attention", ds41_attention(g, m, l, il, false)) &&
+        DS41_TRACE("after_attention", ds41_graph_after_attention(g, m, l));
 }
 
 static bool ds41_norm_batch(ds4_gpu_tensor *out, const ds4_gpu_tensor *in,
@@ -40013,15 +40047,16 @@ static bool ds41_attention_batch(ds41_gpu_graph *g, const ds4_model *m,
 }
 
 static bool ds41_graph_after_moe(ds41_gpu_graph *g) {
-    return ds4_gpu_hc_expand_split_tensor(g->residual, g->block, g->after_attn, g->ffn_split, DS4_N_EMBD, DS4_N_HC) &&
-        ds41_bf16(g->residual, DS4_N_EMBD * DS4_N_HC) &&
-        ds4_gpu_tensor_copy(g->pre, 0, g->ffn_split, 0, DS4_N_HC * sizeof(float));
+    return DS41_TRACE("after_moe.hc_expand_split", ds4_gpu_hc_expand_split_tensor(g->residual, g->block, g->after_attn, g->ffn_split, DS4_N_EMBD, DS4_N_HC)) &&
+        DS41_TRACE("after_moe.bf16", ds41_bf16(g->residual, DS4_N_EMBD * DS4_N_HC)) &&
+        DS41_TRACE("after_moe.copy_pre", ds4_gpu_tensor_copy(g->pre, 0, g->ffn_split, 0, DS4_N_HC * sizeof(float)));
 }
 
 static bool ds41_graph_layer(ds41_gpu_graph *g, const ds4_model *m,
                             const ds4_layer_weights *l, uint32_t il, int token) {
-    return ds41_graph_before_moe(g, m, l, il) && ds41_moe(g, m, l, il, (uint32_t)token) &&
-        ds41_graph_after_moe(g);
+    return DS41_TRACE("before_moe", ds41_graph_before_moe(g, m, l, il)) &&
+        DS41_TRACE("moe", ds41_moe(g, m, l, il, (uint32_t)token)) &&
+        DS41_TRACE("after_moe", ds41_graph_after_moe(g));
 }
 
 static bool ds41_route_batch(ds41_gpu_graph *g, const ds4_model *m,
@@ -43726,6 +43761,13 @@ static uint64_t glm_graph_host_memory_bytes(void) {
     size_t len = sizeof(mem);
     if (sysctlbyname("hw.memsize", &mem, &len, NULL, 0) != 0) return 0;
     return mem;
+#elif defined(_SC_PHYS_PAGES) && defined(_SC_PAGESIZE)
+    /* SPARKPORT: on the GB10 the unified pool is host RAM, so the V4.1 memory
+     * admission needs the same number Apple reads from hw.memsize. */
+    const long pages = sysconf(_SC_PHYS_PAGES);
+    const long page = sysconf(_SC_PAGESIZE);
+    if (pages <= 0 || page <= 0) return 0;
+    return (uint64_t)pages * (uint64_t)page;
 #else
     return 0;
 #endif
@@ -56652,7 +56694,7 @@ struct ds4_session {
     uint64_t tp_session_id;
     uint64_t glm_reserved_graph_bytes;
 #ifndef DS4_NO_GPU
-#ifdef __APPLE__
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
     ds41_gpu_graph ds41_graph;
     bool ds41_graph_ready;
 #endif
@@ -58760,7 +58802,7 @@ static void session_greedy_splitkv_reset(ds4_session *s) {
 }
 #endif
 
-#if defined(__APPLE__) && !defined(DS4_NO_GPU)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
 typedef struct {
     ds4_gpu_tensor *tensor;
     uint64_t bytes;
@@ -58872,7 +58914,7 @@ static int ds41_load_payload(ds4_session *s, FILE *fp, const uint32_t *h,
 uint64_t ds4_session_payload_bytes(ds4_session *s) {
     if (!s || !s->checkpoint_valid) return 0;
     if (s->distributed) return 0;
-#if defined(__APPLE__) && !defined(DS4_NO_GPU)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
     if (ds4_session_is_ds41(s)) {
         if (!s->ds41_graph_ready || !s->ds41_graph.valid ||
             s->ds41_graph.pos != (uint32_t)s->checkpoint.len) return 0;
@@ -59012,7 +59054,7 @@ int ds4_session_save_payload(ds4_session *s, FILE *fp, char *err, size_t errlen)
     if (s->distributed) {
         return ds4_dist_session_save_payload(s->distributed, s, fp, err, errlen);
     }
-#if defined(__APPLE__) && !defined(DS4_NO_GPU)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
     if (ds4_session_is_ds41(s)) return ds41_save_payload(s, fp, err, errlen);
 #endif
     if (ds4_session_is_glm(s)) {
@@ -59391,7 +59433,7 @@ int ds4_session_load_payload(ds4_session *s, FILE *fp, uint64_t payload_bytes, c
         ds4_tokens_free(&tokens);
         return rc;
     }
-#if defined(__APPLE__) && !defined(DS4_NO_GPU)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
     if (ds4_session_is_ds41(s)) return ds41_load_payload(s, fp, h, remaining, err, errlen);
 #endif
     if (ds4_session_is_glm(s)) {
@@ -60101,7 +60143,7 @@ int ds4_dump_chat_tokenization(const char *model_path,
 }
 
 #ifndef DS4_NO_GPU
-#ifdef __APPLE__
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
 static bool ds41_memory_admit(ds4_engine *e, uint64_t graph_bytes, bool fit_cache);
 #endif
 static bool imatrix_read_text_file(const char *path, char **out, size_t *len_out) {
@@ -60170,7 +60212,7 @@ static int ds4_engine_collect_sequential_imatrix(
     ds4_glm_gpu_graph g = {0};
     const bool v41 = DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_DEEPSEEK41;
     const char *name = v41 ? "V4.1" : "GLM";
-#ifdef __APPLE__
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
     ds41_gpu_graph d = {.table = {{.fd = -1}, {.fd = -1}}};
     if (v41) {
         if (e->tp.active) {
@@ -60197,7 +60239,7 @@ static int ds4_engine_collect_sequential_imatrix(
         fprintf(stderr, "ds4: failed to allocate %s imatrix collector\n", name);
         imatrix_collector_free(&collector);
         glm_graph_free(&g);
-#ifdef __APPLE__
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
         ds41_graph_free(&d);
 #endif
         return 1;
@@ -60241,7 +60283,7 @@ static int ds4_engine_collect_sequential_imatrix(
                 prompt.len = max_tokens - tokens_done;
             }
             if (prompt.len > 0) {
-#ifdef __APPLE__
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
                 if (v41) ds41_graph_reset(&d);
                 else
 #endif
@@ -60250,7 +60292,7 @@ static int ds4_engine_collect_sequential_imatrix(
                     ok = false;
                 }
                 for (int pos = 0; ok && pos < prompt.len; pos++) {
-#ifdef __APPLE__
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
                     if (v41) ok = ds41_graph_step(&d, &e->model, &e->weights,
                                                    prompt.v[pos], NULL);
                     else
@@ -60335,7 +60377,7 @@ static int ds4_engine_collect_sequential_imatrix(
     }
     imatrix_collector_free(&collector);
     glm_graph_free(&g);
-#ifdef __APPLE__
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
     ds41_graph_free(&d);
 #endif
     return ok ? 0 : 1;
@@ -65456,7 +65498,7 @@ static bool engine_warm_full_model(const ds4_engine_options *opt) {
            opt->distributed.role == DS4_DISTRIBUTED_NONE;
 }
 
-#if defined(__APPLE__) && !defined(DS4_NO_GPU)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
 static bool ds41_memory_admit_for_host(ds4_engine *e, uint64_t graph_bytes,
                                       bool fit_cache, uint64_t host,
                                       uint64_t recommended) {
@@ -65820,7 +65862,7 @@ static int ds4_engine_open_internal(ds4_engine **out,
         }
     }
 #endif
-#if defined(__APPLE__) && !defined(DS4_NO_GPU)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
     if (DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_DEEPSEEK41 && !opt->inspect_only) {
         const uint32_t ctx = opt->context_size > 0 ? (uint32_t)opt->context_size : 4096;
         const uint32_t sessions = e->placement_session_count_hint > 0 ?
@@ -66243,7 +66285,7 @@ static int ds4_engine_open_internal(ds4_engine **out,
             *out = NULL;
             return 1;
         }
-#if defined(__APPLE__)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
         if (DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_DEEPSEEK41) {
             const uint32_t ctx = opt->context_size > 0 ? (uint32_t)opt->context_size : 4096;
             const uint32_t sessions = e->placement_session_count_hint > 0 ?
@@ -67629,7 +67671,7 @@ int ds4_session_create(ds4_session **out, ds4_engine *e, int ctx_size) {
     ds4_session *s = xcalloc(1, sizeof(*s));
     s->engine = e;
     s->ctx_size = ctx_size;
-#ifdef __APPLE__
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
     if (DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_DEEPSEEK41) {
         if (ctx_size > 1048576 ||
             !ds41_memory_admit(e, ds4_add_sat_u64(e->ds41_session_bytes,
@@ -67995,7 +68037,7 @@ void ds4_session_free(ds4_session *s) {
     }
 #ifndef DS4_NO_GPU
     else {
-#ifdef __APPLE__
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
         if (s->ds41_graph_ready) {
             s->engine->ds41_session_bytes -= s->ds41_graph.allocation_bytes;
             ds41_graph_free(&s->ds41_graph);
@@ -69571,7 +69613,7 @@ int ds4_session_sync_multimodal(
     }
     s->sync_images = images;
     s->sync_image_count = image_count;
-#if defined(__APPLE__) && !defined(DS4_NO_GPU)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
     if (ds4_session_is_ds41(s)) {
         s->ds41_graph.images = images;
         s->ds41_graph.image_count = image_count;
@@ -69582,7 +69624,7 @@ int ds4_session_sync_multimodal(
     s->graph.prefill_vision_span_count = image_count;
 #endif
     const int rc = ds4_session_sync(s, prompt, err, errlen);
-#if defined(__APPLE__) && !defined(DS4_NO_GPU)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
     if (ds4_session_is_ds41(s)) {
         s->ds41_graph.images = NULL;
         s->ds41_graph.image_count = 0;
@@ -69686,7 +69728,7 @@ static int ds4_session_sync_internal(ds4_session *s, const ds4_tokens *prompt, c
     ds4_engine *e = s->engine;
     const char *backend_name = ds4_backend_name(e->backend);
     (void)backend_name; (void)e;
-#ifdef __APPLE__
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
     if (ds4_session_is_ds41(s)) {
         ds41_gpu_graph *g = &s->ds41_graph;
         if (!s->ds41_graph_ready) {
@@ -71605,7 +71647,7 @@ static int ds4_session_eval_internal(ds4_session *s, int token, bool probe_mtp,
     return 1;
 #else
     ds4_engine *e = s->engine;
-#ifdef __APPLE__
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
     if (ds4_session_is_ds41(s)) {
         if (!s->ds41_graph_ready ||
             (!s->checkpoint_valid && s->checkpoint.len != 0) ||
@@ -72423,7 +72465,7 @@ static bool glm53_graph_encode_native_session_batch(
     return ok;
 }
 
-#if defined(__APPLE__)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
 static bool ds41_sessions_batch_supported(ds4_decode_item *items, int count) {
     if (!items || count < 2 || count > DS4_TP_BATCH_MAX_ROWS ||
         getenv("DS4_METAL_DISABLE_V41_SESSION_BATCH"))
@@ -72457,7 +72499,7 @@ static bool ds4_sessions_eval_batch_metal_supported(
         getenv("DS4_METAL_DECODE_STAGE_PROFILE") != NULL) {
         return false;
     }
-#if defined(__APPLE__)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
     if (DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_DEEPSEEK41)
         return ds41_sessions_batch_supported(items, count);
 #endif
@@ -72881,7 +72923,7 @@ static int ds4_sessions_eval_batch_metal(
     const bool native_qkv = native_shared &&
         metal_graph_native_session_batch_qkv_supported(items, count, e);
     if (native_ds41) {
-#if defined(__APPLE__)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
         ds41_gpu_graph *graphs[DS4_TP_BATCH_MAX_ROWS];
         int tokens[DS4_TP_BATCH_MAX_ROWS];
         for (uint32_t i = 0; i < prefill_rows; i++) {
@@ -72938,7 +72980,7 @@ static int ds4_sessions_eval_batch_metal(
     }
 #endif
 
-#if defined(__APPLE__)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
     if (ok && prefill)
         ok = ds4_gpu_tensor_read(prefill->ds41_graph.logits, 0, prefill->logits,
                                   (uint64_t)DS4_N_VOCAB * sizeof(float)) != 0;
@@ -72947,7 +72989,7 @@ static int ds4_sessions_eval_batch_metal(
         ds4_session *s = items[i].session;
         ds4_gpu_tensor *logits = ds4_session_is_glm(s)
             ? s->glm_graph.logits : metal_graph_logits(&s->graph);
-#if defined(__APPLE__)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
         if (native_ds41) logits = s->ds41_graph.logits;
 #endif
         ok = ds4_gpu_tensor_read(logits,
@@ -73009,7 +73051,7 @@ static int ds4_sessions_eval_batch_metal(
     return 0;
 }
 
-#if defined(__APPLE__)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
 static bool ds41_mixed_batch_supported(ds4_decode_item *items, int count,
                                        ds4_session *prefill, const ds4_tokens *prompt) {
     const int rows = prompt->len - prefill->checkpoint.len;
@@ -73393,7 +73435,7 @@ int ds4_sessions_eval_batch_with_prefill(
     }
 
 #ifndef DS4_NO_GPU
-#if defined(__APPLE__)
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
     if (ds4_session_is_ds41(prefill_session) &&
         ds41_mixed_batch_supported(items, count, prefill_session, prefill_prompt))
         return ds4_sessions_eval_batch_metal(items, count, prefill_session->engine,
@@ -78332,7 +78374,7 @@ void ds4_session_invalidate(ds4_session *s) {
     s->checkpoint_image_count = 0;
     ds4_session_dspark_capture_invalidate(s);
 #ifndef DS4_NO_GPU
-#ifdef __APPLE__
+#if !defined(DS4_NO_GPU)   /* SPARKPORT: V4.1 on Metal AND CUDA */
     if (s->ds41_graph_ready) ds41_graph_reset(&s->ds41_graph);
 #endif
     ds4_session_glm_reset_dense_cache(s);
