@@ -20325,7 +20325,7 @@ static int cuda_moe_lut_r16_enabled(void) {
     static int cached = -1;
     if (cached < 0) {
         const char *e = getenv("DS4_CUDA_MOE_LUT_R16");
-        cached = !(e && e[0] == '0');
+        cached = (e && e[0] == '1');  /* opt-in: measured null, 0.368 vs 0.372 ms */
     }
     return cached;
 }
