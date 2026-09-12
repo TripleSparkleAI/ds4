@@ -27273,7 +27273,16 @@ static int cuda_resident_expert_cache_ensure(uint64_t gate_expert_bytes,
         const uint64_t host_avail = cuda_host_available_bytes();
         uint64_t pool = (uint64_t)free_bytes;
         if (host_avail > pool) pool = host_avail;
-        const uint64_t margin = 8ull << 30;
+        /* Measured on the GB10 with an 8 GiB margin: both a lazily-filled and a
+         * pre-warmed arena ran the box to 1-7 GiB free once KV, staging and
+         * the streaming reads' page cache landed, and any foreign allocation
+         * then OOM-killed the process. 12 GiB survives a shared box; an idle
+         * box can lower it with DS4_CUDA_EXPERT_CACHE_MARGIN_GB. */
+        uint64_t margin_gb = 12;
+        { const char *e = getenv("DS4_CUDA_EXPERT_CACHE_MARGIN_GB");
+          if (e && *e) { char *end = NULL; unsigned long v = strtoul(e, &end, 10);
+                         if (end && end != e && v <= 120) margin_gb = v; } }
+        const uint64_t margin = margin_gb << 30;
         const uint64_t usable = pool > margin ? pool - margin : 0;
         const uint64_t max_slots = usable / stride;
         if ((uint64_t)slots > max_slots) slots = (uint32_t)max_slots;
