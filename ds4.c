@@ -3157,10 +3157,9 @@ static bool accelerator_prepare_model_tensor_spans(const ds4_model *m,
     for (uint64_t i = 0; i < m->n_tensors; i++) {
         const ds4_tensor *t = &m->tensors[i];
         if (t->bytes == 0) continue;
-        if (t->abs_offset > m->size || t->bytes > m->size - t->abs_offset) {
-            free(spans);
-            return false;
-        }
+        /* SPARKPORT: V4.1 keeps the Engram tables outside the mapped region on
+         * purpose (rows are read from disk). Skip anything unmapped, never fail. */
+        if (t->abs_offset > m->size || t->bytes > m->size - t->abs_offset) continue;
         if (!accelerator_span_filter_contains(t->abs_offset, t->bytes,
                                               span_offsets, span_sizes, span_count)) {
             continue;
@@ -3258,7 +3257,7 @@ static bool accelerator_cache_q8_tensors(const ds4_model *m,
     for (uint64_t i = 0; i < m->n_tensors; i++) {
         const ds4_tensor *t = &m->tensors[i];
         if (t->bytes == 0) continue;
-        if (t->abs_offset > m->size || t->bytes > m->size - t->abs_offset) return false;
+        if (t->abs_offset > m->size || t->bytes > m->size - t->abs_offset) continue;  /* unmapped: V4.1 Engram */
         if (!accelerator_span_filter_contains(t->abs_offset, t->bytes,
                                               span_offsets, span_sizes, span_count)) {
             continue;
@@ -39710,28 +39709,27 @@ static bool ds41_moe(ds41_gpu_graph *g, const ds4_model *m,
     ds4_gpu_tensor *routed = shared_owner ? g->block : g->routed;
     const ds4_tensor *bias = ds41_image_at(g, g->pos) ? l->ffn_exp_probs_vl : l->ffn_exp_probs_b;
     if (!bias) return false;
-    if (!DS41_TRACE("moe.route_matmul", ds41_matmul(g->route_logits, m, l->ffn_gate_inp, g->norm, false)) ||
-        !DS41_TRACE("moe.router_select", ds4_gpu_router_select_tensor(g->selected, g->route_weights, g->route_probs,
+    if (!ds41_matmul(g->route_logits, m, l->ffn_gate_inp, g->norm, false) ||
+        !ds4_gpu_router_select_tensor(g->selected, g->route_weights, g->route_probs,
             m->map, m->size, bias->abs_offset, 0, 0, token,
             DS4_N_EXPERT, DS4_N_EXPERT_USED, DS4_EXPERT_WEIGHT_SCALE, 0, 0, true, false,
-            g->route_logits))) return false;
+            g->route_logits)) return false;
     if ((!shared_owner || g->tp_rank == (il & 1u)) &&
-        (!DS41_TRACE("moe.shared_gate", ds41_matmul(g->shared_gate, m, l->ffn_gate_shexp, g->norm, true)) ||
-        !DS41_TRACE("moe.shared_up", ds41_matmul(g->shared_up, m, l->ffn_up_shexp, g->norm, true)) ||
-        !DS41_TRACE("moe.swiglu", ds4_gpu_swiglu_tensor(g->shared_mid, g->shared_gate, g->shared_up,
-                              DS4_N_FF_EXP, DS4_SWIGLU_CLAMP_EXP, 1.0f)) ||
-        !DS41_TRACE("moe.shared_bf16", ds41_bf16(g->shared_mid, DS4_N_FF_EXP)) ||
-        !DS41_TRACE("moe.shared_down", ds41_matmul(g->shared, m, l->ffn_down_shexp, g->shared_mid, true)))) return false;
-    if (!DS41_TRACE("moe.stream_selected_load",
-            ds41_cuda_stream_selected_load(g, m, l, il, gate_row * DS4_N_FF_EXP, down_row * DS4_N_EMBD)))
+        (!ds41_matmul(g->shared_gate, m, l->ffn_gate_shexp, g->norm, true) ||
+        !ds41_matmul(g->shared_up, m, l->ffn_up_shexp, g->norm, true) ||
+        !ds4_gpu_swiglu_tensor(g->shared_mid, g->shared_gate, g->shared_up,
+                              DS4_N_FF_EXP, DS4_SWIGLU_CLAMP_EXP, 1.0f) ||
+        !ds41_bf16(g->shared_mid, DS4_N_FF_EXP) ||
+        !ds41_matmul(g->shared, m, l->ffn_down_shexp, g->shared_mid, true))) return false;
+    if (!ds41_cuda_stream_selected_load(g, m, l, il, gate_row * DS4_N_FF_EXP, down_row * DS4_N_EMBD))
         return false;
-    if (!DS41_TRACE("moe.routed_moe_one", ds4_gpu_routed_moe_one_tensor(routed, g->gate, g->up, g->mid, g->experts,
+    if (!ds4_gpu_routed_moe_one_tensor(routed, g->gate, g->up, g->mid, g->experts,
             m->map, m->size, l->ffn_gate_exps->abs_offset, l->ffn_up_exps->abs_offset,
             l->ffn_down_exps->abs_offset, l->ffn_gate_exps->type, l->ffn_down_exps->type,
             gate_row * DS4_N_FF_EXP, gate_row, down_row * DS4_N_EMBD, down_row,
             DS4_N_EMBD, DS4_N_FF_EXP, DS4_N_EMBD, g->selected, g->route_weights,
             DS4_N_EXPERT, DS4_N_EXPERT_USED, DS4_SWIGLU_CLAMP_EXP, g->norm, NULL, il,
-            !g->streaming))) return false;
+            !g->streaming)) return false;
     /* Keep the shared expert's BF16 boundary, then include it exactly once
      * in the existing F32 reduction. Alternate ownership across layers. */
     if (shared_owner && g->tp_rank == (il & 1u) &&
@@ -40047,9 +40045,9 @@ static bool ds41_attention_batch(ds41_gpu_graph *g, const ds4_model *m,
 }
 
 static bool ds41_graph_after_moe(ds41_gpu_graph *g) {
-    return DS41_TRACE("after_moe.hc_expand_split", ds4_gpu_hc_expand_split_tensor(g->residual, g->block, g->after_attn, g->ffn_split, DS4_N_EMBD, DS4_N_HC)) &&
-        DS41_TRACE("after_moe.bf16", ds41_bf16(g->residual, DS4_N_EMBD * DS4_N_HC)) &&
-        DS41_TRACE("after_moe.copy_pre", ds4_gpu_tensor_copy(g->pre, 0, g->ffn_split, 0, DS4_N_HC * sizeof(float)));
+    return ds4_gpu_hc_expand_split_tensor(g->residual, g->block, g->after_attn, g->ffn_split, DS4_N_EMBD, DS4_N_HC) &&
+        ds41_bf16(g->residual, DS4_N_EMBD * DS4_N_HC) &&
+        ds4_gpu_tensor_copy(g->pre, 0, g->ffn_split, 0, DS4_N_HC * sizeof(float));
 }
 
 static bool ds41_graph_layer(ds41_gpu_graph *g, const ds4_model *m,
