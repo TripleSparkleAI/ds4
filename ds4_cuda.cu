@@ -20316,12 +20316,16 @@ __device__ static float half_warp_sum_f32(float v, uint32_t lane16) {
     return v;
 }
 
-/* DS4_CUDA_MOE_LUT16=0 restores the 8-lane LUT gate/up decode kernel. */
+/* DS4_CUDA_MOE_LUT16=1 opts in to the 16-lane LUT gate/up decode kernel.  It is
+ * OFF by default: measured 0.375 -> 0.307 ms per layer, but its greedy logprobs
+ * differ from the 8-lane kernel's in the last bit (sha 187cf54a55a03b34 against
+ * the baseline e73f763588d4f253) - the two kernels contract differently under
+ * --use_fast_math - so it fails the byte-identical gate.  Kept for the record. */
 static int cuda_moe_lut16_enabled(void) {
     static int cached = -1;
     if (cached < 0) {
         const char *e = getenv("DS4_CUDA_MOE_LUT16");
-        cached = !(e && e[0] == '0');
+        cached = (e && e[0] == '1');
     }
     return cached;
 }
