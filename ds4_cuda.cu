@@ -26672,6 +26672,221 @@ static int cuda_stream_selected_ranges_valid(
            down_bytes <= table->model_size - table->down_offset;
 }
 
+/* ---------------------------------------------------------------------------
+ * Resident streaming expert cache.
+ *
+ * Streaming models read their selected experts out of the model file on every
+ * MoE layer.  Metal keeps the hot ones resident on the device and only reads
+ * the misses; on CUDA these entry points were stubs returning 0, so every
+ * layer of every token re-read the same bytes through the staging pipeline.
+ * Measured on a DGX Spark running V4.1 Flash Q2: ~12.4 ms of file read per
+ * layer against ~1.1 ms of GPU work, 40 layers per token.
+ *
+ * The cache is a flat arena of fixed-size expert triples (gate, up, down)
+ * keyed by (layer, expert) and evicted least-recently-used.  A hit turns a
+ * file read into a device-to-device copy; a miss reads into the arena and
+ * then copies out of it.  Either way the caller still gets the compact
+ * per-layer scratch layout the MoE kernels index into, so nothing downstream
+ * changes.
+ * ------------------------------------------------------------------------ */
+
+struct cuda_resident_expert_cache {
+    char    *arena;
+    uint64_t stride;             /* 2 * gate_expert_bytes + down_expert_bytes */
+    uint64_t gate_expert_bytes;
+    uint64_t down_expert_bytes;
+    uint32_t slot_count;         /* triples the arena actually holds */
+    uint32_t budget_experts;     /* what the planner asked for */
+    uint64_t clock;
+    uint64_t lookups;
+    uint64_t hits;
+    uint64_t evictions;
+    std::vector<uint64_t> slot_key;
+    std::vector<uint64_t> slot_clock;
+    std::unordered_map<uint64_t, uint32_t> key_slot;
+};
+static cuda_resident_expert_cache g_resident_experts;
+
+#define CUDA_RESIDENT_EMPTY_KEY UINT64_MAX
+
+static inline uint64_t cuda_resident_key(uint32_t layer, int32_t expert) {
+    return ((uint64_t)layer << 32) | (uint64_t)(uint32_t)expert;
+}
+
+static void cuda_resident_expert_cache_release(void) {
+    if (g_resident_experts.arena) (void)cudaFree(g_resident_experts.arena);
+    g_resident_experts.arena = NULL;
+    g_resident_experts.stride = 0;
+    g_resident_experts.gate_expert_bytes = 0;
+    g_resident_experts.down_expert_bytes = 0;
+    g_resident_experts.slot_count = 0;
+    g_resident_experts.clock = 0;
+    g_resident_experts.lookups = 0;
+    g_resident_experts.hits = 0;
+    g_resident_experts.evictions = 0;
+    g_resident_experts.slot_key.clear();
+    g_resident_experts.slot_clock.clear();
+    g_resident_experts.key_slot.clear();
+}
+
+/* Allocate on first use, once the expert geometry is known.  Halve the slot
+ * count until the arena fits rather than failing the load: a smaller cache is
+ * always better than none, and the planner's budget is an estimate that does
+ * not know what else already sits on the device. */
+static int cuda_resident_expert_cache_ensure(uint64_t gate_expert_bytes,
+                                             uint64_t down_expert_bytes) {
+    /* Escape hatch: DS4_CUDA_EXPERT_CACHE=0 streams every expert, so the cache
+     * can be A/B'd against the plain path in one build. */
+    {
+        const char *env = getenv("DS4_CUDA_EXPERT_CACHE");
+        if (env && env[0] == '0') return 0;
+    }
+    if (g_resident_experts.budget_experts == 0) return 0;
+    if (gate_expert_bytes == 0 || down_expert_bytes == 0) return 0;
+    if (g_resident_experts.arena &&
+        g_resident_experts.gate_expert_bytes == gate_expert_bytes &&
+        g_resident_experts.down_expert_bytes == down_expert_bytes) {
+        return g_resident_experts.slot_count != 0;
+    }
+    /* Geometry changed (a different model, or a different quant): start over. */
+    cuda_resident_expert_cache_release();
+
+    const uint64_t stride = 2u * gate_expert_bytes + down_expert_bytes;
+    if (stride == 0 || stride > UINT64_MAX / 2u) return 0;
+
+    uint32_t slots = g_resident_experts.budget_experts;
+
+    /* The planner's budget is computed before anything else is placed, and on
+     * a unified-memory part (GB10) cudaMalloc overcommits: the allocation
+     * succeeds and the OOM killer arrives on first touch instead.  So cap
+     * against what the driver says is actually free, keeping a margin for the
+     * KV cache, the staging pool and the host page cache that feeds it. */
+    size_t free_bytes = 0, total_bytes = 0;
+    if (cudaMemGetInfo(&free_bytes, &total_bytes) == cudaSuccess) {
+        const uint64_t margin = 8ull << 30;
+        const uint64_t usable = (uint64_t)free_bytes > margin ?
+            (uint64_t)free_bytes - margin : 0;
+        const uint64_t max_slots = usable / stride;
+        if ((uint64_t)slots > max_slots) slots = (uint32_t)max_slots;
+    }
+    char *arena = NULL;
+    while (slots > 0) {
+        if (cudaMalloc((void **)&arena, (size_t)slots * (size_t)stride) == cudaSuccess) break;
+        (void)cudaGetLastError();
+        arena = NULL;
+        slots /= 2u;
+    }
+    if (!arena || slots == 0) {
+        fprintf(stderr, "ds4: CUDA resident expert cache unavailable, streaming every expert\n");
+        return 0;
+    }
+    try {
+        g_resident_experts.slot_key.assign(slots, CUDA_RESIDENT_EMPTY_KEY);
+        g_resident_experts.slot_clock.assign(slots, 0);
+        g_resident_experts.key_slot.reserve(slots * 2u);
+    } catch (...) {
+        (void)cudaFree(arena);
+        return 0;
+    }
+    g_resident_experts.arena = arena;
+    g_resident_experts.stride = stride;
+    g_resident_experts.gate_expert_bytes = gate_expert_bytes;
+    g_resident_experts.down_expert_bytes = down_expert_bytes;
+    g_resident_experts.slot_count = slots;
+    fprintf(stderr,
+            "ds4: CUDA resident expert cache %u experts, %.2f GiB (%.2f MiB each)\n",
+            slots, (double)slots * (double)stride / 1073741824.0,
+            (double)stride / 1048576.0);
+    return 1;
+}
+
+/* Return the slot holding (layer, expert), or claim one by evicting the
+ * least-recently-used entry.  *hit tells the caller whether the bytes are
+ * already there or still have to be read. */
+static uint32_t cuda_resident_expert_slot(uint32_t layer, int32_t expert, int *hit) {
+    g_resident_experts.lookups++;
+    if ((g_resident_experts.lookups % 4000u) == 0u && getenv("DS4_CUDA_EXPERT_CACHE_STATS"))
+        fprintf(stderr, "ds4: [expert-cache] %llu lookups, hit_rate=%.3f, resident=%zu/%u, evictions=%llu\n",
+                (unsigned long long)g_resident_experts.lookups,
+                (double)g_resident_experts.hits / (double)g_resident_experts.lookups,
+                g_resident_experts.key_slot.size(), g_resident_experts.slot_count,
+                (unsigned long long)g_resident_experts.evictions);
+    const uint64_t key = cuda_resident_key(layer, expert);
+    auto it = g_resident_experts.key_slot.find(key);
+    if (it != g_resident_experts.key_slot.end()) {
+        g_resident_experts.hits++;
+        g_resident_experts.slot_clock[it->second] = ++g_resident_experts.clock;
+        *hit = 1;
+        return it->second;
+    }
+    uint32_t victim = 0;
+    uint64_t oldest = UINT64_MAX;
+    for (uint32_t s = 0; s < g_resident_experts.slot_count; s++) {
+        if (g_resident_experts.slot_key[s] == CUDA_RESIDENT_EMPTY_KEY) { victim = s; oldest = 0; break; }
+        if (g_resident_experts.slot_clock[s] < oldest) { oldest = g_resident_experts.slot_clock[s]; victim = s; }
+    }
+    const uint64_t evicted = g_resident_experts.slot_key[victim];
+    if (evicted != CUDA_RESIDENT_EMPTY_KEY) {
+        g_resident_experts.key_slot.erase(evicted);
+        g_resident_experts.evictions++;
+    }
+    g_resident_experts.slot_key[victim] = key;
+    g_resident_experts.slot_clock[victim] = ++g_resident_experts.clock;
+    g_resident_experts.key_slot[key] = victim;
+    *hit = 0;
+    return victim;
+}
+
+static inline char *cuda_resident_gate_ptr(uint32_t slot) {
+    return g_resident_experts.arena + (uint64_t)slot * g_resident_experts.stride;
+}
+static inline char *cuda_resident_up_ptr(uint32_t slot) {
+    return cuda_resident_gate_ptr(slot) + g_resident_experts.gate_expert_bytes;
+}
+static inline char *cuda_resident_down_ptr(uint32_t slot) {
+    return cuda_resident_gate_ptr(slot) + 2u * g_resident_experts.gate_expert_bytes;
+}
+
+/* On a miss the arena slot is filled from the model file, then every path
+ * copies arena -> scratch on the device.  The extra device-to-device hop on a
+ * miss is ~0.1 ms against a ~12 ms read, so it is not worth a second code
+ * path to avoid it. */
+static int cuda_resident_expert_fetch(const ds4_gpu_stream_expert_table *table,
+                                      int32_t expert,
+                                      char *gate_dst, char *up_dst, char *down_dst) {
+    int hit = 0;
+    const uint32_t slot = cuda_resident_expert_slot(table->layer, expert, &hit);
+    const uint64_t e = (uint64_t)(uint32_t)expert;
+    if (!hit) {
+        if (!cuda_model_copy_to_device_streamed(
+                    cuda_resident_gate_ptr(slot), table->model_map, table->model_size,
+                    table->gate_offset + e * table->gate_expert_bytes,
+                    table->gate_expert_bytes, "resident gate expert fill") ||
+            !cuda_model_copy_to_device_streamed(
+                    cuda_resident_up_ptr(slot), table->model_map, table->model_size,
+                    table->up_offset + e * table->gate_expert_bytes,
+                    table->gate_expert_bytes, "resident up expert fill") ||
+            !cuda_model_copy_to_device_streamed(
+                    cuda_resident_down_ptr(slot), table->model_map, table->model_size,
+                    table->down_offset + e * table->down_expert_bytes,
+                    table->down_expert_bytes, "resident down expert fill")) {
+            /* Drop the slot: it holds nothing we can trust now. */
+            g_resident_experts.key_slot.erase(cuda_resident_key(table->layer, expert));
+            g_resident_experts.slot_key[slot] = CUDA_RESIDENT_EMPTY_KEY;
+            return 0;
+        }
+    }
+    return cuda_ok(cudaMemcpy(gate_dst, cuda_resident_gate_ptr(slot),
+                              (size_t)table->gate_expert_bytes,
+                              cudaMemcpyDeviceToDevice), "resident gate expert copy") &&
+           cuda_ok(cudaMemcpy(up_dst, cuda_resident_up_ptr(slot),
+                              (size_t)table->gate_expert_bytes,
+                              cudaMemcpyDeviceToDevice), "resident up expert copy") &&
+           cuda_ok(cudaMemcpy(down_dst, cuda_resident_down_ptr(slot),
+                              (size_t)table->down_expert_bytes,
+                              cudaMemcpyDeviceToDevice), "resident down expert copy");
+}
+
 static int cuda_stream_selected_cache_begin_load(
         const ds4_gpu_stream_expert_table *table,
         const int32_t *selected_ids,
@@ -26749,6 +26964,8 @@ static int cuda_stream_selected_cache_begin_load(
         return 0;
     }
 
+    const int resident_ok = cuda_resident_expert_cache_ensure(
+            table->gate_expert_bytes, table->down_expert_bytes);
     for (uint32_t i = 0; i < compact_ids.size(); i++) {
         const uint64_t expert = (uint32_t)compact_ids[i];
         const uint64_t gate_src =
@@ -26759,6 +26976,17 @@ static int cuda_stream_selected_cache_begin_load(
             table->down_offset + expert * table->down_expert_bytes;
         const uint64_t gate_dst = (uint64_t)i * table->gate_expert_bytes;
         const uint64_t down_dst = (uint64_t)i * table->down_expert_bytes;
+        if (resident_ok) {
+            if (!cuda_resident_expert_fetch(
+                        table, (int32_t)expert,
+                        g_stream_selected_cache.gate_ptr + gate_dst,
+                        g_stream_selected_cache.up_ptr + gate_dst,
+                        g_stream_selected_cache.down_ptr + down_dst)) {
+                cuda_stream_selected_cache_invalidate();
+                return 0;
+            }
+            continue;
+        }
         if (!cuda_model_copy_to_device_streamed(
                     g_stream_selected_cache.gate_ptr + gate_dst,
                     table->model_map, table->model_size,
@@ -32812,9 +33040,8 @@ extern "C" int ds4_gpu_stream_expert_cache_begin_selected_load(
 extern "C" uint32_t ds4_gpu_stream_expert_cache_budget_for_expert_size(
         uint64_t gate_expert_bytes,
         uint64_t down_expert_bytes) {
-    (void)gate_expert_bytes;
-    (void)down_expert_bytes;
-    return 0;
+    if (gate_expert_bytes == 0 || down_expert_bytes == 0) return 0;
+    return g_resident_experts.budget_experts;
 }
 
 extern "C" int ds4_gpu_tensor_copy_f32_to_f16(ds4_gpu_tensor *dst, uint64_t dst_offset,
@@ -32930,27 +33157,37 @@ extern "C" void ds4_gpu_set_ssd_streaming(bool enabled) {
 }
 
 extern "C" void ds4_gpu_set_streaming_expert_cache_budget(uint32_t experts) {
-    (void)experts;
+    if (g_resident_experts.budget_experts == experts) return;
+    g_resident_experts.budget_experts = experts;
+    /* The arena is sized from this on next use; drop any existing one. */
+    cuda_resident_expert_cache_release();
 }
 
 extern "C" void ds4_gpu_set_streaming_expert_cache_expert_bytes(uint64_t bytes) {
-    (void)bytes;
+    (void)bytes; /* geometry is taken from the layer table at fill time */
 }
 
 extern "C" uint32_t ds4_gpu_stream_expert_cache_configured_count(void) {
-    return 0;
+    return g_resident_experts.budget_experts;
 }
 
 extern "C" uint32_t ds4_gpu_stream_expert_cache_current_count(void) {
+    if (g_resident_experts.slot_count) return (uint32_t)g_resident_experts.key_slot.size();
     return g_stream_selected_cache.valid ?
         g_stream_selected_cache.compact_count : 0;
 }
 
 extern "C" void ds4_gpu_stream_expert_cache_reset_route_hotness(void) {
+    /* Only the eviction heuristic is prompt-local; the resident bytes stay
+     * warm across sessions, so age the clock rather than dropping the arena. */
+    for (uint32_t s = 0; s < g_resident_experts.slot_count; s++)
+        g_resident_experts.slot_clock[s] = 0;
+    g_resident_experts.clock = 0;
 }
 
 extern "C" void ds4_gpu_stream_expert_cache_release_resident(void) {
     cuda_stream_selected_cache_release();
+    cuda_resident_expert_cache_release();
 }
 
 extern "C" int ds4_gpu_stream_expert_cache_seed_selected(
