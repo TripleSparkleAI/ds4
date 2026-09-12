@@ -40209,7 +40209,7 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model 
         if (prof) clock_gettime(CLOCK_MONOTONIC, &e0);
         if (!ds41_hash_tokens(g, &next_history, &token, 1, &ids[0][0])) return false;
         for (uint32_t i = 0; !ds41_image_at(g, g->pos) && i < 2; i++) {
-            if (!ds4_engram_read(&g->table[i], ids[i], DS4_ENGRAM_COLS, g->rows[i])) return false;
+            if (!ds4_engram_read_batch(&g->table[i], ids[i], 1, DS4_ENGRAM_COLS, g->rows[i])) return false;
         }
         if (prof) { clock_gettime(CLOCK_MONOTONIC, &e1);
             ds41_prof_add("token.engram", (e1.tv_sec - e0.tv_sec) * 1.0e6 + (e1.tv_nsec - e0.tv_nsec) / 1.0e3); }

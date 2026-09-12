@@ -11,6 +11,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <pthread.h>
 #ifdef __APPLE__
 #include <dispatch/dispatch.h>
 #endif
@@ -198,6 +199,15 @@ typedef struct {
     int error[ENGRAM_READERS];
 } engram_batch;
 
+typedef struct { void *batch; size_t part; } engram_part_arg;
+static engram_part_arg part_args[ENGRAM_READERS];
+static void read_batch_part(void *context, size_t part);
+static void *read_batch_part_thread(void *arg) {
+    engram_part_arg *a = arg;
+    read_batch_part(a->batch, a->part);
+    return NULL;
+}
+
 static void read_batch_part(void *context, size_t part) {
     engram_batch *batch = context;
     const engram_request *request = batch->request;
@@ -259,6 +269,25 @@ bool ds4_engram_read_batch(const ds4_engram_table *t, const uint32_t *rows,
             batch.readers = ENGRAM_READERS;
             dispatch_apply_f(batch.readers,
                 dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), &batch, read_batch_part);
+        } else
+#else
+        /* SPARKPORT: the same fixed concurrency on Linux.  A decode token reads
+         * 24 rows per table, every one a cold random read into ~189 GiB of
+         * tables outside the map; serially that is ~5 ms a token.  Threads
+         * are spawned per call: cheap against 48 disk latencies. */
+        if (count >= 8) {
+            pthread_t tid[ENGRAM_READERS];
+            size_t spawned = 0;
+            batch.readers = count < ENGRAM_READERS ? count : ENGRAM_READERS;
+            for (size_t part = 1; part < batch.readers; part++) {
+                engram_part_arg *arg = &part_args[part];
+                arg->batch = &batch; arg->part = part;
+                if (pthread_create(&tid[part], NULL, read_batch_part_thread, arg) != 0) break;
+                spawned = part;
+            }
+            read_batch_part(&batch, 0);
+            for (size_t part = 1; part <= spawned; part++) pthread_join(tid[part], NULL);
+            for (size_t part = spawned + 1; part < batch.readers; part++) read_batch_part(&batch, part);
         } else
 #endif
         read_batch_part(&batch, 0);
