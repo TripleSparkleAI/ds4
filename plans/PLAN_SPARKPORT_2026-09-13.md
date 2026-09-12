@@ -67,3 +67,27 @@ All four died on a rate limit seconds in, resumed on the new login with context 
 Verification: sparkport-verify.sh (committed 3d50648a5) - correctness gate is load-independent
 and runs now; speed gate refuses a busy box. Driver stamp 580.159.03 captured; earlier numbers
 were driver-unstamped.
+
+## Fleet results (2026-09-13, later): four lanes, four passes, one integrated tree
+Every lane's greedy logprob A/B (cache on vs DS4_CUDA_EXPERT_CACHE=0) is byte-identical AND matches the
+untouched baseline's sha256 e73f763588d4f253 - so PREADPOOL's threaded reads and DRAINCUT's event path
+emit the identical logit distribution to the original serial, device-synced code.
+  PAGECACHE  1bb1a7041  PASS  (an earlier FAIL was an OOM from ~60 GiB of someone else's work on the
+                              box, not the code; re-run passed). Finding: fadvise(DONTNEED) already
+                              existed but ran BEFORE the madvise that unmapped the pages, so Linux
+                              skipped every page and it silently no-op'd. O_DIRECT is on by default,
+                              so the WILLNEED readahead half is inert on this path.
+  PREADPOOL  865ffbd01  PASS  8 pthreads, pinned staging + non-blocking streams, serial fallback.
+  DRAINCUT   4ff4c2a27  PASS  CUDA event + pinned async D2H replaces cudaDeviceSynchronize per layer.
+                              Also PASS on its own toggle: DS4_CUDA_SELECTED_DRAIN_SYNC=1 vs unset,
+                              byte-identical. Corrected my brief: end_commands is cudaDeviceSynchronize,
+                              not a stream sync, unless DS4_CUDA_END_STREAM_SYNC is set.
+  HOTLIST    c98c0acf2  PASS  persistent hot list at ~/.cache/ds4/cuda_expert_hotlist.txt, Metal v1
+                              format, fills empty slots only. Run 1 wrote 4801 experts; run 2 loaded
+                              and seeded per layer (166/302/421/537 resident during token 1).
+Integrated: lane-integrate at b52898fab. Two textual conflicts, both the four lanes inserting at the
+same anchor in cuda_stream_selected_cache_begin_load; resolved as hotlist record+prewarm FIRST, then
+PAGECACHE readahead, then the PREADPOOL pool block. Builds on the Spark rc=0, 8 pre-existing warnings.
+Its own correctness gate + (if quiet) speed gate are in flight. Box memory contested all evening: the
+arena sized 2184-3657 experts where an empty box gives ~5500, so no speed number today is comparable
+to this morning's 5.28 t/s.
