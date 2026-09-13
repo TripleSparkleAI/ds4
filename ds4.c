@@ -39737,14 +39737,31 @@ static bool ds41_attention_project(ds41_gpu_graph *g, const ds4_model *m,
         ds41_norm(g->kv, g->kv, m, l->attn_kv_a_norm);
 }
 
+static bool ds41_attention_impl(ds41_gpu_graph *g, const ds4_model *m,
+                                const ds4_layer_weights *l, uint32_t il, bool projected,
+                                bool skip_project);
 static bool ds41_attention(ds41_gpu_graph *g, const ds4_model *m,
                            const ds4_layer_weights *l, uint32_t il, bool projected) {
+    return ds41_attention_impl(g, m, l, il, projected, false);
+}
+/* The decode core with the projections already issued (by a graph island):
+ * everything ds41_attention does except ds41_attention_project.  Distinct from
+ * projected=true, which is the prefill contract and returns after the KV
+ * window write. */
+static bool ds41_attention_core(ds41_gpu_graph *g, const ds4_model *m,
+                                const ds4_layer_weights *l, uint32_t il) {
+    return ds41_attention_impl(g, m, l, il, false, true);
+}
+
+static bool ds41_attention_impl(ds41_gpu_graph *g, const ds4_model *m,
+                                const ds4_layer_weights *l, uint32_t il, bool projected,
+                                bool skip_project) {
     const uint32_t pos = g->pos, ratio = ds4_layer_compress_ratio(il);
     const uint32_t owner = il < 8 ? 0u : il < 14 ? 1u : il < 20 ? 2u : 3u;
     const uint32_t n_comp = ratio ? (pos + 1u) / ratio : 0u;
     const uint32_t heads = DS4_N_HEAD / g->tp_world;
     const uint32_t head0 = g->tp_rank * heads;
-    if (!projected && !ds41_attention_project(g, m, l)) return false;
+    if (!projected && !skip_project && !ds41_attention_project(g, m, l)) return false;
     if (!ds41_rope(g->q, heads, DS4_N_HEAD_DIM, il, pos, false) ||
         !ds41_rope(g->kv, 1, DS4_N_HEAD_DIM, il, pos, false) ||
         !ds4_gpu_dsv41_quantize(g->kv, DS4_N_HEAD_DIM, 1, DS4_V41_FP8_E8M0) ||
@@ -39978,7 +39995,7 @@ static bool ds41_graph_before_moe(ds41_gpu_graph *g, const ds4_model *m,
     bool ok = (mask & 1) ?
         DS41_ISLAND(il, 0u, 1u, g->norm, ds41_graph_before_attention(g, m, l, il) && ds41_attention_project(g, m, l)) :
         (ds41_graph_before_attention(g, m, l, il) && ds41_attention_project(g, m, l));
-    ok = ok && ds41_attention(g, m, l, il, true);
+    ok = ok && ds41_attention_core(g, m, l, il);
     return ok && ((mask & 2) ? DS41_ISLAND(il, 0u, 2u, g->x, ds41_graph_after_attention(g, m, l))
                              : ds41_graph_after_attention(g, m, l));
 }
