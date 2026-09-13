@@ -39692,10 +39692,20 @@ static bool ds41_attention_select(ds41_gpu_graph *g, const ds4_model *m,
  * the decode heads - takes the position in its arguments and stays eager.
  * A capture failure retires the entry and the step runs eagerly; profiling
  * syncs would break a capture, so the islands are skipped under DS4_V41_PROFILE. */
+/* DS4_CUDA_V41_DECODE_GRAPH is a bitmask: 1 layer front, 2 post-attention, 4 router,
+ * 8 routed MoE; "1" alone or any non-number means all. */
 static int ds41_decode_graph_islands(void) {
     static int cached = -1;
-    if (cached < 0) cached = getenv("DS4_CUDA_V41_DECODE_GRAPH") != NULL &&
-                             !ds41_prof_enabled() && ds4_gpu_decode_graphs_supported();
+    if (cached < 0) {
+        const char *e = getenv("DS4_CUDA_V41_DECODE_GRAPH");
+        int mask = 0;
+        if (e && *e && !ds41_prof_enabled() && ds4_gpu_decode_graphs_supported()) {
+            char *end = NULL;
+            const long v = strtol(e, &end, 10);
+            mask = (end && *end == 0 && v > 1) ? (int)v : 15;
+        }
+        cached = mask;
+    }
     return cached;
 }
 
@@ -39862,7 +39872,7 @@ static bool ds41_moe(ds41_gpu_graph *g, const ds4_model *m,
             m->map, m->size, bias->abs_offset, 0, 0, token, \
             DS4_N_EXPERT, DS4_N_EXPERT_USED, DS4_EXPERT_WEIGHT_SCALE, 0, 0, true, false, \
             g->route_logits))
-    if (ds41_decode_graph_islands()) {
+    if (ds41_decode_graph_islands() & 4) {
         if (!DS41_ISLAND(il, 0u, 3u, g->route_logits, DS41_ROUTER_ONCE())) return false;
     } else if (!DS41_ROUTER_ONCE()) return false;
 #undef DS41_ROUTER_ONCE
@@ -39895,7 +39905,7 @@ static bool ds41_moe(ds41_gpu_graph *g, const ds4_model *m,
             DS4_N_EMBD, DS4_N_FF_EXP, DS4_N_EMBD, g->selected, g->route_weights, \
             DS4_N_EXPERT, DS4_N_EXPERT_USED, DS4_SWIGLU_CLAMP_EXP, g->norm, NULL, il, \
             !g->streaming)
-    if (!ds41_decode_graph_islands()) {
+    if (!(ds41_decode_graph_islands() & 8)) {
         if (!DS41_TRACE("moe.routed", DS41_ROUTED_MOE_ONCE())) return false;
     } else {
         ds4_decode_graph_key key;
@@ -39964,10 +39974,13 @@ static bool ds41_graph_before_moe(ds41_gpu_graph *g, const ds4_model *m,
         return DS41_TRACE("before_attention", ds41_graph_before_attention(g, m, l, il)) &&
             DS41_TRACE("attention", ds41_attention(g, m, l, il, false)) &&
             DS41_TRACE("after_attention", ds41_graph_after_attention(g, m, l));
-    return DS41_ISLAND(il, 0u, 1u, g->norm,
-            ds41_graph_before_attention(g, m, l, il) && ds41_attention_project(g, m, l)) &&
-        ds41_attention(g, m, l, il, true) &&
-        DS41_ISLAND(il, 0u, 2u, g->x, ds41_graph_after_attention(g, m, l));
+    const int mask = ds41_decode_graph_islands();
+    bool ok = (mask & 1) ?
+        DS41_ISLAND(il, 0u, 1u, g->norm, ds41_graph_before_attention(g, m, l, il) && ds41_attention_project(g, m, l)) :
+        (ds41_graph_before_attention(g, m, l, il) && ds41_attention_project(g, m, l));
+    ok = ok && ds41_attention(g, m, l, il, true);
+    return ok && ((mask & 2) ? DS41_ISLAND(il, 0u, 2u, g->x, ds41_graph_after_attention(g, m, l))
+                             : ds41_graph_after_attention(g, m, l));
 }
 
 static bool ds41_norm_batch(ds4_gpu_tensor *out, const ds4_gpu_tensor *in,
