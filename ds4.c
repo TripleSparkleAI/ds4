@@ -40803,8 +40803,13 @@ static bool ds41_graph_prefill_sweep(ds41_gpu_graph *g, const ds4_model *m,
                     const double now = now_sec(); \
                     if (stage_profile) fprintf(stderr, "ds4: V4.1 stage layer=%u pos=%u rows=%u %s=%.3f ms\n", \
                         il, start, count, (label), (now - stage_start) * 1000); \
-                    if (ok && stage_checksum) ds41_prefill_checksum_print(g->batch.residual, \
-                        (uint64_t)count * DS4_N_HC * DS4_N_EMBD, il, start, (label)); \
+                    if (ok && stage_checksum) { \
+                        ds41_prefill_checksum_print(g->batch.residual, (uint64_t)count * DS4_N_HC * DS4_N_EMBD, il, start, (label)); \
+                        ds41_prefill_checksum_print(g->batch.block, (uint64_t)count * DS4_N_EMBD, il, start, "  block"); \
+                        ds41_prefill_checksum_print(g->batch.routed, (uint64_t)count * DS4_N_EMBD, il, start, "  routed"); \
+                        ds41_prefill_checksum_print(g->batch.shared, (uint64_t)count * DS4_N_EMBD, il, start, "  shared"); \
+                        ds41_prefill_checksum_print(g->batch.selected, (uint64_t)count * DS4_N_EXPERT_USED, il, start, "  selected"); \
+                    } \
                     stage_start = now; \
                     if (ok) ok = ds4_gpu_begin_commands() != 0; \
                 } \
