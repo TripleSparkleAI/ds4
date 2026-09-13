@@ -22770,6 +22770,46 @@ __global__ static void moe_down_sum6_qwarp32_kernel(
     if (lane == 0) out[row] = total;
 }
 
+/* HITS-FIRST: the sum6 kernel split per slot.  Each slot's `acc` is computed
+ * exactly as in moe_down_sum6_qwarp32_kernel and stored; the sum kernel then
+ * adds the six partials in slot order from 0.0f, which is the same float
+ * sequence the fused kernel executes - so the two forms are bit-identical,
+ * and the hit slots can run while the miss slots are still being read. */
+__global__ static void moe_down_slot_partial_qwarp32_kernel(
+        float *partial,
+        const char *down_base,
+        const cuda_block_q8_K *midq,
+        const int32_t *selected,
+        uint64_t down_expert_bytes,
+        uint64_t down_row_bytes,
+        uint32_t midq_blocks,
+        uint32_t out_dim,
+        uint32_t slot) {
+    uint32_t lane = threadIdx.x & 7u;
+    uint32_t row = blockIdx.x * 32u + (threadIdx.x >> 3u);
+    if (row >= out_dim) return;
+    int32_t expert_i = selected[slot];
+    if (expert_i < 0) expert_i = 0;
+    const cuda_block_q2_K *wr = (const cuda_block_q2_K *)(down_base + (uint64_t)(uint32_t)expert_i * down_expert_bytes + (uint64_t)row * down_row_bytes);
+    const cuda_block_q8_K *xq = midq + (uint64_t)slot * midq_blocks;
+    float acc = 0.0f;
+    for (uint32_t b = lane; b < midq_blocks; b += 8u) acc += dev_dot_q2_K_q8_K_block(wr + b, xq + b);
+    acc = quarter_warp_sum_f32(acc, lane);
+    if (lane == 0) partial[(uint64_t)slot * out_dim + row] = acc;
+}
+
+__global__ static void moe_down_sum_partials6_kernel(
+        float *out,
+        const float *partial,
+        uint32_t out_dim) {
+    const uint32_t row = blockIdx.x * 256u + threadIdx.x;
+    if (row >= out_dim) return;
+    float total = 0.0f;
+    #pragma unroll
+    for (uint32_t slot = 0; slot < 6u; slot++) total += partial[(uint64_t)slot * out_dim + row];
+    out[row] = total;
+}
+
 __global__ static void moe_down_owned_slots_qwarp32_kernel(
         float *down_out,
         const char *down_base,
@@ -25375,6 +25415,7 @@ static int routed_moe_launch(
         const uint32_t use_decode_lut_gate =
             n_tokens == 1u && xq_blocks <= 32u &&
             getenv("DS4_CUDA_MOE_NO_DECODE_LUT_GATE") == NULL;
+        int hf_split_down = 0;   /* hits-first ran the per-slot down kernels itself */
         /* Hits-first overlaps only the plain LUT gate/up launch; every other
          * path reads all six experts at once, so drain the pending load now. */
         if (g_hits_first.active &&
@@ -25977,9 +26018,24 @@ static int routed_moe_launch(
                         const uint32_t all = n_expert >= 32u ? 0xffffffffu : ((1u << n_expert) - 1u);
                         const uint32_t miss = g_hits_first.pair_miss_mask & all;
                         const uint32_t hit = all & ~miss;
+                        const int split_down = n_expert == 6u && !owned_filtered &&
+                                               getenv("DS4_CUDA_MOE_NO_ATOMIC_DOWN") == NULL;
+#define DS4_HF_PAIR_TAIL(mask_) do { \
+                            for (uint32_t p_ = 0; p_ < n_expert; p_++) { \
+                                if (!(((mask_) >> p_) & 1u)) continue; \
+                                q8_K_quantize_kernel<<<dim3(midq_blocks, 1, 1), 256, 0, cuda_decode_stream()>>>( \
+                                    midq + (uint64_t)p_ * midq_blocks, (const float *)mid->ptr + (uint64_t)p_ * expert_mid_dim, expert_mid_dim, 1u); \
+                                moe_down_slot_partial_qwarp32_kernel<<<(out_dim + 31u) / 32u, 256, 0, cuda_decode_stream()>>>( \
+                                    (float *)down->ptr, down_w, midq, (const int32_t *)selected->ptr, \
+                                    down_expert_bytes, down_row_bytes, midq_blocks, out_dim, p_); \
+                            } } while (0)
                         if (hit) DS4_LUT_GATE_UP_LAUNCH(hit);
+                        if (hit && split_down) DS4_HF_PAIR_TAIL(hit);
                         if (!cuda_hits_first_wait()) return 0;
                         if (miss) DS4_LUT_GATE_UP_LAUNCH(miss);
+                        if (miss && split_down) DS4_HF_PAIR_TAIL(miss);
+                        if (split_down) hf_split_down = 1;
+#undef DS4_HF_PAIR_TAIL
                     } else {
                         DS4_LUT_GATE_UP_LAUNCH(0xffffffffu);
                     }
@@ -26027,7 +26083,8 @@ static int routed_moe_launch(
                 ok = cuda_ok(cudaGetLastError(),
                              "owned routed_moe active mid quantize launch");
             } else {
-                q8_K_quantize_kernel<<<midq_grid, 256, 0, cuda_decode_stream()>>>(midq, (const float *)mid->ptr, expert_mid_dim, n_tokens * n_expert);
+                if (!hf_split_down)
+                    q8_K_quantize_kernel<<<midq_grid, 256, 0, cuda_decode_stream()>>>(midq, (const float *)mid->ptr, expert_mid_dim, n_tokens * n_expert);
                 ok = cuda_ok(cudaGetLastError(), "routed_moe mid quantize launch");
             }
         }
@@ -26089,7 +26146,10 @@ static int routed_moe_launch(
                         }
                     }
                 } else {
-                    if (n_expert == 6u) {
+                    if (n_expert == 6u && hf_split_down) {
+                        moe_down_sum_partials6_kernel<<<(out_dim + 255u) / 256u, 256, 0, cuda_decode_stream()>>>(
+                            (float *)out->ptr, (const float *)down->ptr, out_dim);
+                    } else if (n_expert == 6u) {
                         moe_down_sum6_qwarp32_kernel<<<sgrid, 256, 0, cuda_decode_stream()>>>(
                             (float *)out->ptr,
                             down_w,
