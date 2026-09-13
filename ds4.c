@@ -39683,6 +39683,37 @@ static bool ds41_attention_select(ds41_gpu_graph *g, const ds4_model *m,
         ds41_attention_select_published(g, m, l, il);
 }
 
+/* SPARKPORT: CUDA-graph islands for the decode layer (DS4_CUDA_V41_DECODE_GRAPH=1).
+ * Everything that takes no token position is captured once per layer and
+ * replayed: island 0/1 is the layer front (Engram add, HC mix, norms, the
+ * q/kv projections), island 0/2 the post-attention half (HC expand and mix,
+ * norms), island 0/3 the router (logits matmul + select), island 1/0 the
+ * routed MoE.  The attention core - ropes, the KV window write, the gather,
+ * the decode heads - takes the position in its arguments and stays eager.
+ * A capture failure retires the entry and the step runs eagerly; profiling
+ * syncs would break a capture, so the islands are skipped under DS4_V41_PROFILE. */
+static int ds41_decode_graph_islands(void) {
+    static int cached = -1;
+    if (cached < 0) cached = getenv("DS4_CUDA_V41_DECODE_GRAPH") != NULL &&
+                             !ds41_prof_enabled() && ds4_gpu_decode_graphs_supported();
+    return cached;
+}
+
+#define DS41_ISLAND(il_, island_, variant_, anchor_, expr) ({ \
+    bool _ok = true; \
+    ds4_decode_graph_key _key; memset(&_key, 0, sizeof(_key)); \
+    _key.il = (il_); _key.island = (island_); _key.variant = (variant_); \
+    _key.cur_hc = (void *)(anchor_); \
+    for (;;) { \
+        const int _st = ds4_gpu_decode_graph_begin(&_key); \
+        if (_st == 1) break; \
+        _ok = (expr); \
+        if (_st != 0) break; \
+        if (!_ok) { ds4_gpu_decode_graph_abort(&_key); continue; } \
+        if (ds4_gpu_decode_graph_end(&_key) == 0) break; \
+    } \
+    _ok; })
+
 /* SPARKPORT: the q/kv projections and their norms - no position in them, so
  * they can sit inside a CUDA-graph island with the layer's front half. */
 static bool ds41_attention_project(ds41_gpu_graph *g, const ds4_model *m,
@@ -39702,6 +39733,7 @@ static bool ds41_attention(ds41_gpu_graph *g, const ds4_model *m,
     const uint32_t owner = il < 8 ? 0u : il < 14 ? 1u : il < 20 ? 2u : 3u;
     const uint32_t n_comp = ratio ? (pos + 1u) / ratio : 0u;
     const uint32_t heads = DS4_N_HEAD / g->tp_world;
+    const uint32_t head0 = g->tp_rank * heads;
     if (!projected && !ds41_attention_project(g, m, l)) return false;
     if (!ds41_rope(g->q, heads, DS4_N_HEAD_DIM, il, pos, false) ||
         !ds41_rope(g->kv, 1, DS4_N_HEAD_DIM, il, pos, false) ||
@@ -39925,37 +39957,6 @@ static bool ds41_graph_after_attention(ds41_gpu_graph *g, const ds4_model *m,
         ds4_gpu_hc_weighted_sum_split_tensor(g->x, g->after_attn, g->attn_split, DS4_N_EMBD, DS4_N_HC) &&
         ds41_bf16(g->x, DS4_N_EMBD) && ds41_norm(g->norm, g->x, m, l->ffn_norm);
 }
-
-/* SPARKPORT: CUDA-graph islands for the decode layer (DS4_CUDA_V41_DECODE_GRAPH=1).
- * Everything that takes no token position is captured once per layer and
- * replayed: island 0/1 is the layer front (Engram add, HC mix, norms, the
- * q/kv projections), island 0/2 the post-attention half (HC expand and mix,
- * norms), island 0/3 the router (logits matmul + select), island 1/0 the
- * routed MoE.  The attention core - ropes, the KV window write, the gather,
- * the decode heads - takes the position in its arguments and stays eager.
- * A capture failure retires the entry and the step runs eagerly; profiling
- * syncs would break a capture, so the islands are skipped under DS4_V41_PROFILE. */
-static int ds41_decode_graph_islands(void) {
-    static int cached = -1;
-    if (cached < 0) cached = getenv("DS4_CUDA_V41_DECODE_GRAPH") != NULL &&
-                             !ds41_prof_enabled() && ds4_gpu_decode_graphs_supported();
-    return cached;
-}
-
-#define DS41_ISLAND(il_, island_, variant_, anchor_, expr) ({ \
-    bool _ok = true; \
-    ds4_decode_graph_key _key; memset(&_key, 0, sizeof(_key)); \
-    _key.il = (il_); _key.island = (island_); _key.variant = (variant_); \
-    _key.cur_hc = (void *)(anchor_); \
-    for (;;) { \
-        const int _st = ds4_gpu_decode_graph_begin(&_key); \
-        if (_st == 1) break; \
-        _ok = (expr); \
-        if (_st != 0) break; \
-        if (!_ok) { ds4_gpu_decode_graph_abort(&_key); continue; } \
-        if (ds4_gpu_decode_graph_end(&_key) == 0) break; \
-    } \
-    _ok; })
 
 static bool ds41_graph_before_moe(ds41_gpu_graph *g, const ds4_model *m,
                                  const ds4_layer_weights *l, uint32_t il) {
