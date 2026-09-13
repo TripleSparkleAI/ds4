@@ -2378,6 +2378,12 @@ static uint32_t g_expert_pread_active;
 static uint32_t g_expert_pread_remaining;
 static uint32_t g_expert_pread_n_tasks;
 static uint32_t g_expert_pread_next_task;
+/* STAGED batches: tasks [0, stage_boundary) form a first stage the caller may
+ * wait on before the whole batch drains.  stage_done counts finished tasks
+ * below the boundary; workers claim tasks in index order, so the first stage
+ * is also the first to be picked up.  Zero boundary = no stage. */
+static uint32_t g_expert_pread_stage_boundary;
+static uint32_t g_expert_pread_stage_done;
 static uint64_t g_expert_pread_generation;
 static cuda_expert_pread_task *g_expert_pread_tasks;
 static int g_expert_pread_device;
@@ -2512,12 +2518,16 @@ static void *cuda_expert_pread_worker(void *arg) {
             pthread_mutex_unlock(&g_expert_pread_mutex);
             t->ok = device >= 0 && cuda_expert_pread_task_run(ctx, t);
             pthread_mutex_lock(&g_expert_pread_mutex);
+            if (task_index < g_expert_pread_stage_boundary &&
+                ++g_expert_pread_stage_done == g_expert_pread_stage_boundary) {
+                pthread_cond_broadcast(&g_expert_pread_done);
+            }
         }
         if (g_expert_pread_remaining > 0 && --g_expert_pread_remaining == 0) {
             g_expert_pread_tasks = NULL;
             g_expert_pread_n_tasks = 0;
             g_expert_pread_active = 0;
-            pthread_cond_signal(&g_expert_pread_done);
+            pthread_cond_broadcast(&g_expert_pread_done);
         }
         pthread_mutex_unlock(&g_expert_pread_mutex);
     }
@@ -2614,7 +2624,15 @@ static uint32_t g_expert_pread_wait_n = 0;
 
 /* Hand a batch to the pool and return at once; cuda_expert_pread_pool_wait()
  * blocks until it has drained.  The old dispatch is start + wait. */
+static int cuda_expert_pread_pool_dispatch_start_staged(cuda_expert_pread_task *tasks,
+                                                        uint32_t n_tasks,
+                                                        uint32_t stage_boundary);
 static int cuda_expert_pread_pool_dispatch_start(cuda_expert_pread_task *tasks, uint32_t n_tasks) {
+    return cuda_expert_pread_pool_dispatch_start_staged(tasks, n_tasks, 0);
+}
+static int cuda_expert_pread_pool_dispatch_start_staged(cuda_expert_pread_task *tasks,
+                                                        uint32_t n_tasks,
+                                                        uint32_t stage_boundary) {
     if (!tasks || n_tasks <= 1) return 0;
     if (g_model_fd < 0) return 0;
     uint32_t n_workers = cuda_expert_pread_thread_limit();
@@ -2656,6 +2674,8 @@ static int cuda_expert_pread_pool_dispatch_start(cuda_expert_pread_task *tasks, 
     g_expert_pread_tasks = tasks;
     g_expert_pread_n_tasks = n_tasks;
     g_expert_pread_next_task = 0;
+    g_expert_pread_stage_boundary = stage_boundary <= n_tasks ? stage_boundary : 0;
+    g_expert_pread_stage_done = 0;
     g_expert_pread_active = n_workers;
     g_expert_pread_remaining = n_workers;
     g_expert_pread_generation++;
@@ -2664,6 +2684,18 @@ static int cuda_expert_pread_pool_dispatch_start(cuda_expert_pread_task *tasks, 
     pthread_cond_broadcast(&g_expert_pread_start);
     pthread_mutex_unlock(&g_expert_pread_mutex);
     return 1;
+}
+
+/* Block until every task below the stage boundary has finished (or the whole
+ * batch has drained).  A no-op for an unstaged batch. */
+static void cuda_expert_pread_pool_wait_stage(void) {
+    if (!g_expert_pread_wait_tasks) return;
+    pthread_mutex_lock(&g_expert_pread_mutex);
+    while (g_expert_pread_remaining != 0 &&
+           g_expert_pread_stage_done < g_expert_pread_stage_boundary) {
+        pthread_cond_wait(&g_expert_pread_done, &g_expert_pread_mutex);
+    }
+    pthread_mutex_unlock(&g_expert_pread_mutex);
 }
 
 static int cuda_expert_pread_pool_wait(void) {
@@ -2718,7 +2750,26 @@ struct cuda_hits_first_state {
     std::vector<uint32_t> slot_of;
     std::vector<int32_t>  compact_ids;
     uint32_t layer;
+    /* STAGED order: tasks [0, n_gate_up) are the gate/up reads of every miss
+     * (gate at first_task_of[i], up right after), tasks [n_gate_up, end) the
+     * down reads, one per miss in the same order.  The routed launch waits
+     * for the first stage, runs the miss gate/up kernel, then waits for the
+     * rest before the miss down kernels.  staged == 0 keeps the old
+     * gate,up,down-per-expert order with first_task_of[i]+2 as the down. */
+    int      staged;
+    uint32_t n_gate_up;
 };
+static uint32_t cuda_hits_first_down_task(const cuda_hits_first_state *s, uint32_t first) {
+    return s->staged ? s->n_gate_up + first / 2u : first + 2u;
+}
+static int cuda_hits_first_staged_enabled(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *e = getenv("DS4_CUDA_HITS_FIRST_STAGED");
+        cached = !(e && e[0] == '0');
+    }
+    return cached;
+}
 static cuda_hits_first_state g_hits_first;
 static float *g_hf_partials = NULL;      /* 6 x out_dim floats, device; own allocation, never a scratch alias */
 static uint64_t g_hf_partials_floats = 0;
@@ -2745,6 +2796,10 @@ static void cuda_stream_selected_cache_invalidate(void);
 static uint64_t cuda_resident_key_fwd(uint32_t layer, int32_t expert);
 
 static int cuda_hits_first_wait(void);
+/* First stage of a staged hits-first load: the miss gate/up bytes are in. */
+static void cuda_hits_first_wait_gate_up(void) {
+    if (g_hits_first.active && g_hits_first.staged) cuda_expert_pread_pool_wait_stage();
+}
 
 static void cuda_expert_pread_pool_shutdown(void) {
     if (g_expert_pread_initialized) {
@@ -26042,8 +26097,14 @@ static int routed_moe_launch(
                             } } while (0)
                         if (hit) DS4_LUT_GATE_UP_LAUNCH(hit);
                         if (hit && split_down) DS4_HF_PAIR_TAIL(hit);
+                        /* Staged: the miss gate/up bytes land first, and the
+                         * gate/up kernel for the miss pairs goes out while the
+                         * down bytes are still in flight.  Same launches, same
+                         * order per pair; only the wait moved. */
+                        cuda_hits_first_wait_gate_up();
+                        if (miss && g_hits_first.staged) DS4_LUT_GATE_UP_LAUNCH(miss);
                         if (!cuda_hits_first_wait()) return 0;
-                        if (miss) DS4_LUT_GATE_UP_LAUNCH(miss);
+                        if (miss && !g_hits_first.staged) DS4_LUT_GATE_UP_LAUNCH(miss);
                         if (miss && split_down) DS4_HF_PAIR_TAIL(miss);
                         if (split_down) hf_split_down = 1;
 #undef DS4_HF_PAIR_TAIL
@@ -27632,7 +27693,8 @@ static int cuda_hits_first_wait(void) {
         const uint32_t f = g_hits_first.first_task_of[i];
         if (f == UINT32_MAX) continue;
         const std::vector<cuda_expert_pread_task> &tasks = g_hits_first.tasks;
-        if (!(tasks[f].ok && tasks[f + 1].ok && tasks[f + 2].ok)) {
+        const uint32_t d = cuda_hits_first_down_task(&g_hits_first, f);
+        if (!(tasks[f].ok && tasks[f + 1].ok && tasks[d].ok)) {
             all_ok = 0;
             g_resident_experts.key_slot.erase(
                     cuda_resident_key_fwd(g_hits_first.layer, g_hits_first.compact_ids[i]));
@@ -28403,12 +28465,50 @@ static int cuda_stream_selected_cache_begin_load(
         }
 
         int pooled = 0;
+        uint32_t sync_n_gate_up = 0;   /* nonzero: tasks are in staged order */
         const double t_read0 = cuda_wall_sec();
         int hits_first = 0;
         if (!tasks.empty() && resident_ok && slot_count <= 8u &&
             cuda_resident_zero_copy_enabled() && cuda_hits_first_enabled()) {
             /* Hand the vectors to the pending state first: the pool keeps a
              * pointer into the task buffer until the wait. */
+            g_hits_first.staged = 0;
+            g_hits_first.n_gate_up = 0;
+            if (cuda_hits_first_staged_enabled()) {
+                /* Reorder to gate/up of every miss first, then the downs, so
+                 * the miss gate/up kernel can start before the down bytes
+                 * land.  Same tasks, same destinations; only the pool's
+                 * pick-up order changes. */
+                std::vector<cuda_expert_pread_task> staged;
+                bool reordered = true;
+                try {
+                    staged.reserve(tasks.size());
+                    for (uint32_t i = 0; i < n_experts; i++) {
+                        const uint32_t f = first_task_of[i];
+                        if (f == UINT32_MAX) continue;
+                        first_task_of[i] = (uint32_t)staged.size();
+                        staged.push_back(tasks[f]);
+                        staged.push_back(tasks[f + 1]);
+                    }
+                    const uint32_t n_gate_up = (uint32_t)staged.size();
+                    for (uint32_t i = 0; i < n_experts; i++) {
+                        const uint32_t f = first_task_of[i];
+                        if (f == UINT32_MAX) continue;
+                        /* the original down task sits at 3*(f/2)+2 */
+                        staged.push_back(tasks[(f / 2u) * 3u + 2u]);
+                    }
+                    tasks.swap(staged);
+                    g_hits_first.staged = 1;
+                    g_hits_first.n_gate_up = n_gate_up;
+                    sync_n_gate_up = n_gate_up;
+                } catch (...) {
+                    reordered = false;
+                }
+                if (!reordered) {
+                    cuda_stream_selected_cache_invalidate();
+                    return 0;
+                }
+            }
             g_hits_first.tasks = std::move(tasks);
             g_hits_first.first_task_of = std::move(first_task_of);
             g_hits_first.slot_of = std::move(slot_of);
@@ -28421,8 +28521,9 @@ static int cuda_stream_selected_cache_begin_load(
                 if (g_hits_first.first_task_of[(uint32_t)slot_ids[i]] != UINT32_MAX)
                     g_hits_first.pair_miss_mask |= 1u << i;
             }
-            if (cuda_expert_pread_pool_dispatch_start(g_hits_first.tasks.data(),
-                                                     (uint32_t)g_hits_first.tasks.size())) {
+            if (cuda_expert_pread_pool_dispatch_start_staged(g_hits_first.tasks.data(),
+                                                     (uint32_t)g_hits_first.tasks.size(),
+                                                     g_hits_first.staged ? g_hits_first.n_gate_up : 0u)) {
                 g_hits_first.active = 1;
                 hits_first = 1;
                 for (uint32_t i = 0; i < slot_count; i++)
@@ -28454,7 +28555,8 @@ static int cuda_stream_selected_cache_begin_load(
         for (uint32_t i = 0; i < n_experts; i++) {
             const uint32_t f = first_task_of[i];
             if (f == UINT32_MAX) continue;
-            const int ok = tasks[f].ok && tasks[f + 1].ok && tasks[f + 2].ok;
+            const uint32_t d = sync_n_gate_up ? sync_n_gate_up + f / 2u : f + 2u;
+            const int ok = tasks[f].ok && tasks[f + 1].ok && tasks[d].ok;
             if (!ok) {
                 all_ok = 0;
                 if (resident_ok) {
