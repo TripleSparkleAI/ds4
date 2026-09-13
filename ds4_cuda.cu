@@ -21184,6 +21184,36 @@ __global__ static void moe_scatter_sorted_pairs_kernel(
     sorted_pairs[pos] = pair;
 }
 
+/* SPARKPORT: the scatter above places a pair at atomicAdd(cursor), so the
+ * order of pairs inside an expert's segment changes from run to run, and the
+ * tiles built from it reduce in that order.  Measured on V4.1 Flash: two runs
+ * of a ~588-token prompt differ from layer 0's routed MoE onward.  This is the
+ * same scatter done stably by one thread, in pair order - a few thousand
+ * iterations, microseconds, and a reproducible pair order by construction. */
+__global__ static void moe_scatter_sorted_pairs_stable_kernel(
+        uint32_t *sorted_pairs,
+        uint32_t *cursors,
+        const int32_t *selected,
+        uint32_t pair_count,
+        uint32_t n_total_expert) {
+    if (threadIdx.x != 0 || blockIdx.x != 0) return;
+    for (uint32_t pair = 0; pair < pair_count; pair++) {
+        const int32_t expert_i = selected[pair];
+        if (expert_i < 0 || (uint32_t)expert_i >= n_total_expert) continue;
+        sorted_pairs[cursors[(uint32_t)expert_i]++] = pair;
+    }
+}
+
+/* DS4_CUDA_MOE_UNSTABLE_SCATTER=1 restores the atomic scatter. */
+static int cuda_moe_stable_scatter_enabled(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *e = getenv("DS4_CUDA_MOE_UNSTABLE_SCATTER");
+        cached = !(e && e[0] == '1');
+    }
+    return cached;
+}
+
 __global__ static void moe_build_expert_tile_offsets_kernel(
         uint32_t *tile_offsets,
         uint32_t *tile_total,
@@ -25445,7 +25475,15 @@ static int routed_moe_launch(
                     moe_prefix_sorted_pairs_kernel<<<1, 1, 0, cuda_decode_stream()>>>(offsets, cursors, counts, table_experts);
                     ok = cuda_ok(cudaGetLastError(), "routed_moe sorted prefix launch");
                 }
-                if (ok && !use_small_sorted_prep) {
+                if (ok && !use_small_sorted_prep && cuda_moe_stable_scatter_enabled()) {
+                    moe_scatter_sorted_pairs_stable_kernel<<<1, 1, 0, cuda_decode_stream()>>>(
+                        sorted_pairs,
+                        cursors,
+                        (const int32_t *)selected->ptr,
+                        pair_count,
+                        table_experts);
+                    ok = cuda_ok(cudaGetLastError(), "moe stable sorted-pairs scatter launch");
+                } else if (ok && !use_small_sorted_prep) {
                     moe_scatter_sorted_pairs_kernel<<<(pair_count + 255u) / 256u, 256, 0, cuda_decode_stream()>>>(
                         sorted_pairs,
                         cursors,
