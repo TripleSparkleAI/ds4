@@ -2609,7 +2609,12 @@ static int cuda_expert_pread_pool_init(uint32_t n_threads) {
 /* Run every task through the pool and wait.  Returns 1 when the batch ran
  * (check each task's ok flag), 0 when the pool declined before touching
  * anything, in which case the caller must do the reads itself. */
-static int cuda_expert_pread_pool_dispatch(cuda_expert_pread_task *tasks, uint32_t n_tasks) {
+static cuda_expert_pread_task *g_expert_pread_wait_tasks = NULL;
+static uint32_t g_expert_pread_wait_n = 0;
+
+/* Hand a batch to the pool and return at once; cuda_expert_pread_pool_wait()
+ * blocks until it has drained.  The old dispatch is start + wait. */
+static int cuda_expert_pread_pool_dispatch_start(cuda_expert_pread_task *tasks, uint32_t n_tasks) {
     if (!tasks || n_tasks <= 1) return 0;
     if (g_model_fd < 0) return 0;
     uint32_t n_workers = cuda_expert_pread_thread_limit();
@@ -2654,11 +2659,24 @@ static int cuda_expert_pread_pool_dispatch(cuda_expert_pread_task *tasks, uint32
     g_expert_pread_active = n_workers;
     g_expert_pread_remaining = n_workers;
     g_expert_pread_generation++;
+    g_expert_pread_wait_tasks = tasks;
+    g_expert_pread_wait_n = n_tasks;
     pthread_cond_broadcast(&g_expert_pread_start);
+    pthread_mutex_unlock(&g_expert_pread_mutex);
+    return 1;
+}
+
+static int cuda_expert_pread_pool_wait(void) {
+    cuda_expert_pread_task *tasks = g_expert_pread_wait_tasks;
+    const uint32_t n_tasks = g_expert_pread_wait_n;
+    if (!tasks) return 1;
+    pthread_mutex_lock(&g_expert_pread_mutex);
     while (g_expert_pread_remaining != 0) {
         pthread_cond_wait(&g_expert_pread_done, &g_expert_pread_mutex);
     }
     pthread_mutex_unlock(&g_expert_pread_mutex);
+    g_expert_pread_wait_tasks = NULL;
+    g_expert_pread_wait_n = 0;
 
     /* Apply the O_DIRECT disable here, once, on the only thread that may. */
     int direct_unsupported = 0;
@@ -2672,6 +2690,71 @@ static int cuda_expert_pread_pool_dispatch(cuda_expert_pread_task *tasks, uint32
         g_model_direct_align = 1;
     }
     return 1;
+}
+
+static int cuda_expert_pread_pool_dispatch(cuda_expert_pread_task *tasks, uint32_t n_tasks) {
+    if (!cuda_expert_pread_pool_dispatch_start(tasks, n_tasks)) return 0;
+    return cuda_expert_pread_pool_wait();
+}
+
+/* ---------------------------------------------------------------------------
+ * HITS-FIRST.  A decode layer selects six experts; the ones already resident
+ * need no read, the misses take ~20-37 ms of NVMe per token while the GPU
+ * idles.  With zero-copy the hit slots are readable the moment they are
+ * claimed, so the selected load returns as soon as the miss reads are
+ * STARTED, and the routed MoE launch runs the gate/up kernel for the hit
+ * pairs, waits for the reads, then runs it for the miss pairs.  Each pair is
+ * computed by the same kernel with the same arithmetic, and the down kernel
+ * still sums the six slots in slot order, so the result is bit-identical.
+ * DS4_CUDA_HITS_FIRST=0 restores the wait-then-launch order.
+ * ------------------------------------------------------------------------ */
+struct cuda_hits_first_state {
+    int      active;
+    uint32_t n_experts;
+    uint32_t pair_miss_mask;
+    double   t0;
+    std::vector<cuda_expert_pread_task> tasks;
+    std::vector<uint32_t> first_task_of;
+    std::vector<uint32_t> slot_of;
+    std::vector<int32_t>  compact_ids;
+    uint32_t layer;
+};
+static cuda_hits_first_state g_hits_first;
+
+static int cuda_hits_first_enabled(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *e = getenv("DS4_CUDA_HITS_FIRST");
+        cached = !(e && e[0] == '0');
+    }
+    return cached;
+}
+
+static void cuda_stream_selected_cache_invalidate(void);
+static uint64_t cuda_resident_key_fwd(uint32_t layer, int32_t expert);
+
+/* Finish a hits-first load: wait for the pool, then the same per-expert
+ * validation the synchronous path does.  Returns 0 and invalidates the
+ * selected cache if any read failed. */
+static int cuda_hits_first_wait(void) {
+    if (!g_hits_first.active) return 1;
+    g_hits_first.active = 0;
+    (void)cuda_expert_pread_pool_wait();
+    g_resident_experts.sec_read += cuda_wall_sec() - g_hits_first.t0;
+    int all_ok = 1;
+    for (uint32_t i = 0; i < g_hits_first.n_experts; i++) {
+        const uint32_t f = g_hits_first.first_task_of[i];
+        if (f == UINT32_MAX) continue;
+        const std::vector<cuda_expert_pread_task> &tasks = g_hits_first.tasks;
+        if (!(tasks[f].ok && tasks[f + 1].ok && tasks[f + 2].ok)) {
+            all_ok = 0;
+            g_resident_experts.key_slot.erase(
+                    cuda_resident_key_fwd(g_hits_first.layer, g_hits_first.compact_ids[i]));
+            g_resident_experts.slot_key[g_hits_first.slot_of[i]] = CUDA_RESIDENT_EMPTY_KEY;
+        }
+    }
+    if (!all_ok) cuda_stream_selected_cache_invalidate();
+    return all_ok;
 }
 
 static void cuda_expert_pread_pool_shutdown(void) {
@@ -20964,10 +21047,12 @@ __global__ static void moe_gate_up_mid_decode_lut_qwarp32_kernel(
         uint32_t expert_mid_dim,
         uint32_t n_expert,
         uint32_t write_aux,
-        float clamp) {
+        float clamp,
+        uint32_t pair_mask) {
     uint32_t lane = threadIdx.x & 7u;
     uint32_t row_lane = threadIdx.x >> 3u;
     uint32_t pair = blockIdx.y;
+    if (!((pair_mask >> (pair & 31u)) & 1u)) return;   /* hits-first: this launch covers a subset of pairs */
     uint32_t tok = pair / n_expert;
     uint32_t slot = pair - tok * n_expert;
     int32_t expert_i = selected[(uint64_t)tok * n_expert + slot];
@@ -25312,6 +25397,12 @@ static int routed_moe_launch(
         const uint32_t use_decode_lut_gate =
             n_tokens == 1u && xq_blocks <= 32u &&
             getenv("DS4_CUDA_MOE_NO_DECODE_LUT_GATE") == NULL;
+        /* Hits-first overlaps only the plain LUT gate/up launch; every other
+         * path reads all six experts at once, so drain the pending load now. */
+        if (g_hits_first.active &&
+            !(n_tokens == 1u && use_decode_lut_gate && !cuda_moe_lut16_enabled() && !cuda_moe_lut_r16_enabled())) {
+            if (!cuda_hits_first_wait()) return 0;
+        }
         const uint32_t gate_row_span =
             getenv("DS4_CUDA_MOE_GATE_ROW2048") != NULL ? 2048u :
             getenv("DS4_CUDA_MOE_GATE_ROW1024") != NULL ? 1024u : 512u;
@@ -25898,22 +25989,23 @@ static int routed_moe_launch(
                         write_gate_up,
                         clamp);
                 } else if (use_decode_lut_gate) {
-                    moe_gate_up_mid_decode_lut_qwarp32_kernel<<<qgrid, 256, 0, cuda_decode_stream()>>>(
-                        (float *)gate->ptr,
-                        (float *)up->ptr,
-                        (float *)mid->ptr,
-                        gate_w,
-                        up_w,
-                        xq,
-                        (const int32_t *)selected->ptr,
-                        (const float *)weights->ptr,
-                        gate_expert_bytes,
-                        gate_row_bytes,
-                        xq_blocks,
-                        expert_mid_dim,
-                        n_expert,
-                        write_gate_up,
-                        clamp);
+#define DS4_LUT_GATE_UP_LAUNCH(mask_) \
+                    moe_gate_up_mid_decode_lut_qwarp32_kernel<<<qgrid, 256, 0, cuda_decode_stream()>>>( \
+                        (float *)gate->ptr, (float *)up->ptr, (float *)mid->ptr, gate_w, up_w, xq, \
+                        (const int32_t *)selected->ptr, (const float *)weights->ptr, \
+                        gate_expert_bytes, gate_row_bytes, xq_blocks, expert_mid_dim, n_expert, \
+                        write_gate_up, clamp, (mask_))
+                    if (g_hits_first.active && n_tokens == 1u) {
+                        const uint32_t all = n_expert >= 32u ? 0xffffffffu : ((1u << n_expert) - 1u);
+                        const uint32_t miss = g_hits_first.pair_miss_mask & all;
+                        const uint32_t hit = all & ~miss;
+                        if (hit) DS4_LUT_GATE_UP_LAUNCH(hit);
+                        if (!cuda_hits_first_wait()) return 0;
+                        if (miss) DS4_LUT_GATE_UP_LAUNCH(miss);
+                    } else {
+                        DS4_LUT_GATE_UP_LAUNCH(0xffffffffu);
+                    }
+#undef DS4_LUT_GATE_UP_LAUNCH
                 } else {
                     moe_gate_up_mid_qwarp32_kernel<<<qgrid, 256, 0, cuda_decode_stream()>>>(
                         (float *)gate->ptr,
@@ -27476,6 +27568,7 @@ static int cuda_resident_zero_copy_enabled(void) {
 static inline uint64_t cuda_resident_key(uint32_t layer, int32_t expert) {
     return ((uint64_t)layer << 32) | (uint64_t)(uint32_t)expert;
 }
+static uint64_t cuda_resident_key_fwd(uint32_t layer, int32_t expert) { return cuda_resident_key(layer, expert); }
 
 /* cudaMemGetInfo reports MemFree on a unified-memory part, which counts
  * reclaimable page cache as unavailable.  Streaming a multi-hundred-GiB model
@@ -28077,6 +28170,7 @@ static int cuda_stream_selected_cache_begin_load(
         const ds4_gpu_stream_expert_table *table,
         const int32_t *selected_ids,
         uint32_t slot_count) {
+    if (g_hits_first.active) (void)cuda_hits_first_wait();   /* a load nobody consumed */
     cuda_stream_selected_cache_invalidate();
     if (!g_ssd_streaming_mode) return 1;
     if (!cuda_stream_selected_ranges_valid(table) || !selected_ids ||
@@ -28237,6 +28331,38 @@ static int cuda_stream_selected_cache_begin_load(
 
         int pooled = 0;
         const double t_read0 = cuda_wall_sec();
+        int hits_first = 0;
+        if (!tasks.empty() && resident_ok && slot_count <= 8u &&
+            cuda_resident_zero_copy_enabled() && cuda_hits_first_enabled()) {
+            /* Hand the vectors to the pending state first: the pool keeps a
+             * pointer into the task buffer until the wait. */
+            g_hits_first.tasks = std::move(tasks);
+            g_hits_first.first_task_of = std::move(first_task_of);
+            g_hits_first.slot_of = std::move(slot_of);
+            g_hits_first.compact_ids = compact_ids;
+            g_hits_first.n_experts = n_experts;
+            g_hits_first.layer = table->layer;
+            g_hits_first.t0 = t_read0;
+            g_hits_first.pair_miss_mask = 0;
+            for (uint32_t i = 0; i < slot_count; i++) {
+                if (g_hits_first.first_task_of[(uint32_t)slot_ids[i]] != UINT32_MAX)
+                    g_hits_first.pair_miss_mask |= 1u << i;
+            }
+            if (cuda_expert_pread_pool_dispatch_start(g_hits_first.tasks.data(),
+                                                     (uint32_t)g_hits_first.tasks.size())) {
+                g_hits_first.active = 1;
+                hits_first = 1;
+                for (uint32_t i = 0; i < slot_count; i++)
+                    slot_ids[i] = (int32_t)g_hits_first.slot_of[(uint32_t)slot_ids[i]];
+                zero_copy = 1;
+                goto experts_loaded;
+            }
+            /* The pool declined: take the vectors back and read synchronously. */
+            tasks = std::move(g_hits_first.tasks);
+            first_task_of = std::move(g_hits_first.first_task_of);
+            slot_of = std::move(g_hits_first.slot_of);
+        }
+        (void)hits_first;
         if (!tasks.empty()) {
             pooled = cuda_expert_pread_pool_dispatch(tasks.data(), (uint32_t)tasks.size());
             if (!pooled) {
