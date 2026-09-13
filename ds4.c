@@ -39683,18 +39683,26 @@ static bool ds41_attention_select(ds41_gpu_graph *g, const ds4_model *m,
         ds41_attention_select_published(g, m, l, il);
 }
 
+/* SPARKPORT: the q/kv projections and their norms - no position in them, so
+ * they can sit inside a CUDA-graph island with the layer's front half. */
+static bool ds41_attention_project(ds41_gpu_graph *g, const ds4_model *m,
+                                   const ds4_layer_weights *l) {
+    const uint32_t heads = DS4_N_HEAD / g->tp_world;
+    const uint32_t head0 = g->tp_rank * heads;
+    return ds41_matmul(g->qr, m, l->attn_q_a, g->norm, true) &&
+        ds41_norm(g->qr, g->qr, m, l->attn_q_a_norm) &&
+        ds41_matmul_rows(g->q, m, l->attn_q_b, g->qr, head0 * 512u, heads * 512u) &&
+        ds41_matmul(g->kv, m, l->attn_kv, g->norm, true) &&
+        ds41_norm(g->kv, g->kv, m, l->attn_kv_a_norm);
+}
+
 static bool ds41_attention(ds41_gpu_graph *g, const ds4_model *m,
                            const ds4_layer_weights *l, uint32_t il, bool projected) {
     const uint32_t pos = g->pos, ratio = ds4_layer_compress_ratio(il);
     const uint32_t owner = il < 8 ? 0u : il < 14 ? 1u : il < 20 ? 2u : 3u;
     const uint32_t n_comp = ratio ? (pos + 1u) / ratio : 0u;
     const uint32_t heads = DS4_N_HEAD / g->tp_world;
-    const uint32_t head0 = g->tp_rank * heads;
-    if (!projected && (!ds41_matmul(g->qr, m, l->attn_q_a, g->norm, true) ||
-        !ds41_norm(g->qr, g->qr, m, l->attn_q_a_norm) ||
-        !ds41_matmul_rows(g->q, m, l->attn_q_b, g->qr, head0 * 512u, heads * 512u) ||
-        !ds41_matmul(g->kv, m, l->attn_kv, g->norm, true) ||
-        !ds41_norm(g->kv, g->kv, m, l->attn_kv_a_norm))) return false;
+    if (!projected && !ds41_attention_project(g, m, l)) return false;
     if (!ds41_rope(g->q, heads, DS4_N_HEAD_DIM, il, pos, false) ||
         !ds41_rope(g->kv, 1, DS4_N_HEAD_DIM, il, pos, false) ||
         !ds4_gpu_dsv41_quantize(g->kv, DS4_N_HEAD_DIM, 1, DS4_V41_FP8_E8M0) ||
@@ -39816,11 +39824,16 @@ static bool ds41_moe(ds41_gpu_graph *g, const ds4_model *m,
     ds4_gpu_tensor *routed = shared_owner ? g->block : g->routed;
     const ds4_tensor *bias = ds41_image_at(g, g->pos) ? l->ffn_exp_probs_vl : l->ffn_exp_probs_b;
     if (!bias) return false;
-    if (!ds41_matmul(g->route_logits, m, l->ffn_gate_inp, g->norm, false) ||
-        !ds4_gpu_router_select_tensor(g->selected, g->route_weights, g->route_probs,
-            m->map, m->size, bias->abs_offset, 0, 0, token,
-            DS4_N_EXPERT, DS4_N_EXPERT_USED, DS4_EXPERT_WEIGHT_SCALE, 0, 0, true, false,
-            g->route_logits)) return false;
+#define DS41_ROUTER_ONCE() \
+    (ds41_matmul(g->route_logits, m, l->ffn_gate_inp, g->norm, false) && \
+        ds4_gpu_router_select_tensor(g->selected, g->route_weights, g->route_probs, \
+            m->map, m->size, bias->abs_offset, 0, 0, token, \
+            DS4_N_EXPERT, DS4_N_EXPERT_USED, DS4_EXPERT_WEIGHT_SCALE, 0, 0, true, false, \
+            g->route_logits))
+    if (ds41_decode_graph_islands()) {
+        if (!DS41_ISLAND(il, 0u, 3u, g->route_logits, DS41_ROUTER_ONCE())) return false;
+    } else if (!DS41_ROUTER_ONCE()) return false;
+#undef DS41_ROUTER_ONCE
     /* DRAINCUT: queue the id readback now, before the shared-expert work below,
      * so the wait in ds41_cuda_stream_selected_load covers only the router. */
     const bool selected_armed = ds41_cuda_selected_readback_arm(g);
@@ -39850,10 +39863,7 @@ static bool ds41_moe(ds41_gpu_graph *g, const ds4_model *m,
             DS4_N_EMBD, DS4_N_FF_EXP, DS4_N_EMBD, g->selected, g->route_weights, \
             DS4_N_EXPERT, DS4_N_EXPERT_USED, DS4_SWIGLU_CLAMP_EXP, g->norm, NULL, il, \
             !g->streaming)
-    static int use_island = -1;
-    if (use_island < 0) use_island = getenv("DS4_CUDA_V41_DECODE_GRAPH") != NULL &&
-                                     !ds41_prof_enabled() && ds4_gpu_decode_graphs_supported();
-    if (!use_island) {
+    if (!ds41_decode_graph_islands()) {
         if (!DS41_TRACE("moe.routed", DS41_ROUTED_MOE_ONCE())) return false;
     } else {
         ds4_decode_graph_key key;
@@ -39916,11 +39926,47 @@ static bool ds41_graph_after_attention(ds41_gpu_graph *g, const ds4_model *m,
         ds41_bf16(g->x, DS4_N_EMBD) && ds41_norm(g->norm, g->x, m, l->ffn_norm);
 }
 
+/* SPARKPORT: CUDA-graph islands for the decode layer (DS4_CUDA_V41_DECODE_GRAPH=1).
+ * Everything that takes no token position is captured once per layer and
+ * replayed: island 0/1 is the layer front (Engram add, HC mix, norms, the
+ * q/kv projections), island 0/2 the post-attention half (HC expand and mix,
+ * norms), island 0/3 the router (logits matmul + select), island 1/0 the
+ * routed MoE.  The attention core - ropes, the KV window write, the gather,
+ * the decode heads - takes the position in its arguments and stays eager.
+ * A capture failure retires the entry and the step runs eagerly; profiling
+ * syncs would break a capture, so the islands are skipped under DS4_V41_PROFILE. */
+static int ds41_decode_graph_islands(void) {
+    static int cached = -1;
+    if (cached < 0) cached = getenv("DS4_CUDA_V41_DECODE_GRAPH") != NULL &&
+                             !ds41_prof_enabled() && ds4_gpu_decode_graphs_supported();
+    return cached;
+}
+
+#define DS41_ISLAND(il_, island_, variant_, anchor_, expr) ({ \
+    bool _ok = true; \
+    ds4_decode_graph_key _key; memset(&_key, 0, sizeof(_key)); \
+    _key.il = (il_); _key.island = (island_); _key.variant = (variant_); \
+    _key.cur_hc = (void *)(anchor_); \
+    for (;;) { \
+        const int _st = ds4_gpu_decode_graph_begin(&_key); \
+        if (_st == 1) break; \
+        _ok = (expr); \
+        if (_st != 0) break; \
+        if (!_ok) { ds4_gpu_decode_graph_abort(&_key); continue; } \
+        if (ds4_gpu_decode_graph_end(&_key) == 0) break; \
+    } \
+    _ok; })
+
 static bool ds41_graph_before_moe(ds41_gpu_graph *g, const ds4_model *m,
                                  const ds4_layer_weights *l, uint32_t il) {
-    return DS41_TRACE("before_attention", ds41_graph_before_attention(g, m, l, il)) &&
-        DS41_TRACE("attention", ds41_attention(g, m, l, il, false)) &&
-        DS41_TRACE("after_attention", ds41_graph_after_attention(g, m, l));
+    if (!ds41_decode_graph_islands())
+        return DS41_TRACE("before_attention", ds41_graph_before_attention(g, m, l, il)) &&
+            DS41_TRACE("attention", ds41_attention(g, m, l, il, false)) &&
+            DS41_TRACE("after_attention", ds41_graph_after_attention(g, m, l));
+    return DS41_ISLAND(il, 0u, 1u, g->norm,
+            ds41_graph_before_attention(g, m, l, il) && ds41_attention_project(g, m, l)) &&
+        ds41_attention(g, m, l, il, true) &&
+        DS41_ISLAND(il, 0u, 2u, g->x, ds41_graph_after_attention(g, m, l));
 }
 
 static bool ds41_norm_batch(ds4_gpu_tensor *out, const ds4_gpu_tensor *in,

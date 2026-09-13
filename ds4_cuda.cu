@@ -26832,7 +26832,7 @@ extern "C" int ds4_gpu_hc_split_sinkhorn_tensor(ds4_gpu_tensor *out, const ds4_g
     if (!scale || !base) return 0;
     uint32_t n_rows = (uint32_t)(mix->bytes / mix_bytes);
     if (out->bytes / mix_bytes < n_rows) n_rows = (uint32_t)(out->bytes / mix_bytes);
-    hc_split_sinkhorn_kernel<<<(n_rows + 255) / 256, 256>>>(
+    hc_split_sinkhorn_kernel<<<(n_rows + 255) / 256, 256, 0, cuda_decode_stream()>>>(
         (float *)out->ptr, (const float *)mix->ptr,
         scale,
         base,
