@@ -2733,29 +2733,7 @@ static int cuda_hits_first_enabled(void) {
 static void cuda_stream_selected_cache_invalidate(void);
 static uint64_t cuda_resident_key_fwd(uint32_t layer, int32_t expert);
 
-/* Finish a hits-first load: wait for the pool, then the same per-expert
- * validation the synchronous path does.  Returns 0 and invalidates the
- * selected cache if any read failed. */
-static int cuda_hits_first_wait(void) {
-    if (!g_hits_first.active) return 1;
-    g_hits_first.active = 0;
-    (void)cuda_expert_pread_pool_wait();
-    g_resident_experts.sec_read += cuda_wall_sec() - g_hits_first.t0;
-    int all_ok = 1;
-    for (uint32_t i = 0; i < g_hits_first.n_experts; i++) {
-        const uint32_t f = g_hits_first.first_task_of[i];
-        if (f == UINT32_MAX) continue;
-        const std::vector<cuda_expert_pread_task> &tasks = g_hits_first.tasks;
-        if (!(tasks[f].ok && tasks[f + 1].ok && tasks[f + 2].ok)) {
-            all_ok = 0;
-            g_resident_experts.key_slot.erase(
-                    cuda_resident_key_fwd(g_hits_first.layer, g_hits_first.compact_ids[i]));
-            g_resident_experts.slot_key[g_hits_first.slot_of[i]] = CUDA_RESIDENT_EMPTY_KEY;
-        }
-    }
-    if (!all_ok) cuda_stream_selected_cache_invalidate();
-    return all_ok;
-}
+static int cuda_hits_first_wait(void);
 
 static void cuda_expert_pread_pool_shutdown(void) {
     if (g_expert_pread_initialized) {
@@ -27569,6 +27547,30 @@ static inline uint64_t cuda_resident_key(uint32_t layer, int32_t expert) {
     return ((uint64_t)layer << 32) | (uint64_t)(uint32_t)expert;
 }
 static uint64_t cuda_resident_key_fwd(uint32_t layer, int32_t expert) { return cuda_resident_key(layer, expert); }
+
+/* Finish a hits-first load: wait for the pool, then the same per-expert
+ * validation the synchronous path does.  Returns 0 and invalidates the
+ * selected cache if any read failed. */
+static int cuda_hits_first_wait(void) {
+    if (!g_hits_first.active) return 1;
+    g_hits_first.active = 0;
+    (void)cuda_expert_pread_pool_wait();
+    g_resident_experts.sec_read += cuda_wall_sec() - g_hits_first.t0;
+    int all_ok = 1;
+    for (uint32_t i = 0; i < g_hits_first.n_experts; i++) {
+        const uint32_t f = g_hits_first.first_task_of[i];
+        if (f == UINT32_MAX) continue;
+        const std::vector<cuda_expert_pread_task> &tasks = g_hits_first.tasks;
+        if (!(tasks[f].ok && tasks[f + 1].ok && tasks[f + 2].ok)) {
+            all_ok = 0;
+            g_resident_experts.key_slot.erase(
+                    cuda_resident_key_fwd(g_hits_first.layer, g_hits_first.compact_ids[i]));
+            g_resident_experts.slot_key[g_hits_first.slot_of[i]] = CUDA_RESIDENT_EMPTY_KEY;
+        }
+    }
+    if (!all_ok) cuda_stream_selected_cache_invalidate();
+    return all_ok;
+}
 
 /* cudaMemGetInfo reports MemFree on a unified-memory part, which counts
  * reclaimable page cache as unavailable.  Streaming a multi-hundred-GiB model
