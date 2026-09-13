@@ -40616,6 +40616,23 @@ static bool ds41_engram_prefetch_start(ds41_engram_prefetch *p, ds41_gpu_graph *
     return true;
 }
 
+static void ds41_prefill_checksum_print(const ds4_gpu_tensor *t, uint64_t floats,
+                                        uint32_t il, uint32_t start, const char *label) {
+    if (!t || !floats) return;
+    uint32_t *buf = malloc((size_t)floats * sizeof(uint32_t));
+    if (!buf) return;
+    uint64_t x = 0, nonfinite = 0;
+    if (ds4_gpu_tensor_read(t, 0, buf, floats * sizeof(uint32_t))) {
+        for (uint64_t i = 0; i < floats; i++) {
+            x = (x * 1000003ull) ^ buf[i];
+            if ((buf[i] & 0x7f800000u) == 0x7f800000u) nonfinite++;
+        }
+        fprintf(stderr, "ds4: [v41-ck] layer=%u pos=%u %s %016llx nonfinite=%llu\n",
+                il, start, label, (unsigned long long)x, (unsigned long long)nonfinite);
+    }
+    free(buf);
+}
+
 static uint32_t ds41_encoder_chunk_cap(const ds41_gpu_graph *g, uint32_t count) {
     if (count < 8192u && g->prefill_cap > 2048u) return 2048u;
     /* Keep the decoder suffix optimization for 8k prompts. */
@@ -40639,6 +40656,10 @@ static bool ds41_graph_prefill_sweep(ds41_gpu_graph *g, const ds4_model *m,
         return false;
     const bool profile = getenv("DS4_METAL_GRAPH_PREFILL_PROFILE") != NULL;
     const bool stage_profile = getenv("DS4_METAL_V41_STAGE_PROFILE") != NULL;
+    /* SPARKPORT: DS4_V41_PREFILL_CHECKSUM=1 prints a checksum of the batch residual
+     * after every stage of every layer; two runs diffed name the first stage that
+     * is not reproducible. */
+    const bool stage_checksum = getenv("DS4_V41_PREFILL_CHECKSUM") != NULL;
     const bool batch_moe = !getenv("DS4_METAL_DISABLE_V41_BATCH_MOE");
     const bool batch_attention = !getenv("DS4_METAL_DISABLE_V41_BATCH_ATTN");
     const bool batch_core = batch_attention && !getenv("DS4_METAL_DISABLE_V41_BATCH_CORE");
@@ -40777,11 +40798,13 @@ static bool ds41_graph_prefill_sweep(ds41_gpu_graph *g, const ds4_model *m,
             const double t_engram = profile ? now_sec() : 0;
             double stage_start = stage_profile ? now_sec() : 0;
 #define DS41_STAGE(label) do { \
-                if (ok && stage_profile) { \
+                if (ok && (stage_profile || stage_checksum)) { \
                     ok = ds4_gpu_end_commands() != 0; \
                     const double now = now_sec(); \
-                    fprintf(stderr, "ds4: V4.1 stage layer=%u pos=%u rows=%u %s=%.3f ms\n", \
+                    if (stage_profile) fprintf(stderr, "ds4: V4.1 stage layer=%u pos=%u rows=%u %s=%.3f ms\n", \
                         il, start, count, (label), (now - stage_start) * 1000); \
+                    if (ok && stage_checksum) ds41_prefill_checksum_print(g->batch.residual, \
+                        (uint64_t)count * DS4_N_HC * DS4_N_EMBD, il, start, (label)); \
                     stage_start = now; \
                     if (ok) ok = ds4_gpu_begin_commands() != 0; \
                 } \
