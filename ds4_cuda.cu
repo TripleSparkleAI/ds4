@@ -25243,9 +25243,16 @@ static int routed_moe_launch(
         const uint32_t use_sorted_pairs =
             n_tokens > 1u &&
             (owned_filtered || !q4k_path || use_q4_sorted_pairs);
+        /* SPARKPORT: on a streaming model the expert-tile tier is opt-in.  Measured
+         * on V4.1 Flash (~588-token prompt, two runs): tiles ON gives a different
+         * routed MoE output every run from layer 0 - even with a stable pair
+         * scatter and the atomic down tier off - while tiles OFF is reproducible
+         * and not slower (prefill 8.0-8.4 vs 7.4-7.9 t/s).  DS4_CUDA_MOE_EXPERT_TILES=1
+         * turns the tier back on for a streaming model. */
         const uint32_t use_expert_tiles =
             use_sorted_pairs &&
-            (owned_filtered || getenv("DS4_CUDA_MOE_NO_EXPERT_TILES") == NULL);
+            (owned_filtered || getenv("DS4_CUDA_MOE_NO_EXPERT_TILES") == NULL) &&
+            (!g_ssd_streaming_mode || owned_filtered || getenv("DS4_CUDA_MOE_EXPERT_TILES") != NULL);
         const uint32_t q4_owned_batch =
             owned_filtered && q4k_path && n_tokens >= 4u && n_tokens <= 16u;
         /* Small batches (DSpark stage chain / verify, n<=8) leave most of an
