@@ -983,9 +983,15 @@ static cuda_decode_graph_entry *cuda_decode_graph_find(
 
 extern "C" int ds4_gpu_decode_graph_begin(const ds4_decode_graph_key *key) {
     if (!key || !ds4_gpu_decode_graphs_supported()) return -1;
-    if (g_decode_graph_capturing) return -1;   /* no nesting */
+    if (g_decode_graph_capturing) {
+        if (getenv("DS4_CUDA_DECODE_GRAPH_LOG")) fprintf(stderr, "ds4: decode graph begin il=%u island=%u variant=%u: nested, eager\n", key->il, key->island, key->variant);
+        return -1;   /* no nesting */
+    }
     cuda_decode_graph_entry *e = cuda_decode_graph_find(key);
-    if (!e || e->state == 3) return -1;
+    if (!e || e->state == 3) {
+        if (getenv("DS4_CUDA_DECODE_GRAPH_LOG") && key->il == 3u) fprintf(stderr, "ds4: decode graph begin il=%u island=%u variant=%u: %s, eager\n", key->il, key->island, key->variant, e ? "retired" : "no entry");
+        return -1;
+    }
     if (e->state == 0) {
         /* Warm pass: run eagerly once so lazy allocators (tmp scratch,
          * cuBLAS workspaces) reach steady-state sizes before capture. */
