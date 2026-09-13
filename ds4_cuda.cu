@@ -2720,6 +2720,17 @@ struct cuda_hits_first_state {
     uint32_t layer;
 };
 static cuda_hits_first_state g_hits_first;
+static float *g_hf_partials = NULL;      /* 6 x out_dim floats, device; own allocation, never a scratch alias */
+static uint64_t g_hf_partials_floats = 0;
+static float *cuda_hf_partials(uint64_t floats) {
+    if (g_hf_partials && g_hf_partials_floats >= floats) return g_hf_partials;
+    if (g_hf_partials) { (void)cudaFree(g_hf_partials); g_hf_partials = NULL; g_hf_partials_floats = 0; }
+    if (cudaMalloc((void **)&g_hf_partials, (size_t)floats * sizeof(float)) != cudaSuccess) {
+        (void)cudaGetLastError(); g_hf_partials = NULL; return NULL;
+    }
+    g_hf_partials_floats = floats;
+    return g_hf_partials;
+}
 
 static int cuda_hits_first_enabled(void) {
     static int cached = -1;
@@ -26018,15 +26029,15 @@ static int routed_moe_launch(
                         const uint32_t all = n_expert >= 32u ? 0xffffffffu : ((1u << n_expert) - 1u);
                         const uint32_t miss = g_hits_first.pair_miss_mask & all;
                         const uint32_t hit = all & ~miss;
-                        const int split_down = n_expert == 6u && !owned_filtered &&
-                                               getenv("DS4_CUDA_MOE_NO_ATOMIC_DOWN") == NULL;
+                        float *hf_part = n_expert == 6u ? cuda_hf_partials(6ull * out_dim) : NULL;
+                        const int split_down = n_expert == 6u && !owned_filtered && hf_part != NULL;
 #define DS4_HF_PAIR_TAIL(mask_) do { \
                             for (uint32_t p_ = 0; p_ < n_expert; p_++) { \
                                 if (!(((mask_) >> p_) & 1u)) continue; \
                                 q8_K_quantize_kernel<<<dim3(midq_blocks, 1, 1), 256, 0, cuda_decode_stream()>>>( \
                                     midq + (uint64_t)p_ * midq_blocks, (const float *)mid->ptr + (uint64_t)p_ * expert_mid_dim, expert_mid_dim, 1u); \
                                 moe_down_slot_partial_qwarp32_kernel<<<(out_dim + 31u) / 32u, 256, 0, cuda_decode_stream()>>>( \
-                                    (float *)down->ptr, down_w, midq, (const int32_t *)selected->ptr, \
+                                    hf_part, down_w, midq, (const int32_t *)selected->ptr, \
                                     down_expert_bytes, down_row_bytes, midq_blocks, out_dim, p_); \
                             } } while (0)
                         if (hit) DS4_LUT_GATE_UP_LAUNCH(hit);
@@ -26148,7 +26159,7 @@ static int routed_moe_launch(
                 } else {
                     if (n_expert == 6u && hf_split_down) {
                         moe_down_sum_partials6_kernel<<<(out_dim + 255u) / 256u, 256, 0, cuda_decode_stream()>>>(
-                            (float *)out->ptr, (const float *)down->ptr, out_dim);
+                            (float *)out->ptr, g_hf_partials, out_dim);
                     } else if (n_expert == 6u) {
                         moe_down_sum6_qwarp32_kernel<<<sgrid, 256, 0, cuda_decode_stream()>>>(
                             (float *)out->ptr,
