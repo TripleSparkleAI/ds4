@@ -2368,37 +2368,54 @@ typedef struct {
     cudaStream_t stream;
 } cuda_expert_pread_ctx;
 
-static pthread_mutex_t g_expert_pread_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t  g_expert_pread_start = PTHREAD_COND_INITIALIZER;
-static pthread_cond_t  g_expert_pread_done  = PTHREAD_COND_INITIALIZER;
-static pthread_t       g_expert_pread_thread[DS4_CUDA_EXPERT_PREAD_MAX];
-static cuda_expert_pread_ctx g_expert_pread_ctx[DS4_CUDA_EXPERT_PREAD_MAX];
-static uint32_t g_expert_pread_thread_count;
-static uint32_t g_expert_pread_active;
-static uint32_t g_expert_pread_remaining;
-static uint32_t g_expert_pread_n_tasks;
-static uint32_t g_expert_pread_next_task;
-/* STAGED batches: tasks [0, stage_boundary) form a first stage the caller may
- * wait on before the whole batch drains.  stage_done counts finished tasks
- * below the boundary; workers claim tasks in index order, so the first stage
- * is also the first to be picked up.  Zero boundary = no stage. */
-static uint32_t g_expert_pread_stage_boundary;
-static uint32_t g_expert_pread_stage_done;
-static uint64_t g_expert_pread_generation;
-static cuda_expert_pread_task *g_expert_pread_tasks;
-static int g_expert_pread_device;
-static int g_expert_pread_initialized;
-static int g_expert_pread_stopping;
-static int g_expert_pread_failed;    /* pool broke once; stay serial */
+struct cuda_pread_pool;
+typedef struct { struct cuda_pread_pool *pool; uint32_t index; } cuda_pread_worker_arg;
+/* One read pool.  Two instances exist: the expert pool (the selected load and
+ * hits-first) and the ROUTER-AHEAD prefetch pool, so a batch of guesses in
+ * flight never blocks the reads the current layer actually needs. */
+typedef struct cuda_pread_pool {
+    const char     *name;
+    const char     *threads_env;     /* env var naming the thread count */
+    uint32_t        default_threads;
+    pthread_mutex_t mutex;
+    pthread_cond_t  start;
+    pthread_cond_t  done;
+    pthread_t       thread[DS4_CUDA_EXPERT_PREAD_MAX];
+    cuda_pread_worker_arg args[DS4_CUDA_EXPERT_PREAD_MAX];
+    cuda_expert_pread_ctx ctx[DS4_CUDA_EXPERT_PREAD_MAX];
+    uint32_t thread_count;
+    uint32_t active;
+    uint32_t remaining;
+    uint32_t n_tasks;
+    uint32_t next_task;
+    /* STAGED batches: tasks [0, stage_boundary) form a first stage the caller may
+     * wait on before the whole batch drains.  stage_done counts finished tasks
+     * below the boundary; workers claim tasks in index order, so the first stage
+     * is also the first to be picked up.  Zero boundary = no stage. */
+    uint32_t stage_boundary;
+    uint32_t stage_done;
+    uint64_t generation;
+    cuda_expert_pread_task *tasks;
+    int device;
+    int initialized;
+    int stopping;
+    int failed;    /* pool broke once; stay serial */
+    cuda_expert_pread_task *wait_tasks;
+    uint32_t wait_n;
+} cuda_pread_pool;
+static cuda_pread_pool g_expert_pread = { "expert", "DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS", 8u,
+    PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, PTHREAD_COND_INITIALIZER };
+static cuda_pread_pool g_prefetch_pread = { "prefetch", "DS4_CUDA_ROUTER_AHEAD_THREADS", 4u,
+    PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, PTHREAD_COND_INITIALIZER };
 
 static int cuda_expert_pread_pool_enabled(void) {
     const char *env = getenv("DS4_CUDA_STREAMING_EXPERT_PREAD_POOL");
     return !(env && strcmp(env, "0") == 0);
 }
 
-static uint32_t cuda_expert_pread_thread_limit(void) {
-    uint32_t threads = 8;
-    const char *env = getenv("DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS");
+static uint32_t cuda_pread_pool_limit(const cuda_pread_pool *pool) {
+    uint32_t threads = pool->default_threads;
+    const char *env = getenv(pool->threads_env);
     if (env && env[0]) {
         char *end = NULL;
         unsigned long v = strtoul(env, &end, 10);
@@ -2483,62 +2500,64 @@ static int cuda_expert_pread_task_run(cuda_expert_pread_ctx *ctx,
 }
 
 static void *cuda_expert_pread_worker(void *arg) {
-    const uint32_t worker_index = (uint32_t)(uintptr_t)arg;
-    cuda_expert_pread_ctx *ctx = &g_expert_pread_ctx[worker_index];
+    cuda_pread_worker_arg *a = (cuda_pread_worker_arg *)arg;
+    cuda_pread_pool *pool = a->pool;
+    const uint32_t worker_index = a->index;
+    cuda_expert_pread_ctx *ctx = &pool->ctx[worker_index];
     uint64_t seen_generation = 0;
     int device = -1;
 
     for (;;) {
-        pthread_mutex_lock(&g_expert_pread_mutex);
-        while (!g_expert_pread_stopping &&
-               g_expert_pread_generation == seen_generation) {
-            pthread_cond_wait(&g_expert_pread_start, &g_expert_pread_mutex);
+        pthread_mutex_lock(&pool->mutex);
+        while (!pool->stopping &&
+               pool->generation == seen_generation) {
+            pthread_cond_wait(&pool->start, &pool->mutex);
         }
-        if (g_expert_pread_stopping) {
-            pthread_mutex_unlock(&g_expert_pread_mutex);
+        if (pool->stopping) {
+            pthread_mutex_unlock(&pool->mutex);
             break;
         }
-        seen_generation = g_expert_pread_generation;
-        if (worker_index >= g_expert_pread_active) {
-            pthread_mutex_unlock(&g_expert_pread_mutex);
+        seen_generation = pool->generation;
+        if (worker_index >= pool->active) {
+            pthread_mutex_unlock(&pool->mutex);
             continue;
         }
         /* The current device is per-thread state; follow the dispatcher's. */
-        if (device != g_expert_pread_device) {
-            device = g_expert_pread_device;
+        if (device != pool->device) {
+            device = pool->device;
             if (cudaSetDevice(device) != cudaSuccess) {
                 (void)cudaGetLastError();
                 device = -1;
             }
         }
         for (;;) {
-            const uint32_t task_index = g_expert_pread_next_task++;
-            if (task_index >= g_expert_pread_n_tasks) break;
-            cuda_expert_pread_task *t = &g_expert_pread_tasks[task_index];
-            pthread_mutex_unlock(&g_expert_pread_mutex);
+            const uint32_t task_index = pool->next_task++;
+            if (task_index >= pool->n_tasks) break;
+            cuda_expert_pread_task *t = &pool->tasks[task_index];
+            pthread_mutex_unlock(&pool->mutex);
             t->ok = device >= 0 && cuda_expert_pread_task_run(ctx, t);
-            pthread_mutex_lock(&g_expert_pread_mutex);
-            if (task_index < g_expert_pread_stage_boundary &&
-                ++g_expert_pread_stage_done == g_expert_pread_stage_boundary) {
-                pthread_cond_broadcast(&g_expert_pread_done);
+            pthread_mutex_lock(&pool->mutex);
+            if (task_index < pool->stage_boundary &&
+                ++pool->stage_done == pool->stage_boundary) {
+                pthread_cond_broadcast(&pool->done);
             }
         }
-        if (g_expert_pread_remaining > 0 && --g_expert_pread_remaining == 0) {
-            g_expert_pread_tasks = NULL;
-            g_expert_pread_n_tasks = 0;
-            g_expert_pread_active = 0;
-            pthread_cond_broadcast(&g_expert_pread_done);
+        if (pool->remaining > 0 && --pool->remaining == 0) {
+            pool->tasks = NULL;
+            pool->n_tasks = 0;
+            pool->active = 0;
+            pthread_cond_broadcast(&pool->done);
         }
-        pthread_mutex_unlock(&g_expert_pread_mutex);
+        pthread_mutex_unlock(&pool->mutex);
     }
     return NULL;
 }
 
 /* Pinned buffers and streams are made on the calling thread, which already
  * has the right device current; workers only ever use them. */
-static int cuda_expert_pread_ctx_ensure(uint32_t n_workers, uint64_t stage_bytes) {
+static int cuda_expert_pread_ctx_ensure(cuda_pread_pool *pool, uint32_t n_workers, uint64_t stage_bytes) {
     for (uint32_t i = 0; i < n_workers; i++) {
-        cuda_expert_pread_ctx *ctx = &g_expert_pread_ctx[i];
+        cuda_expert_pread_ctx *ctx = &pool->ctx[i];
         if (!ctx->stream) {
             cudaError_t err = cudaStreamCreateWithFlags(&ctx->stream, cudaStreamNonBlocking);
             if (err != cudaSuccess) {
@@ -2573,72 +2592,79 @@ static int cuda_expert_pread_ctx_ensure(uint32_t n_workers, uint64_t stage_bytes
     return 1;
 }
 
-static int cuda_expert_pread_pool_init(uint32_t n_threads) {
-    if (g_expert_pread_initialized) return 1;
-    if (g_expert_pread_failed || !cuda_expert_pread_pool_enabled() || n_threads <= 1) return 0;
+static int cuda_pread_pool_init(cuda_pread_pool *pool, uint32_t n_threads) {
+    if (pool->initialized) return 1;
+    if (pool->failed || !cuda_expert_pread_pool_enabled() || n_threads <= 1) return 0;
     if (n_threads > DS4_CUDA_EXPERT_PREAD_MAX) n_threads = DS4_CUDA_EXPERT_PREAD_MAX;
 
-    pthread_mutex_lock(&g_expert_pread_mutex);
-    g_expert_pread_thread_count = n_threads;
-    g_expert_pread_stopping = 0;
-    g_expert_pread_generation = 0;
-    g_expert_pread_tasks = NULL;
-    g_expert_pread_n_tasks = 0;
-    g_expert_pread_next_task = 0;
-    g_expert_pread_active = 0;
-    g_expert_pread_remaining = 0;
-    pthread_mutex_unlock(&g_expert_pread_mutex);
+    pthread_mutex_lock(&pool->mutex);
+    pool->thread_count = n_threads;
+    pool->stopping = 0;
+    pool->generation = 0;
+    pool->tasks = NULL;
+    pool->n_tasks = 0;
+    pool->next_task = 0;
+    pool->active = 0;
+    pool->remaining = 0;
+    pthread_mutex_unlock(&pool->mutex);
 
     uint32_t started = 0;
     for (uint32_t i = 0; i < n_threads; i++) {
-        const int rc = pthread_create(&g_expert_pread_thread[i], NULL,
-                                      cuda_expert_pread_worker, (void *)(uintptr_t)i);
+        pool->args[i].pool = pool;
+        pool->args[i].index = i;
+        const int rc = pthread_create(&pool->thread[i], NULL,
+                                      cuda_expert_pread_worker, &pool->args[i]);
         if (rc != 0) {
             fprintf(stderr, "ds4: CUDA expert pread pool thread creation failed: %s\n",
                     strerror(rc));
-            pthread_mutex_lock(&g_expert_pread_mutex);
-            g_expert_pread_stopping = 1;
-            g_expert_pread_generation++;
-            pthread_cond_broadcast(&g_expert_pread_start);
-            pthread_mutex_unlock(&g_expert_pread_mutex);
-            for (uint32_t j = 0; j < started; j++) (void)pthread_join(g_expert_pread_thread[j], NULL);
-            pthread_mutex_lock(&g_expert_pread_mutex);
-            g_expert_pread_thread_count = 0;
-            g_expert_pread_stopping = 0;
-            pthread_mutex_unlock(&g_expert_pread_mutex);
-            g_expert_pread_failed = 1;
+            pthread_mutex_lock(&pool->mutex);
+            pool->stopping = 1;
+            pool->generation++;
+            pthread_cond_broadcast(&pool->start);
+            pthread_mutex_unlock(&pool->mutex);
+            for (uint32_t j = 0; j < started; j++) (void)pthread_join(pool->thread[j], NULL);
+            pthread_mutex_lock(&pool->mutex);
+            pool->thread_count = 0;
+            pool->stopping = 0;
+            pthread_mutex_unlock(&pool->mutex);
+            pool->failed = 1;
             return 0;
         }
         started++;
     }
-    g_expert_pread_initialized = 1;
-    fprintf(stderr, "ds4: CUDA expert pread pool: %u threads\n", n_threads);
+    pool->initialized = 1;
+    fprintf(stderr, "ds4: CUDA %s pread pool: %u threads\n", pool->name, n_threads);
     return 1;
 }
 
 /* Run every task through the pool and wait.  Returns 1 when the batch ran
  * (check each task's ok flag), 0 when the pool declined before touching
  * anything, in which case the caller must do the reads itself. */
-static cuda_expert_pread_task *g_expert_pread_wait_tasks = NULL;
-static uint32_t g_expert_pread_wait_n = 0;
 
 /* Hand a batch to the pool and return at once; cuda_expert_pread_pool_wait()
  * blocks until it has drained.  The old dispatch is start + wait. */
-static int cuda_expert_pread_pool_dispatch_start_staged(cuda_expert_pread_task *tasks,
-                                                        uint32_t n_tasks,
-                                                        uint32_t stage_boundary);
+static int cuda_pread_pool_dispatch_start_staged(cuda_pread_pool *pool,
+                                                 cuda_expert_pread_task *tasks,
+                                                 uint32_t n_tasks,
+                                                 uint32_t stage_boundary);
 static int cuda_expert_pread_pool_dispatch_start(cuda_expert_pread_task *tasks, uint32_t n_tasks) {
-    return cuda_expert_pread_pool_dispatch_start_staged(tasks, n_tasks, 0);
+    return cuda_pread_pool_dispatch_start_staged(&g_expert_pread, tasks, n_tasks, 0);
 }
 static int cuda_expert_pread_pool_dispatch_start_staged(cuda_expert_pread_task *tasks,
                                                         uint32_t n_tasks,
                                                         uint32_t stage_boundary) {
+    return cuda_pread_pool_dispatch_start_staged(&g_expert_pread, tasks, n_tasks, stage_boundary);
+}
+static int cuda_pread_pool_dispatch_start_staged(cuda_pread_pool *pool,
+                                                 cuda_expert_pread_task *tasks,
+                                                 uint32_t n_tasks,
+                                                 uint32_t stage_boundary) {
     if (!tasks || n_tasks <= 1) return 0;
     if (g_model_fd < 0) return 0;
-    uint32_t n_workers = cuda_expert_pread_thread_limit();
+    uint32_t n_workers = cuda_pread_pool_limit(pool);
     if (n_workers > n_tasks) n_workers = n_tasks;
     if (n_workers <= 1) return 0;
-    if (!cuda_expert_pread_pool_init(cuda_expert_pread_thread_limit())) return 0;
+    if (!cuda_pread_pool_init(pool, cuda_pread_pool_limit(pool))) return 0;
 
     /* Staging is sized to the largest task, capped at the chunk size, so a
      * few-MiB expert costs a few MiB per worker and not a 64 MiB chunk. */
@@ -2652,8 +2678,8 @@ static int cuda_expert_pread_pool_dispatch_start_staged(cuda_expert_pread_task *
     const uint64_t chunk = cuda_model_copy_chunk_bytes();
     const uint64_t align = g_model_direct_align > 1 ? g_model_direct_align : 1;
     const uint64_t stage_bytes = (largest < chunk ? largest : chunk) + 2u * align;
-    if (!cuda_expert_pread_ctx_ensure(n_workers, stage_bytes)) {
-        g_expert_pread_failed = 1;
+    if (!cuda_expert_pread_ctx_ensure(pool, n_workers, stage_bytes)) {
+        pool->failed = 1;
         return 0;
     }
     int device = 0;
@@ -2662,53 +2688,53 @@ static int cuda_expert_pread_pool_dispatch_start_staged(cuda_expert_pread_task *
         return 0;
     }
 
-    pthread_mutex_lock(&g_expert_pread_mutex);
-    if (!g_expert_pread_initialized || g_expert_pread_stopping ||
-        g_expert_pread_thread_count == 0 ||
-        g_expert_pread_remaining != 0 || g_expert_pread_tasks != NULL) {
-        pthread_mutex_unlock(&g_expert_pread_mutex);
+    pthread_mutex_lock(&pool->mutex);
+    if (!pool->initialized || pool->stopping ||
+        pool->thread_count == 0 ||
+        pool->remaining != 0 || pool->tasks != NULL) {
+        pthread_mutex_unlock(&pool->mutex);
         return 0;
     }
-    if (n_workers > g_expert_pread_thread_count) n_workers = g_expert_pread_thread_count;
-    g_expert_pread_device = device;
-    g_expert_pread_tasks = tasks;
-    g_expert_pread_n_tasks = n_tasks;
-    g_expert_pread_next_task = 0;
-    g_expert_pread_stage_boundary = stage_boundary <= n_tasks ? stage_boundary : 0;
-    g_expert_pread_stage_done = 0;
-    g_expert_pread_active = n_workers;
-    g_expert_pread_remaining = n_workers;
-    g_expert_pread_generation++;
-    g_expert_pread_wait_tasks = tasks;
-    g_expert_pread_wait_n = n_tasks;
-    pthread_cond_broadcast(&g_expert_pread_start);
-    pthread_mutex_unlock(&g_expert_pread_mutex);
+    if (n_workers > pool->thread_count) n_workers = pool->thread_count;
+    pool->device = device;
+    pool->tasks = tasks;
+    pool->n_tasks = n_tasks;
+    pool->next_task = 0;
+    pool->stage_boundary = stage_boundary <= n_tasks ? stage_boundary : 0;
+    pool->stage_done = 0;
+    pool->active = n_workers;
+    pool->remaining = n_workers;
+    pool->generation++;
+    pool->wait_tasks = tasks;
+    pool->wait_n = n_tasks;
+    pthread_cond_broadcast(&pool->start);
+    pthread_mutex_unlock(&pool->mutex);
     return 1;
 }
 
 /* Block until every task below the stage boundary has finished (or the whole
  * batch has drained).  A no-op for an unstaged batch. */
-static void cuda_expert_pread_pool_wait_stage(void) {
-    if (!g_expert_pread_wait_tasks) return;
-    pthread_mutex_lock(&g_expert_pread_mutex);
-    while (g_expert_pread_remaining != 0 &&
-           g_expert_pread_stage_done < g_expert_pread_stage_boundary) {
-        pthread_cond_wait(&g_expert_pread_done, &g_expert_pread_mutex);
+static void cuda_pread_pool_wait_stage(cuda_pread_pool *pool) {
+    if (!pool->wait_tasks) return;
+    pthread_mutex_lock(&pool->mutex);
+    while (pool->remaining != 0 &&
+           pool->stage_done < pool->stage_boundary) {
+        pthread_cond_wait(&pool->done, &pool->mutex);
     }
-    pthread_mutex_unlock(&g_expert_pread_mutex);
+    pthread_mutex_unlock(&pool->mutex);
 }
 
-static int cuda_expert_pread_pool_wait(void) {
-    cuda_expert_pread_task *tasks = g_expert_pread_wait_tasks;
-    const uint32_t n_tasks = g_expert_pread_wait_n;
+static int cuda_pread_pool_wait(cuda_pread_pool *pool) {
+    cuda_expert_pread_task *tasks = pool->wait_tasks;
+    const uint32_t n_tasks = pool->wait_n;
     if (!tasks) return 1;
-    pthread_mutex_lock(&g_expert_pread_mutex);
-    while (g_expert_pread_remaining != 0) {
-        pthread_cond_wait(&g_expert_pread_done, &g_expert_pread_mutex);
+    pthread_mutex_lock(&pool->mutex);
+    while (pool->remaining != 0) {
+        pthread_cond_wait(&pool->done, &pool->mutex);
     }
-    pthread_mutex_unlock(&g_expert_pread_mutex);
-    g_expert_pread_wait_tasks = NULL;
-    g_expert_pread_wait_n = 0;
+    pthread_mutex_unlock(&pool->mutex);
+    pool->wait_tasks = NULL;
+    pool->wait_n = 0;
 
     /* Apply the O_DIRECT disable here, once, on the only thread that may. */
     int direct_unsupported = 0;
@@ -2723,6 +2749,9 @@ static int cuda_expert_pread_pool_wait(void) {
     }
     return 1;
 }
+
+static void cuda_expert_pread_pool_wait_stage(void) { cuda_pread_pool_wait_stage(&g_expert_pread); }
+static int  cuda_expert_pread_pool_wait(void)       { return cuda_pread_pool_wait(&g_expert_pread); }
 
 static int cuda_expert_pread_pool_dispatch(cuda_expert_pread_task *tasks, uint32_t n_tasks) {
     if (!cuda_expert_pread_pool_dispatch_start(tasks, n_tasks)) return 0;
@@ -2801,26 +2830,30 @@ static void cuda_hits_first_wait_gate_up(void) {
     if (g_hits_first.active && g_hits_first.staged) cuda_expert_pread_pool_wait_stage();
 }
 
-static void cuda_expert_pread_pool_shutdown(void) {
-    if (g_expert_pread_initialized) {
-        pthread_mutex_lock(&g_expert_pread_mutex);
-        g_expert_pread_stopping = 1;
-        g_expert_pread_generation++;
-        pthread_cond_broadcast(&g_expert_pread_start);
-        pthread_mutex_unlock(&g_expert_pread_mutex);
-        for (uint32_t i = 0; i < g_expert_pread_thread_count; i++) {
-            (void)pthread_join(g_expert_pread_thread[i], NULL);
+static void cuda_pread_pool_shutdown(cuda_pread_pool *pool) {
+    if (pool->initialized) {
+        pthread_mutex_lock(&pool->mutex);
+        pool->stopping = 1;
+        pool->generation++;
+        pthread_cond_broadcast(&pool->start);
+        pthread_mutex_unlock(&pool->mutex);
+        for (uint32_t i = 0; i < pool->thread_count; i++) {
+            (void)pthread_join(pool->thread[i], NULL);
         }
-        g_expert_pread_thread_count = 0;
-        g_expert_pread_initialized = 0;
-        g_expert_pread_stopping = 0;
+        pool->thread_count = 0;
+        pool->initialized = 0;
+        pool->stopping = 0;
     }
     for (uint32_t i = 0; i < DS4_CUDA_EXPERT_PREAD_MAX; i++) {
-        cuda_expert_pread_ctx *ctx = &g_expert_pread_ctx[i];
+        cuda_expert_pread_ctx *ctx = &pool->ctx[i];
         if (ctx->stream) (void)cudaStreamDestroy(ctx->stream);
         if (ctx->stage_raw) (void)cudaFreeHost(ctx->stage_raw);
         memset(ctx, 0, sizeof *ctx);
     }
+}
+static void cuda_expert_pread_pool_shutdown(void) {
+    cuda_pread_pool_shutdown(&g_expert_pread);
+    cuda_pread_pool_shutdown(&g_prefetch_pread);
 }
 
 static uint64_t cuda_model_cache_limit_bytes(void) {
@@ -27662,6 +27695,9 @@ struct cuda_resident_expert_cache {
     std::unordered_map<uint64_t, uint32_t> key_slot;
 };
 static cuda_resident_expert_cache g_resident_experts;
+/* ROUTER-AHEAD stats, declared here so the cache stats line can print them */
+static double   g_prefetch_sec_wait;       /* wall seconds the real load blocked on a prefetch batch */
+static uint64_t g_prefetch_started_stat, g_prefetch_failed_stat;
 
 #define CUDA_RESIDENT_EMPTY_KEY UINT64_MAX
 
@@ -27862,12 +27898,14 @@ static int cuda_resident_expert_cache_ensure(uint64_t gate_expert_bytes,
 static uint32_t cuda_resident_expert_slot(uint32_t layer, int32_t expert, int *hit) {
     g_resident_experts.lookups++;
     if ((g_resident_experts.lookups % 4000u) == 0u && getenv("DS4_CUDA_EXPERT_CACHE_STATS"))
-        fprintf(stderr, "ds4: [expert-cache] %llu lookups, hit_rate=%.3f, resident=%zu/%u, evictions=%llu, read %.1f s, copy %.1f s\n",
+        fprintf(stderr, "ds4: [expert-cache] %llu lookups, hit_rate=%.3f, resident=%zu/%u, evictions=%llu, read %.1f s, copy %.1f s, prefetched %llu (failed %llu, blocked %.1f s)\n",
                 (unsigned long long)g_resident_experts.lookups,
                 (double)g_resident_experts.hits / (double)g_resident_experts.lookups,
                 g_resident_experts.key_slot.size(), g_resident_experts.slot_count,
                 (unsigned long long)g_resident_experts.evictions,
-                g_resident_experts.sec_read, g_resident_experts.sec_copy);
+                g_resident_experts.sec_read, g_resident_experts.sec_copy,
+                (unsigned long long)g_prefetch_started_stat, (unsigned long long)g_prefetch_failed_stat,
+                g_prefetch_sec_wait);
     const uint64_t key = cuda_resident_key(layer, expert);
     auto it = g_resident_experts.key_slot.find(key);
     if (it != g_resident_experts.key_slot.end()) {
@@ -27902,6 +27940,115 @@ static inline char *cuda_resident_up_ptr(uint32_t slot) {
 }
 static inline char *cuda_resident_down_ptr(uint32_t slot) {
     return g_resident_experts.arena_down + (uint64_t)slot * g_resident_experts.down_expert_bytes;
+}
+
+/* ---------------------------------------------------------------------------
+ * ROUTER-AHEAD PREFETCH.  The decode step guesses layer il+1's experts at the
+ * end of layer il (its router run on the residual that will feed it) and
+ * hands the guess here.  Every guessed expert that is not resident gets an
+ * arena slot and a pool read, started now and finished while il+1's attention
+ * runs.  The real selected load waits for this batch first, so a slot claimed
+ * here is never read before its bytes land; a failed read drops its slot.
+ * Measured before it was built (DS4_V41_ROUTER_AHEAD_PROBE): the guess holds
+ * ~4.2 of the real 6 and covers ~62-66% of next layer's misses.  A wrong guess
+ * costs one arena slot and one read the NVMe has headroom for; the math of
+ * the token is untouched, so the greedy dump cannot move.
+ * ------------------------------------------------------------------------ */
+struct cuda_prefetch_state {
+    int      active;
+    uint32_t layer;
+    std::vector<cuda_expert_pread_task> tasks;
+    std::vector<int32_t>  ids;
+    std::vector<uint32_t> slot_of;
+    uint64_t started, failed;
+};
+static cuda_prefetch_state g_prefetch;
+
+static int cuda_prefetch_wait(void) {
+    if (!g_prefetch.active) return 1;
+    g_prefetch.active = 0;
+    const double t0 = cuda_wall_sec();
+    (void)cuda_pread_pool_wait(&g_prefetch_pread);
+    g_prefetch_sec_wait += cuda_wall_sec() - t0;
+    for (size_t i = 0; i < g_prefetch.ids.size(); i++) {
+        const cuda_expert_pread_task *t = &g_prefetch.tasks[i * 3u];
+        if (t[0].ok && t[1].ok && t[2].ok) continue;
+        g_prefetch.failed++;
+        g_prefetch_failed_stat++;
+        g_resident_experts.key_slot.erase(cuda_resident_key(g_prefetch.layer, g_prefetch.ids[i]));
+        g_resident_experts.slot_key[g_prefetch.slot_of[i]] = CUDA_RESIDENT_EMPTY_KEY;
+    }
+    return 1;
+}
+
+static int cuda_hits_first_wait(void);
+extern "C" int ds4_gpu_stream_expert_cache_prefetch(const ds4_gpu_stream_expert_table *table,
+                                                    const int32_t *ids, uint32_t n) {
+    if (!g_ssd_streaming_mode || !table || !ids || n == 0) return 0;
+    if (g_prefetch.active) (void)cuda_prefetch_wait();   /* one batch per pool */
+    if (!cuda_stream_selected_ranges_valid(table) || g_n_gpus != 1) return 0;
+    if (!cuda_resident_expert_cache_ensure(table->gate_expert_bytes, table->down_expert_bytes)) return 0;
+    if (!cuda_expert_pread_pool_enabled() || g_model_fd < 0 ||
+        (g_model_fd_host_base != NULL && table->model_map != g_model_fd_host_base)) return 0;
+    if (g_resident_experts.slot_count < 64u) return 0;
+    try {
+        g_prefetch.tasks.clear(); g_prefetch.ids.clear(); g_prefetch.slot_of.clear();
+        g_prefetch.tasks.reserve((size_t)n * 3u);
+    } catch (...) { return 0; }
+    g_prefetch.layer = table->layer;
+    for (uint32_t i = 0; i < n; i++) {
+        const int32_t expert = ids[i];
+        if (expert < 0 || (uint32_t)expert >= table->n_total_expert) continue;
+        bool dup = false;
+        for (size_t j = 0; j < g_prefetch.ids.size(); j++) dup |= g_prefetch.ids[j] == expert;
+        if (dup) continue;
+        if (g_resident_experts.key_slot.count(cuda_resident_key(table->layer, expert)) != 0) continue;
+        int hit = 0;
+        const uint32_t slot = cuda_resident_expert_slot(table->layer, expert, &hit);
+        g_resident_experts.lookups--;   /* a guess is not a lookup; keep the hit rate honest */
+        if (hit) continue;
+        const uint64_t e = (uint64_t)(uint32_t)expert;
+        cuda_expert_pread_task t;
+        memset(&t, 0, sizeof t);
+        t.model_map = table->model_map;
+        t.model_size = table->model_size;
+        t.offset = table->gate_offset + e * table->gate_expert_bytes;
+        t.bytes = table->gate_expert_bytes;
+        t.dst = cuda_resident_gate_ptr(slot);
+        t.what = "prefetch gate expert read";
+        g_prefetch.tasks.push_back(t);
+        t.offset = table->up_offset + e * table->gate_expert_bytes;
+        t.dst = cuda_resident_up_ptr(slot);
+        t.what = "prefetch up expert read";
+        g_prefetch.tasks.push_back(t);
+        t.offset = table->down_offset + e * table->down_expert_bytes;
+        t.bytes = table->down_expert_bytes;
+        t.dst = cuda_resident_down_ptr(slot);
+        t.what = "prefetch down expert read";
+        g_prefetch.tasks.push_back(t);
+        g_prefetch.ids.push_back(expert);
+        g_prefetch.slot_of.push_back(slot);
+    }
+    if (g_prefetch.ids.empty()) return 1;
+    /* one expert is three tasks, so the pool's two-task floor always holds */
+    if (!cuda_pread_pool_dispatch_start_staged(&g_prefetch_pread, g_prefetch.tasks.data(),
+                                               (uint32_t)g_prefetch.tasks.size(), 0u)) {
+        for (size_t i = 0; i < g_prefetch.ids.size(); i++) {
+            g_resident_experts.key_slot.erase(cuda_resident_key(table->layer, g_prefetch.ids[i]));
+            g_resident_experts.slot_key[g_prefetch.slot_of[i]] = CUDA_RESIDENT_EMPTY_KEY;
+        }
+        return 0;
+    }
+    g_prefetch.active = 1;
+    g_prefetch.started += g_prefetch.ids.size();
+    g_prefetch_started_stat += g_prefetch.ids.size();
+    return 1;
+}
+
+extern "C" void ds4_gpu_stream_expert_cache_prefetch_stats(uint64_t *started, uint64_t *failed, double *sec_wait) {
+    if (started) *started = g_prefetch.started;
+    if (failed) *failed = g_prefetch.failed;
+    if (sec_wait) *sec_wait = g_prefetch_sec_wait;
 }
 
 /* On a miss the arena slot is filled from the model file, then every path
@@ -28306,6 +28453,16 @@ static int cuda_stream_selected_cache_begin_load(
         const int32_t *selected_ids,
         uint32_t slot_count) {
     if (g_hits_first.active) (void)cuda_hits_first_wait();   /* a load nobody consumed */
+    /* A prefetched slot is claimed while its bytes are still landing; if this
+     * layer selects one of those experts the batch must finish before it is
+     * trusted as a hit.  Guesses nobody selected keep flying on their own pool. */
+    if (g_prefetch.active && selected_ids) {
+        int in_flight = 0;
+        for (uint32_t i = 0; i < slot_count && !in_flight; i++)
+            for (size_t j = 0; j < g_prefetch.ids.size(); j++)
+                if (g_prefetch.ids[j] == selected_ids[i] && table && g_prefetch.layer == table->layer) { in_flight = 1; break; }
+        if (in_flight) (void)cuda_prefetch_wait();
+    }
     cuda_stream_selected_cache_invalidate();
     if (!g_ssd_streaming_mode) return 1;
     if (!cuda_stream_selected_ranges_valid(table) || !selected_ids ||
@@ -34830,6 +34987,11 @@ extern "C" uint32_t ds4_gpu_stream_expert_cache_configured_count(void) {
     return g_resident_experts.budget_experts;
 }
 
+extern "C" int ds4_gpu_stream_expert_cache_is_resident(uint32_t layer, int32_t expert) {
+    if (!g_resident_experts.slot_count) return 0;
+    return g_resident_experts.key_slot.count(cuda_resident_key(layer, expert)) != 0;
+}
+
 extern "C" uint32_t ds4_gpu_stream_expert_cache_current_count(void) {
     if (g_resident_experts.slot_count) return (uint32_t)g_resident_experts.key_slot.size();
     return g_stream_selected_cache.valid ?
@@ -34845,6 +35007,8 @@ extern "C" void ds4_gpu_stream_expert_cache_reset_route_hotness(void) {
 }
 
 extern "C" void ds4_gpu_stream_expert_cache_release_resident(void) {
+    if (g_hits_first.active) (void)cuda_hits_first_wait();
+    if (g_prefetch.active) (void)cuda_prefetch_wait();
     cuda_stream_selected_cache_release();
     cuda_resident_expert_cache_release();
     cuda_expert_pread_pool_shutdown();

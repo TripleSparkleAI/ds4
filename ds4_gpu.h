@@ -372,6 +372,17 @@ void ds4_gpu_set_streaming_expert_cache_expert_bytes(uint64_t bytes);
 uint64_t ds4_gpu_recommended_working_set_size(void);
 uint32_t ds4_gpu_stream_expert_cache_configured_count(void);
 uint32_t ds4_gpu_stream_expert_cache_current_count(void);
+/* 1 when the expert's weights are resident in the streaming expert cache (an
+ * instrument query; Metal answers 0). */
+int ds4_gpu_stream_expert_cache_is_resident(uint32_t layer, int32_t expert);
+struct ds4_gpu_stream_expert_table;
+/* ROUTER-AHEAD: start reading the guessed experts of a layer into the
+ * resident cache; the next selected load for that layer waits for them.
+ * Returns 1 when the batch started (or nothing needed reading), 0 when the
+ * backend declined; the caller loses nothing either way. Metal answers 0. */
+int ds4_gpu_stream_expert_cache_prefetch(const struct ds4_gpu_stream_expert_table *table,
+                                         const int32_t *ids, uint32_t n);
+void ds4_gpu_stream_expert_cache_prefetch_stats(uint64_t *started, uint64_t *failed, double *sec_wait);
 typedef struct ds4_gpu_stream_expert_table {
     const void *model_map;
     uint64_t    model_size;

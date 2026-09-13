@@ -12961,6 +12961,23 @@ uint32_t ds4_gpu_stream_expert_cache_current_count(void) {
     return g_stream_expert_cache_entry_count;
 }
 
+int ds4_gpu_stream_expert_cache_is_resident(uint32_t layer, int32_t expert) {
+    (void)layer; (void)expert;
+    return 0;   /* instrument query; the CUDA backend answers it */
+}
+
+int ds4_gpu_stream_expert_cache_prefetch(const struct ds4_gpu_stream_expert_table *table,
+                                         const int32_t *ids, uint32_t n) {
+    (void)table; (void)ids; (void)n;
+    return 0;   /* router-ahead prefetch is a CUDA resident-cache feature */
+}
+
+void ds4_gpu_stream_expert_cache_prefetch_stats(uint64_t *started, uint64_t *failed, double *sec_wait) {
+    if (started) *started = 0;
+    if (failed) *failed = 0;
+    if (sec_wait) *sec_wait = 0.0;
+}
+
 uint32_t ds4_gpu_stream_expert_cache_budget_for_expert_size(
         uint64_t gate_expert_bytes,
         uint64_t down_expert_bytes) {

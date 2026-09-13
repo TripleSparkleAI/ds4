@@ -40342,6 +40342,163 @@ static bool ds41_moe_batch(ds41_gpu_graph *g, const ds4_model *m,
         ds41_sum_partial_batch(g, b->routed, il, count);
 }
 
+/* SPARKPORT ROUTER-AHEAD.  At the end of layer il the decode step runs layer
+ * il+1's router on the residual that will feed it - skipping il+1's attention
+ * delta and its hyper-connection re-mix - and reads the guess back the DRAINCUT
+ * way (an in-stream copy into a pinned buffer, collected after the drain the
+ * layer does anyway).  Two consumers:
+ *   DS4_CUDA_ROUTER_AHEAD=1        the guess starts the pool reads for il+1's
+ *                                  non-resident experts before il+1's attention
+ *                                  (the backend's prefetch; the real load waits
+ *                                  for it, so nothing is read before it lands).
+ *   DS4_V41_ROUTER_AHEAD_PROBE=1   an instrument: scores the guess against the
+ *                                  real top-6 and counts the misses it covers.
+ * Everything here lands in its own scratch tensors and only reads the decode
+ * path's tensors, so the greedy dump is unchanged (gated, e73f763588d4f253).
+ * Measured before the prefetch was built: the guess holds ~4.2 of 6 and
+ * covers 62-66% of next layer's misses. */
+typedef struct {
+    ds4_gpu_tensor *x, *norm, *logits, *probs, *weights, *selected;
+    int32_t  predicted[DS4_MAX_EXPERT_USED];
+    uint8_t  resident_before[DS4_MAX_EXPERT];   /* probe: layer il+1's residency, read before it runs */
+    int      pending;            /* a readback is queued for the running layer */
+    int      have_prediction;    /* probe: score it when the next layer drains */
+    uint64_t layers, overlap, misses, misses_covered, prefetch_volume, tokens_reported;
+} ds41_router_ahead_state;
+static ds41_router_ahead_state g_ds41_ra;
+
+static bool ds41_router_ahead_probe_enabled(void) {
+    static int cached = -1;
+    if (cached < 0) cached = getenv("DS4_V41_ROUTER_AHEAD_PROBE") != NULL;
+    return cached;
+}
+static bool ds41_router_ahead_prefetch_enabled(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *e = getenv("DS4_CUDA_ROUTER_AHEAD");
+        cached = e && e[0] == '1';
+    }
+    return cached;
+}
+static bool ds41_router_ahead_any(void) {
+    return ds41_router_ahead_prefetch_enabled() || ds41_router_ahead_probe_enabled();
+}
+
+static DS4_MAYBE_UNUSED bool ds41_router_ahead_alloc(void) {
+    ds41_router_ahead_state *p = &g_ds41_ra;
+    if (p->x) return true;
+    p->x        = ds4_gpu_tensor_alloc((uint64_t)DS4_N_EMBD * sizeof(float));
+    p->norm     = ds4_gpu_tensor_alloc((uint64_t)DS4_N_EMBD * sizeof(float));
+    p->logits   = ds4_gpu_tensor_alloc((uint64_t)DS4_N_EXPERT * sizeof(float));
+    p->probs    = ds4_gpu_tensor_alloc((uint64_t)DS4_N_EXPERT * sizeof(float));
+    p->weights  = ds4_gpu_tensor_alloc((uint64_t)DS4_N_EXPERT_USED * sizeof(float));
+    p->selected = ds4_gpu_tensor_alloc((uint64_t)DS4_N_EXPERT_USED * sizeof(int32_t));
+    return p->x && p->norm && p->logits && p->probs && p->weights && p->selected;
+}
+
+/* In-stream, right after layer il's after_moe: queue the guess for il+1 and
+ * its readback.  Any failure simply leaves nothing pending. */
+static void ds41_router_ahead_enqueue(ds41_gpu_graph *g, const ds4_model *m,
+                                      const ds4_weights *w, uint32_t il, int token) {
+    ds41_router_ahead_state *p = &g_ds41_ra;
+    p->pending = 0;
+#if defined(__APPLE__) || defined(DS4_ROCM_BUILD)
+    (void)g; (void)m; (void)w; (void)il; (void)token;   /* the pinned readback is CUDA-only */
+    return;
+#else
+    if (il + 1u >= DS4_N_LAYER || !g->streaming || !ds41_router_ahead_alloc()) return;
+    const ds4_layer_weights *ln = &w->layer[il + 1u];
+    const ds4_tensor *bias = ds41_image_at(g, g->pos) ? ln->ffn_exp_probs_vl : ln->ffn_exp_probs_b;
+    if (!bias || !ln->ffn_norm || !ln->ffn_gate_inp) return;
+    if (ds41_router_ahead_probe_enabled())
+        for (uint32_t e = 0; e < DS4_N_EXPERT; e++)
+            p->resident_before[e] = (uint8_t)ds4_gpu_stream_expert_cache_is_resident(il + 1u, (int32_t)e);
+    p->pending =
+        ds4_gpu_hc_weighted_sum_tensor(p->x, g->residual, g->pre, DS4_N_EMBD, DS4_N_HC) &&
+        ds41_bf16(p->x, DS4_N_EMBD) && ds41_norm(p->norm, p->x, m, ln->ffn_norm) &&
+        ds41_matmul(p->logits, m, ln->ffn_gate_inp, p->norm, false) &&
+        ds4_gpu_router_select_tensor(p->selected, p->weights, p->probs,
+            m->map, m->size, bias->abs_offset, 0, 0, token,
+            DS4_N_EXPERT, DS4_N_EXPERT_USED, DS4_EXPERT_WEIGHT_SCALE, 0, 0, true, false,
+            p->logits) &&
+        ds4_gpu_selected_readback_begin(p->selected, 0,
+            (uint64_t)DS4_N_EXPERT_USED * sizeof(p->predicted[0]));
+#endif
+}
+
+/* After layer il has drained: score il's real selection against the guess
+ * made at il-1 (probe), collect the guess for il+1, and start its reads. */
+static void ds41_router_ahead_after_drain(ds41_gpu_graph *g, const ds4_model *m,
+                                          const ds4_weights *w, uint32_t il) {
+    ds41_router_ahead_state *p = &g_ds41_ra;
+    if (p->have_prediction) {
+        int32_t actual[DS4_MAX_EXPERT_USED];
+        if (ds4_gpu_tensor_read(g->selected, 0, actual, (uint64_t)DS4_N_EXPERT_USED * sizeof(actual[0]))) {
+            p->layers++;
+            for (uint32_t i = 0; i < DS4_N_EXPERT_USED; i++) {
+                const int32_t id = actual[i];
+                if (id < 0 || (uint32_t)id >= DS4_N_EXPERT) continue;
+                int guessed = 0;
+                for (uint32_t j = 0; j < DS4_N_EXPERT_USED; j++) guessed |= p->predicted[j] == id;
+                p->overlap += guessed;
+                if (!p->resident_before[id]) { p->misses++; p->misses_covered += guessed; }
+            }
+        }
+        p->have_prediction = 0;
+    }
+    if (il + 1u >= DS4_N_LAYER) {
+        const uint64_t tokens = p->layers / (DS4_N_LAYER - 1u);
+        if (ds41_router_ahead_probe_enabled() && tokens && tokens != p->tokens_reported && tokens % 8u == 0) {
+            uint64_t started = 0, failed = 0; double sec_wait = 0.0;
+            ds4_gpu_stream_expert_cache_prefetch_stats(&started, &failed, &sec_wait);
+            p->tokens_reported = tokens;
+            fprintf(stderr, "ds4: [router-ahead] %llu tokens: top-%u overlap %.2f/%u, misses %.1f/token, "
+                    "covered %.1f/token (%.0f%%), prefetch volume %.1f experts/token, prefetched %llu (failed %llu, blocked %.2f s)\n",
+                    (unsigned long long)tokens, DS4_N_EXPERT_USED,
+                    (double)p->overlap / (double)p->layers, DS4_N_EXPERT_USED,
+                    (double)p->misses / (double)tokens, (double)p->misses_covered / (double)tokens,
+                    p->misses ? 100.0 * (double)p->misses_covered / (double)p->misses : 0.0,
+                    (double)p->prefetch_volume / (double)tokens,
+                    (unsigned long long)started, (unsigned long long)failed, sec_wait);
+        }
+        return;
+    }
+    if (!p->pending) return;
+    p->pending = 0;
+#if defined(__APPLE__) || defined(DS4_ROCM_BUILD)
+    (void)m; (void)w;
+    return;
+#else
+    if (!ds4_gpu_selected_readback_wait(p->predicted, (uint64_t)DS4_N_EXPERT_USED * sizeof(p->predicted[0])))
+        return;
+    if (ds41_router_ahead_probe_enabled()) {
+        p->have_prediction = 1;
+        for (uint32_t j = 0; j < DS4_N_EXPERT_USED; j++) {
+            const int32_t id = p->predicted[j];
+            if (id >= 0 && (uint32_t)id < DS4_N_EXPERT && !p->resident_before[id]) p->prefetch_volume++;
+        }
+    }
+    if (ds41_router_ahead_prefetch_enabled()) {
+        const ds4_layer_weights *ln = &w->layer[il + 1u];
+        uint64_t gate_row = 0, down_row = 0;
+        if (!ln->ffn_gate_exps || !ln->ffn_down_exps ||
+            !tensor_nbytes(ln->ffn_gate_exps->type, DS4_N_EMBD, &gate_row) ||
+            !tensor_nbytes(ln->ffn_down_exps->type, DS4_N_FF_EXP, &down_row)) return;
+        const ds4_gpu_stream_expert_table table = graph_stream_expert_table_make(
+            m, ln, il + 1u, gate_row * DS4_N_FF_EXP, down_row * DS4_N_EMBD);
+        /* DS4_CUDA_ROUTER_AHEAD_TOPK=k prefetches only the k most confident guesses (the
+         * router writes its picks best-first); fewer wrong reads, a smaller batch to wait on. */
+        static int topk = -1;
+        if (topk < 0) {
+            const char *e = getenv("DS4_CUDA_ROUTER_AHEAD_TOPK");
+            topk = e ? atoi(e) : (int)DS4_N_EXPERT_USED;
+            if (topk < 1 || topk > (int)DS4_N_EXPERT_USED) topk = (int)DS4_N_EXPERT_USED;
+        }
+        (void)ds4_gpu_stream_expert_cache_prefetch(&table, p->predicted, (uint32_t)topk);
+    }
+#endif
+}
+
 static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model *m,
                                              const ds4_weights *w, int token, float *logits) {
     if (!g || !g->valid || g->pos >= g->ctx || token < 0 || (uint32_t)token >= DS4_N_VOCAB) return false;
@@ -40376,6 +40533,8 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model 
             ok = ds4_gpu_tensor_write(g->engram_rows, 0, g->rows[i], sizeof(g->rows[i]));
         }
         if (ok) ok = ds41_graph_layer(g, m, l, il, token);
+        if (ok && !layer_resident && ds41_router_ahead_any())
+            ds41_router_ahead_enqueue(g, m, w, il, token);
         /* TP gates already submit ordered, bounded command buffers. Drain
          * before overwriting the first Engram table's shared input at layer
          * 14, and before publishing the completed token to the CPU. */
@@ -40386,6 +40545,8 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model 
             ok = imatrix_collect_tensor_batch(g->imatrix, g->norm, g->mid,
                                                g->selected, false, il, 1);
         if (!ok) fprintf(stderr, "ds4: V4.1 layer %u failed at position %u\n", il, g->pos);
+        if (ok && drain && !layer_resident && ds41_router_ahead_any())
+            ds41_router_ahead_after_drain(g, m, w, il);
         if (ok && drain && !layer_resident && il + 1u < DS4_N_LAYER)
             ok = ds4_gpu_begin_commands() != 0;
     }
