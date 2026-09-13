@@ -39834,13 +39834,45 @@ static bool ds41_moe(ds41_gpu_graph *g, const ds4_model *m,
     if (!DS41_TRACE("moe.prime", ds41_cuda_stream_selected_load(g, m, l, il, gate_row * DS4_N_FF_EXP, down_row * DS4_N_EMBD,
                                         selected_armed)))
         return false;
-    if (!DS41_TRACE("moe.routed", ds4_gpu_routed_moe_one_tensor(routed, g->gate, g->up, g->mid, g->experts,
-            m->map, m->size, l->ffn_gate_exps->abs_offset, l->ffn_up_exps->abs_offset,
-            l->ffn_down_exps->abs_offset, l->ffn_gate_exps->type, l->ffn_down_exps->type,
-            gate_row * DS4_N_FF_EXP, gate_row, down_row * DS4_N_EMBD, down_row,
-            DS4_N_EMBD, DS4_N_FF_EXP, DS4_N_EMBD, g->selected, g->route_weights,
-            DS4_N_EXPERT, DS4_N_EXPERT_USED, DS4_SWIGLU_CLAMP_EXP, g->norm, NULL, il,
-            !g->streaming))) return false;
+    /* SPARKPORT: the routed MoE as a CUDA-graph island (DS4_CUDA_V41_DECODE_GRAPH=1).
+     * Every pointer the decode kernels take is stable across tokens - the arena
+     * planes, the selected-id remap, the scratch, the router weights - and the
+     * ids they read are refilled in device memory by the selected load, so the
+     * captured graph replays correctly.  antirez's decode-graph machinery does
+     * the warm pass, the capture and the replay; any failure retires the entry
+     * and this token encodes eagerly.  Profiling syncs would break a capture,
+     * so the island is skipped under DS4_V41_PROFILE. */
+#define DS41_ROUTED_MOE_ONCE() \
+    ds4_gpu_routed_moe_one_tensor(routed, g->gate, g->up, g->mid, g->experts, \
+            m->map, m->size, l->ffn_gate_exps->abs_offset, l->ffn_up_exps->abs_offset, \
+            l->ffn_down_exps->abs_offset, l->ffn_gate_exps->type, l->ffn_down_exps->type, \
+            gate_row * DS4_N_FF_EXP, gate_row, down_row * DS4_N_EMBD, down_row, \
+            DS4_N_EMBD, DS4_N_FF_EXP, DS4_N_EMBD, g->selected, g->route_weights, \
+            DS4_N_EXPERT, DS4_N_EXPERT_USED, DS4_SWIGLU_CLAMP_EXP, g->norm, NULL, il, \
+            !g->streaming)
+    static int use_island = -1;
+    if (use_island < 0) use_island = getenv("DS4_CUDA_V41_DECODE_GRAPH") != NULL &&
+                                     !ds41_prof_enabled() && ds4_gpu_decode_graphs_supported();
+    if (!use_island) {
+        if (!DS41_TRACE("moe.routed", DS41_ROUTED_MOE_ONCE())) return false;
+    } else {
+        ds4_decode_graph_key key;
+        memset(&key, 0, sizeof(key));
+        key.il = il;
+        key.island = 1u;
+        key.cur_hc = (void *)g->norm;
+        key.after_ffn_hc = (void *)routed;
+        for (;;) {
+            const int st = ds4_gpu_decode_graph_begin(&key);
+            if (st == 1) break;                       /* replayed */
+            const bool ok = DS41_ROUTED_MOE_ONCE();
+            if (st != 0) { if (!ok) return false; break; }   /* eager */
+            if (!ok) { ds4_gpu_decode_graph_abort(&key); continue; }
+            if (ds4_gpu_decode_graph_end(&key) == 0) break;
+            /* capture failed, entry retired: the retry runs eagerly */
+        }
+    }
+#undef DS41_ROUTED_MOE_ONCE
     /* Keep the shared expert's BF16 boundary, then include it exactly once
      * in the existing F32 reduction. Alternate ownership across layers. */
     if (shared_owner && g->tp_rank == (il & 1u) &&
