@@ -64,4 +64,4 @@ Upstream 5.45-6.23 t/s, this branch 6.60-9.38 t/s, with the arena squeezed to
 equal slot counts. Upstream wins short exact prefill (4.2-4.5 vs 2.1-2.5
 t/s) and has session batching and dual-Spark RoCE, which this branch does not.
 
-The full measurement log and the gate script are on `triple-sparkport-notes`.
+The full measurement log and the gate script are on `triple-notes`.
