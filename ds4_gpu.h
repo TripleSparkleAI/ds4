@@ -330,6 +330,10 @@ int ds4_gpu_stream_expert_cache_seed_from_layer_selected(
 int ds4_gpu_stream_expert_cache_finish_pending_batch(void);
 int ds4_gpu_stream_expert_cache_release_layer_cache(void);
 #endif
+/* CUDA only: the learned hotlist file the CUDA SSD expert cache writes at
+ * exit (default ~/.cache/ds4/cuda_expert_hotlist.txt), or NULL when there is
+ * none or it was recorded on a model of a different size. */
+const char *ds4_gpu_cuda_expert_hotlist_default_path(uint64_t model_size);
 int ds4_gpu_stream_expert_cache_seed_experts(
         const ds4_gpu_stream_expert_table *table,
         const int32_t                     *expert_ids,
