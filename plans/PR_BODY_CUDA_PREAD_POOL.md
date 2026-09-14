@@ -1,31 +1,33 @@
-## CUDA: parallel pread pool for the SSD expert cache misses
+This reads the SSD expert-cache misses of a layer in parallel instead of one at a time. On a DGX Spark, DeepSeek V4.1 Flash Q2 generation goes from 5.73-6.23 to 6.55-6.87 tokens/s, about +12%, with the greedy output byte-identical.
 
-One commit on top of a04f46fa4 ("DeepSeek v4.1 Flash support for CUDA"). Touches `ds4_cuda.cu` only.
+### Cause and change
 
-### What it changes
+The selected-expert load runs every miss through the serial staging ring, so the NVMe sees queue depth one during the miss phase. One 3 MiB tensor read costs about 416 us on this drive (7.6 GB/s); with 8 to 16 reads in flight it delivers about 10 GB/s. A miss is three tensors and a V4.1 token touches 40 MoE layers with 6 experts each, so most of the drive's bandwidth was unused.
 
-The selected-expert load reads every miss through the serial staging ring, so the NVMe sees queue depth one during the miss phase. This patch sends the misses of a layer to a small pool of worker threads (8 by default, `DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS`). Each worker owns a pinned staging buffer and its own upload stream, does the O_DIRECT pread and the H2D copy for one tensor, and the layer waits on the batch. Hits, the LRU slot cache, eviction and the gate-indexed lookup are unchanged. If the pool declines a batch (allocation failure, thread creation failure) the layer falls back to the existing serial path, so the output path is the same code either way.
+The misses of a layer now go to a small pool of worker threads (8 by default, `DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS`). Each worker owns a pinned staging buffer and its own upload stream, does the O_DIRECT pread and the H2D copy for one tensor, and the layer waits on the batch. Hits, the LRU slot cache, eviction and the gate-indexed lookup are unchanged. If the pool declines a batch (allocation or thread failure) the layer falls back to the existing serial path. `DS4_CUDA_EXPERT_CACHE_STATS=1` prints lookups, hit rate, resident count, evictions and cumulative read seconds every 4000 lookups.
 
-`DS4_CUDA_EXPERT_CACHE_STATS=1` prints lookups, hit rate, resident count, evictions and cumulative read seconds every 4000 lookups.
+One file, `ds4_cuda.cu`, +488/-14. Metal and ROCm untouched.
 
-### Why
+### Performance
 
-A single 3 MiB tensor read costs about 416 us on the Spark NVMe (7.6 GB/s); with 8 to 16 reads in flight the drive delivers about 10 GB/s. One miss is three tensors, and a V4.1 Flash token has 40 MoE layers with 6 experts each, so the serial ring leaves most of the drive's bandwidth on the table.
+DGX Spark GB10 (sm_121), 128 GB unified memory, driver 580.159.03, CUDA 13.0, NVMe boot drive. `DeepSeek-V4.1-Flash-Q2.gguf`, `--ssd-streaming --ssd-streaming-cache-experts 90GB --ctx 32768`, 256 generated tokens on a short prompt, each run a fresh process. Base: `a04f46fa4`. Three pairs interleaved, serial then pool.
 
-### Measured (DGX Spark GB10, driver 580.159.03, V4.1 Flash Q2, ctx 32768, 256 generated tokens, `-n 256`)
+| Run | Pool | Generation t/s | Miss reads per run |
+| --- | --- | ---: | ---: |
+| 1 | off | 5.96 | 28-31 s |
+| 2 | on | 6.55 | 20-21 s |
+| 3 | off | 5.73 | 28-31 s |
+| 4 | on | 6.87 | 20-21 s |
+| 5 | off | 6.23 | 28-31 s |
+| 6 | on | 6.62 | 20-21 s |
 
-| | serial (a04f46fa4) | pool |
-|---|---|---|
-| generation t/s, three interleaved runs | 5.96 / 5.73 / 6.23 | 6.55 / 6.87 / 6.62 |
-| cumulative miss read time per run | 28-31 s | 20-21 s |
-| short exact prefill t/s | 4.0-4.3 | 6.2-6.3 |
+Short exact prefill 4.0-4.3 to 6.2-6.3 t/s. The box was shared with other processes during these runs and the expert cache was squeezed to about 50 GB, so absolute numbers are below a quiet box; the pairs were interleaved under the same conditions.
 
-About +12% generation. The box had other tenants during these runs (the expert cache arena was squeezed to about 50 GB), so absolute numbers are low; the pairs were interleaved and each arm is a minimum-of-three.
+### Tests
 
-### Correctness
+- Greedy `--temp 0 --dump-logprobs`, same prompt and flags, base vs patched: sha256 `bb06e711bc498bb9` on both, `cmp` identical.
+- Clean build of the patched tree with the default recipe, no warnings.
+- `make cuda-regression` does not link on `a04f46fa4` itself on this box (`ds4_deepseek4_attention_bounds` undefined in the smoke test, the subject of PR 1030); it fails the same way with and without this patch.
+- Not run: `make test` on the CUDA box. A `ds4-bench` before/after sweep is pending a quiet box; the box carried another tenant's 40-72 GB process during the day and the bench was OOM-killed before its first row on both builds.
 
-Greedy `--temp 0 --dump-logprobs` byte-identical against the pre-patch build on the same model, both for V4 Flash and V4.1 Flash (sha256 of the dump unchanged). The pool only changes when bytes arrive, not what is computed.
-
-### Not included
-
-A hits-first variant (compute the resident pairs while the miss reads stream) measured a null on this tree because the shared-expert overlap already fills that window. It is left out.
+[Commands, gate output and the bench sweep](https://github.com/TripleSparkleAI/ds4/blob/triple-pr-parallel-ssd-reads/speed-bench/v41_cuda_pread_pool_gb10.md).
