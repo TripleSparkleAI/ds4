@@ -33838,6 +33838,13 @@ static bool metal_graph_seed_streaming_expert_cache_from_hotlist(
         ds4_gpu_stream_expert_cache_current_count();
     const char *path = glm_graph_env_value("DS4_ROCM_STREAMING_EXPERT_HOTLIST",
                                            "DS4_METAL_STREAMING_EXPERT_HOTLIST");
+#if !defined(__APPLE__) && !defined(DS4_ROCM_BUILD)
+    /* V4.1 Flash has no built-in list.  On CUDA the SSD expert cache writes
+     * the experts it was asked for at exit; when no list is named, that file
+     * seeds the next run. */
+    if (!path && g_ds4_shape.variant == DS4_VARIANT_FLASH41)
+        path = ds4_gpu_cuda_expert_hotlist_default_path(model->size);
+#endif
     const bool from_file = path && path[0];
     const bool refresh_builtin_glm =
         !from_file && g_ds4_shape.variant == DS4_VARIANT_GLM52;
@@ -42281,6 +42288,7 @@ struct ds4_engine {
     bool ssd_streaming_full_layers_set;
     bool ssd_streaming_budget_finalized;
     bool ssd_streaming_static_decode_map;
+    bool ds41_hotlist_seeded;
     ds4_distributed_options distributed;
     ds4_engine_tp_state tp;
     bool metal_ready;
@@ -72454,6 +72462,24 @@ int ds4_session_create(ds4_session **out, ds4_engine *e, int ctx_size) {
         }
         s->ds41_graph_ready = true;
         s->ds41_graph.quality = e->quality;
+#if !defined(__APPLE__) && !defined(DS4_ROCM_BUILD)
+        /* Seed the CUDA SSD expert cache from a hotlist once per engine,
+         * before the first prefill, as the GLM path does.  A missing or
+         * unusable list must never fail a session: warn and go on cold. */
+        if (e->ssd_streaming && !e->tp.active && !e->ds41_hotlist_seeded) {
+            e->ds41_hotlist_seeded = true;
+            ds4_gpu_graph seed_graph;
+            memset(&seed_graph, 0, sizeof(seed_graph));
+            seed_graph.quality = e->quality;
+            seed_graph.ssd_streaming = e->ssd_streaming;
+            seed_graph.ssd_streaming_cold = e->ssd_streaming_cold;
+            seed_graph.streaming_preload_experts = e->ssd_streaming_preload_experts;
+            if (!metal_graph_seed_streaming_expert_cache_from_hotlist(
+                        &seed_graph, &e->model, &e->weights)) {
+                fprintf(stderr, "ds4: V4.1 expert hotlist seed failed, starting cold\n");
+            }
+        }
+#endif
         if (e->tp.active) {
             s->ds41_graph.tp_world = 2;
             s->ds41_graph.tp_rank = (uint32_t)e->tp.rank;

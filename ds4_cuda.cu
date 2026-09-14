@@ -27668,6 +27668,220 @@ struct cuda_stream_upload_batch {
     ~cuda_stream_upload_batch() { (void)finish(); }
 };
 
+/* ---------------------------------------------------------------------------
+ * Persistent hot-expert list for the SSD expert cache.
+ *
+ * The slot cache starts empty on every run, so the whole cold start is paid
+ * each time.  Expert routing is stable across prompts, so the (layer, expert)
+ * pairs one run asked for are a good guess for the next.  Every batch the
+ * cache is asked for is counted here; at exit the counts are written, hits
+ * descending, in the streaming hotlist text format the loader in ds4.c
+ * already reads ("layer expert hits weight" lines, '#' comments).  On the
+ * next run ds4.c seeds the cache from that file before the first prefill,
+ * through ds4_gpu_stream_expert_cache_seed_experts, which does not count.
+ *
+ * DS4_CUDA_EXPERT_HOTLIST_WRITE names the output file; "0" disables the
+ * writer.  Unset means ~/.cache/ds4/cuda_expert_hotlist.txt, which is also
+ * the file ds4.c reads for DeepSeek V4.1 Flash when
+ * DS4_METAL_STREAMING_EXPERT_HOTLIST is not set.  History is halved on load
+ * so hotness decays run over run.  A "# model_size" header keeps one model's
+ * list from seeding another: a mismatch starts the counts cold and is
+ * refused as a seed.  Seeding never fails a load: offsets always come from
+ * the live table, a stale file can only waste slots.
+ * ------------------------------------------------------------------------ */
+struct cuda_expert_hotlist_entry {
+    uint32_t layer;
+    uint32_t expert;
+    uint64_t hits;
+};
+
+struct cuda_expert_hotlist {
+    int      initialized;
+    int      disabled;
+    char     path[PATH_MAX];
+    std::unordered_map<uint64_t, uint64_t> counts;   /* (layer<<32|expert) -> hits */
+    uint64_t records;                                /* layer batches seen */
+    uint64_t selections;                             /* unique expert ids seen */
+    uint64_t model_size;
+    uint32_t n_total_expert;
+};
+static cuda_expert_hotlist g_expert_hotlist;
+static int g_stream_expert_seeding;
+
+static const char *cuda_expert_hotlist_path(void) {
+    if (g_expert_hotlist.path[0]) return g_expert_hotlist.path;
+    const char *env = getenv("DS4_CUDA_EXPERT_HOTLIST_WRITE");
+    if (env) {
+        if (!env[0] || (env[0] == '0' && !env[1])) return NULL;
+        snprintf(g_expert_hotlist.path, sizeof g_expert_hotlist.path, "%s", env);
+        return g_expert_hotlist.path;
+    }
+    const char *home = getenv("HOME");
+    if (!home || !home[0]) return NULL;
+    snprintf(g_expert_hotlist.path, sizeof g_expert_hotlist.path,
+             "%s/.cache/ds4/cuda_expert_hotlist.txt", home);
+    return g_expert_hotlist.path;
+}
+
+static inline uint64_t cuda_expert_hotlist_key(uint32_t layer, uint32_t expert) {
+    return ((uint64_t)layer << 32) | (uint64_t)expert;
+}
+
+static bool cuda_expert_hotlist_hotter(const cuda_expert_hotlist_entry &a,
+                                       const cuda_expert_hotlist_entry &b) {
+    if (a.hits != b.hits) return a.hits > b.hits;
+    if (a.layer != b.layer) return a.layer < b.layer;
+    return a.expert < b.expert;
+}
+
+/* Reads the "# model_size" header of a hotlist file.  0 when the file is
+ * missing, unreadable or has no such header. */
+static uint64_t cuda_expert_hotlist_file_model_size(const char *path) {
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return 0;
+    char line[256];
+    unsigned long long size = 0;
+    while (fgets(line, sizeof line, fp)) {
+        if (line[0] != '#') break;
+        if (sscanf(line, "# model_size %llu", &size) == 1) break;
+    }
+    fclose(fp);
+    return (uint64_t)size;
+}
+
+extern "C" const char *ds4_gpu_cuda_expert_hotlist_default_path(uint64_t model_size) {
+    const char *path = cuda_expert_hotlist_path();
+    if (!path || !model_size) return NULL;
+    const uint64_t file_size = cuda_expert_hotlist_file_model_size(path);
+    if (file_size != model_size) {
+        if (file_size && getenv("DS4_CUDA_EXPERT_CACHE_STATS"))
+            fprintf(stderr, "ds4: [expert-cache] hotlist %s is for another model, not seeding\n", path);
+        return NULL;
+    }
+    return path;
+}
+
+/* Load the previous run's counts, halved, so the list learns without the
+ * first runs pinning it forever.  A list for another model is ignored. */
+static void cuda_expert_hotlist_load_history(const char *path, uint64_t model_size) {
+    if (cuda_expert_hotlist_file_model_size(path) != model_size) return;
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return;
+    char line[256];
+    while (fgets(line, sizeof line, fp)) {
+        unsigned long long a = 0;
+        if (line[0] == '#') {
+            if (sscanf(line, "# layer_records %llu", &a) == 1) g_expert_hotlist.records = a >> 1;
+            else if (sscanf(line, "# selections %llu", &a) == 1) g_expert_hotlist.selections = a >> 1;
+            continue;
+        }
+        unsigned long layer = 0, expert = 0;
+        unsigned long long hits = 0;
+        if (sscanf(line, "%lu %lu %llu", &layer, &expert, &hits) != 3) continue;
+        if (layer > 0xFFFFu || expert > 0xFFFFu) continue;
+        const uint64_t decayed = hits >> 1;
+        if (decayed) g_expert_hotlist.counts[cuda_expert_hotlist_key((uint32_t)layer, (uint32_t)expert)] += decayed;
+    }
+    fclose(fp);
+}
+
+/* Written to a sibling temp file and renamed in, so a crash mid-write never
+ * leaves a half list. */
+static void cuda_expert_hotlist_close(void) {
+    const char *path = cuda_expert_hotlist_path();
+    if (!path || g_expert_hotlist.counts.empty()) return;
+    std::vector<cuda_expert_hotlist_entry> entries;
+    try {
+        entries.reserve(g_expert_hotlist.counts.size());
+        for (auto &kv : g_expert_hotlist.counts) {
+            cuda_expert_hotlist_entry e;
+            e.layer = (uint32_t)(kv.first >> 32);
+            e.expert = (uint32_t)kv.first;
+            e.hits = kv.second;
+            entries.push_back(e);
+        }
+        std::sort(entries.begin(), entries.end(), cuda_expert_hotlist_hotter);
+    } catch (...) {
+        return;
+    }
+    {
+        /* ~/.cache/ds4 may not exist yet; both mkdirs may fail because the
+         * directory is already there, which is fine. */
+        char dir[PATH_MAX];
+        snprintf(dir, sizeof dir, "%s", path);
+        char *slash = strrchr(dir, '/');
+        if (slash && slash != dir) {
+            *slash = '\0';
+            char *parent = strrchr(dir, '/');
+            if (parent && parent != dir) {
+                *parent = '\0';
+                (void)mkdir(dir, 0755);
+                *parent = '/';
+            }
+            (void)mkdir(dir, 0755);
+        }
+    }
+    char tmp[PATH_MAX];
+    if (snprintf(tmp, sizeof tmp, "%s.tmp.%ld", path, (long)getpid()) >= (int)sizeof tmp) return;
+    FILE *fp = fopen(tmp, "wb");
+    if (!fp) {
+        fprintf(stderr, "ds4: failed to open expert hotlist %s for writing\n", tmp);
+        return;
+    }
+    fprintf(fp,
+            "# ds4 expert hotlist v1\n"
+            "# model_size %llu\n"
+            "# experts %u\n"
+            "# layer_records %llu\n"
+            "# selections %llu\n"
+            "# columns: layer expert hits weight\n",
+            (unsigned long long)g_expert_hotlist.model_size,
+            g_expert_hotlist.n_total_expert,
+            (unsigned long long)g_expert_hotlist.records,
+            (unsigned long long)g_expert_hotlist.selections);
+    for (size_t i = 0; i < entries.size(); i++)
+        fprintf(fp, "%u %u %llu 0\n", entries[i].layer, entries[i].expert,
+                (unsigned long long)entries[i].hits);
+    if (fclose(fp) != 0 || rename(tmp, path) != 0) {
+        fprintf(stderr, "ds4: failed to write expert hotlist %s\n", path);
+        (void)unlink(tmp);
+        return;
+    }
+    fprintf(stderr, "ds4: wrote expert hotlist %s (%zu experts)\n", path, entries.size());
+}
+
+/* One count per unique (layer, expert) per batch, taken where the cache is
+ * asked for bytes, so the list is exactly the demand the cache saw.  Seeds
+ * are guesses and are not counted: counting them would let one run's guesses
+ * steer the next run's list. */
+static void cuda_expert_hotlist_record(const ds4_gpu_stream_expert_table *table,
+                                       const std::vector<int32_t> &unique) {
+    if (g_stream_expert_seeding || g_expert_hotlist.disabled) return;
+    if (!g_expert_hotlist.initialized) {
+        g_expert_hotlist.initialized = 1;
+        const char *path = cuda_expert_hotlist_path();
+        if (!path) { g_expert_hotlist.disabled = 1; return; }
+        g_expert_hotlist.model_size = table->model_size;
+        g_expert_hotlist.n_total_expert = table->n_total_expert;
+        try {
+            cuda_expert_hotlist_load_history(path, table->model_size);
+        } catch (...) {
+            g_expert_hotlist.counts.clear();
+        }
+        atexit(cuda_expert_hotlist_close);
+    }
+    g_expert_hotlist.records++;
+    try {
+        for (size_t i = 0; i < unique.size(); i++) {
+            g_expert_hotlist.counts[cuda_expert_hotlist_key(table->layer, (uint32_t)unique[i])]++;
+            g_expert_hotlist.selections++;
+        }
+    } catch (...) {
+        /* Out of host memory for the counts: keep serving, stop learning. */
+        g_expert_hotlist.disabled = 1;
+    }
+}
+
 static int cuda_stream_selected_cache_begin_load(
         const ds4_gpu_stream_expert_table *table,
         const int32_t *selected_ids,
@@ -27699,6 +27913,7 @@ static int cuda_stream_selected_cache_begin_load(
             }
             remap[i] = expert_to_slot[expert];
         }
+        cuda_expert_hotlist_record(table, unique);
         auto &cache = g_stream_selected_cache;
         if (cache.model_map != table->model_map ||
             cache.gate_expert_bytes != table->gate_expert_bytes ||
@@ -34406,7 +34621,23 @@ extern "C" int ds4_gpu_stream_expert_cache_seed_experts(
         const uint32_t *expert_priorities,
         uint32_t n_experts) {
     (void)expert_priorities;
-    return !n_experts || cuda_stream_selected_cache_begin_load(table, expert_ids, n_experts);
+    if (!n_experts) return 1;
+    /* Seeds fill empty slots only.  The list is hits descending, so when the
+     * cache is smaller than the list the hottest of each layer go in and the
+     * rest are skipped instead of evicting an earlier layer's seeds and
+     * reading gigabytes the cache cannot hold.  The first call sizes the
+     * cache and takes the whole layer. */
+    if (!g_stream_expert_slots.empty()) {
+        const size_t used = g_stream_expert_by_gate.size();
+        const size_t free_slots = g_stream_expert_slots.size() > used ?
+                                  g_stream_expert_slots.size() - used : 0;
+        if (free_slots == 0) return 1;
+        if (n_experts > free_slots) n_experts = (uint32_t)free_slots;
+    }
+    g_stream_expert_seeding = 1;
+    const int ok = cuda_stream_selected_cache_begin_load(table, expert_ids, n_experts);
+    g_stream_expert_seeding = 0;
+    return ok;
 }
 
 extern "C" int ds4_gpu_argmax_tensor(
