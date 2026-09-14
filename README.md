@@ -1,4 +1,18 @@
-> **TripleSparkle fork, branch `triple-cuda-backend-archive`.** Our full independent CUDA backend for DeepSeek V4.1 Flash on the DGX Spark, kept as the record the numbers came from. What it contains: [README_TRIPLE.md](README_TRIPLE.md). The text below is upstream's README unchanged.
+> **TripleSparkle fork, branch `triple-cuda-backend-archive`.** Our full independent CUDA backend for DeepSeek V4.1 Flash on the DGX Spark, frozen as the record the numbers came from. 1.69 to 9.5-10.1 t/s generation, every step byte-identical on the greedy dump.
+>
+> ```
+> ╔═══ THE PITCH
+> ║  the port               V4.1 Flash runs on CUDA at all (33 Metal-only guards opened, 10 kernels ported)   1.69 t/s
+> ║  resident expert arena  an LRU of expert triples on the GPU, sized from MemAvailable                     4.56 t/s
+> ║  zero-copy views        MoE kernels read the arena directly, no 2.2 GiB per token copy                   7.30 t/s
+> ║  DRAINCUT               event-gated expert-id readback instead of a device drain per layer
+> ║  parallel pread pool    misses read 8 wide, O_DIRECT, pinned staging
+> ║  persistent hot list    the arena starts warm from the previous run's hit counts
+> ║  hits-first, staged     resident experts compute while the misses stream                                 9.5-10.1 t/s
+> ╚═══
+> ```
+>
+> What it contains, the knobs and the upstream comparison: [README_TRIPLE.md](README_TRIPLE.md). Measurement log: `plans/`. Gate script: `sparkport-verify.sh`. The text below is upstream's README unchanged.
 
 <p align="center">
   <img src="logo.svg" alt="DwarfStar logo" width="220">
