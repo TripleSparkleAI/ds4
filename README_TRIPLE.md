@@ -1,5 +1,11 @@
 # triple-cuda-backend-archive
 
+The TripleSparkle CUDA work on ds4 for the NVIDIA DGX Spark lives on three branches, each with its own README_TRIPLE.md:
+
+- `triple-pr-parallel-ssd-reads` - upstream `main` plus one commit, the parallel pread pool for SSD expert-cache misses (+12% generation on upstream's tree, byte-identical). The pull request offered upstream.
+- `triple-cuda-speedups` - upstream `main` plus the pool plus each of our levers replayed one gated commit at a time, with `CUDA_SUGGESTIONS.md` stating the status of each. The next pull request candidate.
+- `triple-cuda-backend-archive` (this branch) - our full independent backend, forked before upstream's own V4.1 CUDA commit, kept as the record the numbers came from. It also carries the measurement logs (`plans/`), the gate script (`sparkport-verify.sh`) and the pull request texts.
+
 The TripleSparkle CUDA backend for DeepSeek V4.1 Flash on the NVIDIA DGX Spark
 (GB10, sm_121, CUDA 13.0, 121 GB unified memory), against the Q2 GGUF with SSD
 streaming. Forked from upstream `bd66c40` ("DeepSeek v4.1 Flash support for
@@ -64,4 +70,4 @@ Upstream 5.45-6.23 t/s, this branch 6.60-9.38 t/s, with the arena squeezed to
 equal slot counts. Upstream wins short exact prefill (4.2-4.5 vs 2.1-2.5
 t/s) and has session batching and dual-Spark RoCE, which this branch does not.
 
-The full measurement log and the gate script are on `triple-notes`.
+The measurement log is `plans/PLAN_SPARKPORT_2026-09-13.md`; the gate script is `sparkport-verify.sh`.

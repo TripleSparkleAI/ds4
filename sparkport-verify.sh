@@ -4,6 +4,7 @@
 # usage() - prints the mini-tutorial and exits
 # spark_stamp() - captures load, GPU util and driver version from the Spark
 # gate_correctness() - greedy A/B, expert cache on vs off, byte-identical or fail
+# gate_long() - ~588-token prompt twice: identical to each other and to the long baseline
 # gate_speed() - prefill/generation t/s, refused on a busy box
 # run_lane() - both gates for one lane, in order
 #
@@ -30,6 +31,15 @@ MODEL="\$HOME/dwarfstar/gguf/DeepSeek-V4.1-Flash-Q2.gguf"
 COMMON="--cuda --ssd-streaming --ssd-streaming-cache-experts 90GB --ctx 32768"
 BUSY_LOAD=8        # 20 cores; above this a timing is not comparable
 BUSY_GPU=25        # percent
+# The greedy logprob dump of the reference build for the correctness prompt.
+# On-vs-off proves the cache is transparent; this proves the KERNELS did not
+# move either - a kernel change flips both arms together and would pass the
+# first check alone (LUT16 did exactly that, 2026-09-13).
+BASELINE_SHA="${SPARKPORT_BASELINE_SHA:-e73f763588d4f253}"
+# The long-prompt arm: a ~588-token prompt through the BATCHED prefill, run twice.
+# Both runs must match each other (the batched tiers were not reproducible until
+# 2026-09-13) and the recorded sha.
+LONG_BASELINE_SHA="${SPARKPORT_LONG_BASELINE_SHA:-5566a268d8baab75}"
 
 usage() {
     cat <<'EOF'
@@ -37,6 +47,8 @@ sparkport-verify.sh - one verification door for every SPARKPORT lane
 
   sparkport-verify.sh <lane> [<lane>...]   run both gates per lane, serially
   sparkport-verify.sh --correctness <lane> correctness only (safe on a busy box)
+  sparkport-verify.sh --speed <lane>       speed only (a lane already gated today)
+  sparkport-verify.sh --long <lane>        long-prompt arm: batched prefill, two runs identical + baseline
   sparkport-verify.sh --stamp              print the Spark's current stamp
   sparkport-verify.sh --selftest           check own wiring, run nothing heavy
 
@@ -79,14 +91,37 @@ gate_correctness() {
     echo "  [1/2] correctness: greedy A/B, expert cache on vs off"
     ssh spark "cd $SPARK_ROOT/$lane || exit 9
         P='Explain in two sentences why the sky is blue.'
+        rm -f /tmp/${lane}_on.json /tmp/${lane}_off.json   # a killed run must not pass on a stale dump
         ./ds4 -m $MODEL $COMMON --temp 0 -n 32 --dump-logprobs /tmp/${lane}_on.json  -p \"\$P\" >/dev/null 2>&1
         DS4_CUDA_EXPERT_CACHE=0 ./ds4 -m $MODEL $COMMON --temp 0 -n 32 --dump-logprobs /tmp/${lane}_off.json -p \"\$P\" >/dev/null 2>&1
         if [ ! -s /tmp/${lane}_on.json ] || [ ! -s /tmp/${lane}_off.json ]; then
             echo '        FAIL - a run produced no logprobs'; exit 1; fi
-        if cmp -s /tmp/${lane}_on.json /tmp/${lane}_off.json; then
-            echo \"        PASS - byte-identical (\$(sha256sum /tmp/${lane}_on.json | cut -c1-16))\"
+        if ! cmp -s /tmp/${lane}_on.json /tmp/${lane}_off.json; then
+            echo '        FAIL - cache changes the logit distribution'; exit 1; fi
+        S=\$(sha256sum /tmp/${lane}_on.json | cut -c1-16)
+        if [ \"\$S\" = \"$BASELINE_SHA\" ]; then
+            echo \"        PASS - byte-identical, and equal to the baseline (\$S)\"
         else
-            echo '        FAIL - cache changes the logit distribution'; exit 1; fi"
+            echo \"        FAIL - cache-transparent but the output moved: \$S != $BASELINE_SHA (a kernel changed the logits)\"; exit 1; fi"
+}
+
+gate_long() {
+    local lane="$1"
+    echo "  [long] ~588-token prompt through the batched prefill, two runs"
+    ssh spark "cd $SPARK_ROOT/$lane || exit 9
+        P=\"\$(printf 'Explain, in careful detail and with examples, how mixture-of-experts routing works in a transformer, why load balancing matters, what the auxiliary loss does, how capacity factors are chosen, and how expert parallelism is implemented across devices. %.0s' \$(seq 1 12))\"
+        rm -f /tmp/${lane}_long1.json /tmp/${lane}_long2.json   # same: no stale dumps
+        ./ds4 -m $MODEL $COMMON --temp 0 -n 16 --dump-logprobs /tmp/${lane}_long1.json -p \"\$P\" >/dev/null 2>&1
+        ./ds4 -m $MODEL $COMMON --temp 0 -n 16 --dump-logprobs /tmp/${lane}_long2.json -p \"\$P\" >/dev/null 2>&1
+        if [ ! -s /tmp/${lane}_long1.json ] || [ ! -s /tmp/${lane}_long2.json ]; then
+            echo '        FAIL - a long-prompt run produced no logprobs'; exit 1; fi
+        if ! cmp -s /tmp/${lane}_long1.json /tmp/${lane}_long2.json; then
+            echo '        FAIL - two runs of the same prompt differ (the batched prefill is not reproducible)'; exit 1; fi
+        S=\$(sha256sum /tmp/${lane}_long1.json | cut -c1-16)
+        if [ \"\$S\" = \"$LONG_BASELINE_SHA\" ]; then
+            echo \"        PASS - reproducible, and equal to the long baseline (\$S)\"
+        else
+            echo \"        FAIL - reproducible but moved: \$S != $LONG_BASELINE_SHA\"; exit 1; fi"
 }
 
 gate_speed() {
@@ -108,8 +143,15 @@ run_lane() {
     if ! ssh spark "test -x $SPARK_ROOT/$lane/ds4"; then
         echo "  SKIP - no built ds4 at $SPARK_ROOT/$lane"; return 0
     fi
-    gate_correctness "$lane" || { echo "  lane $lane FAILED the correctness gate"; return 1; }
+    if [ "$only" = "long" ]; then
+        gate_long "$lane" || { echo "  lane $lane FAILED the long-prompt gate"; return 1; }
+        return 0
+    fi
+    if [ "$only" != "speed" ]; then
+        gate_correctness "$lane" || { echo "  lane $lane FAILED the correctness gate"; return 1; }
+    fi
     [ "$only" = "correctness" ] && return 0
+    sleep 8   # let the correctness arm's own GPU use drain before the stamp is read
     gate_speed "$lane" "$(spark_stamp)"
 }
 
@@ -118,7 +160,7 @@ case "${1:-}" in
     --stamp) read -r l g d <<<"$(spark_stamp)"; echo "load=$l gpu=${g}% driver=$d"; exit 0 ;;
     --selftest)
         rc=0
-        for fn in usage spark_stamp box_is_busy gate_correctness gate_speed run_lane; do
+        for fn in usage spark_stamp box_is_busy gate_correctness gate_long gate_speed run_lane; do
             declare -F "$fn" >/dev/null || { echo "FAIL missing $fn"; rc=1; }
         done
         box_is_busy "15.0 1 580.00"  && echo "ok  busy by load"   || { echo "FAIL busy-by-load"; rc=1; }
@@ -127,6 +169,8 @@ case "${1:-}" in
         [ $rc -eq 0 ] && echo "selftest PASS" || echo "selftest FAIL"
         exit $rc ;;
     --correctness) shift; only=correctness ;;
+    --speed) shift; only=speed ;;
+    --long) shift; only=long ;;
     *) only=both ;;
 esac
 
