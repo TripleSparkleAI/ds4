@@ -1,3 +1,5 @@
+> **TripleSparkle fork, branch `triple-cuda-backend-archive`.** Our full independent CUDA backend for DeepSeek V4.1 Flash on the DGX Spark, kept as the record the numbers came from. What it contains: [README_TRIPLE.md](README_TRIPLE.md). The map of all branches: [`triple-notes`](https://github.com/TripleSparkleAI/ds4/tree/triple-notes). The text below is upstream's README unchanged.
+
 <p align="center">
   <img src="logo.svg" alt="DwarfStar logo" width="220">
 </p>
