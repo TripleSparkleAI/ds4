@@ -1,3 +1,20 @@
+> **TripleSparkle fork, branch `triple-cuda-speedups`.** Upstream `main` plus our parallel pread pool and our CUDA levers replayed one gated commit each.
+>
+> ```
+> ╔═══ THE PITCH
+> ║  parallel pread pool         misses read 8 wide instead of one at a time            +12% generation on upstream's tree, greedy dumps unchanged
+> ║  cache reserve knob          the slot cache's 8 GiB reserve becomes a knob         no data path change, default unchanged, greedy dumps unchanged
+> ║  learned hot list            the cache writes what it used, seeds itself next run   greedy dumps unchanged with the seed active, speed unmeasured (box under load)
+> ║  event-gated id readback     the host waits for the router, not the whole device    greedy dumps unchanged, speed unmeasured (box under load)
+> ║  page cache order            madvise before fadvise so mapped pages really drop     greedy dumps unchanged, no-op under the default O_DIRECT
+> ║  router argmax               skipped, upstream already runs a warp-wide top-k
+> ║  zero-copy arena             skipped for decode, upstream reads slots in place; prefill still compacts, noted
+> ║  hits-first (opt-in)         resident experts compute while misses stream           off by default, a null here (his shared-expert overlap fills the window), +5% on our own backend
+> ╚═══
+> ```
+>
+> What it contains and the status of each lever: [README_TRIPLE.md](README_TRIPLE.md) and [CUDA_SUGGESTIONS.md](CUDA_SUGGESTIONS.md). The map of all branches: [`triple-cuda-backend-archive`](https://github.com/TripleSparkleAI/ds4/tree/triple-cuda-backend-archive). The text below is upstream's README unchanged.
+
 <p align="center">
   <img src="logo.svg" alt="DwarfStar logo" width="220">
 </p>
