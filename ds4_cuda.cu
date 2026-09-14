@@ -2116,6 +2116,39 @@ static void cuda_model_drop_file_pages(uint64_t offset, uint64_t bytes) {
 #endif
 }
 
+/* Release a model range that was just staged into device memory.  The device
+ * copy is now the only reader of these bytes: a later cache miss goes back to
+ * the SSD, never to page cache, so on a unified-memory part the cached copy
+ * only competes with the expert slots for the same pool.
+ *
+ * Order matters on Linux.  FADV_DONTNEED skips any page still mapped into a
+ * process, and the model file is mmap'd by the loader, so a page touched
+ * through that mapping survives the fadvise.  Zap our PTEs first, then drop
+ * the cache.  On the O_DIRECT path there is nothing cached and both calls are
+ * cheap no-ops. */
+static void cuda_model_release_read_range(const void *model_map, uint64_t model_size,
+                                          uint64_t offset, uint64_t bytes) {
+    cuda_model_discard_source_pages(model_map, model_size, offset, bytes);
+    cuda_model_drop_file_pages(offset, bytes);
+}
+
+/* Ask the kernel to start reading a range we are about to pread.  Only on the
+ * buffered path: with O_DIRECT (the default on Linux) the read bypasses page
+ * cache, so a WILLNEED would fill exactly the cache dropped above and the
+ * read would not use it. */
+static void cuda_model_readahead_range(uint64_t offset, uint64_t bytes) {
+#if defined(POSIX_FADV_WILLNEED)
+    if (g_model_fd < 0 || g_model_direct_fd >= 0 || bytes == 0 ||
+        getenv("DS4_CUDA_NO_EXPERT_READAHEAD") != NULL) return;
+    if (g_model_file_size != 0 &&
+        (offset > g_model_file_size || bytes > g_model_file_size - offset)) return;
+    (void)posix_fadvise(g_model_fd, (off_t)offset, (off_t)bytes, POSIX_FADV_WILLNEED);
+#else
+    (void)offset;
+    (void)bytes;
+#endif
+}
+
 static uint64_t cuda_round_down(uint64_t v, uint64_t align) {
     if (align <= 1) return v;
     return (v / align) * align;
@@ -2364,9 +2397,7 @@ static int cuda_model_copy_to_device_streamed(
             (void)cudaGetLastError();
             return 0;
         }
-        cuda_model_drop_file_pages(offset + copied, n);
-        cuda_model_discard_source_pages(model_map, model_size,
-                                        offset + copied, n);
+        cuda_model_release_read_range(model_map, model_size, offset + copied, n);
         copied += n;
         chunk_idx++;
     }
@@ -2527,9 +2558,7 @@ static int cuda_expert_pread_task_run(cuda_expert_pread_ctx *ctx,
             (void)cudaGetLastError();
             return 0;
         }
-        cuda_model_drop_file_pages(t->offset + copied, n);
-        cuda_model_discard_source_pages(t->model_map, t->model_size,
-                                        t->offset + copied, n);
+        cuda_model_release_read_range(t->model_map, t->model_size, t->offset + copied, n);
         copied += n;
     }
     return 1;
@@ -2932,8 +2961,7 @@ static const char *cuda_model_range_ptr_from_fd(
             (void)cudaGetLastError();
             return NULL;
         }
-        cuda_model_drop_file_pages(offset + copied, n);
-        cuda_model_discard_source_pages(model_map, g_model_registered_size, offset + copied, n);
+        cuda_model_release_read_range(model_map, g_model_registered_size, offset + copied, n);
         copied += n;
         cuda_model_load_progress_note(g_model_range_bytes + copied);
         chunk_idx++;
@@ -27816,6 +27844,10 @@ static int cuda_stream_selected_cache_begin_load(
             slots[i] = (int32_t)victim;
         }
         if (!tasks.empty()) {
+            /* Buffered path only (a no-op under O_DIRECT): let the kernel start
+             * every miss's read before the first pread waits on it. */
+            for (size_t k = 0; k < tasks.size(); k++)
+                cuda_model_readahead_range(tasks[k].offset, tasks[k].bytes);
             int pooled = cuda_expert_pread_pool_dispatch(tasks.data(), (uint32_t)tasks.size());
             if (!pooled) {
                 for (size_t k = 0; k < tasks.size(); k++) {
@@ -27928,6 +27960,11 @@ static void *cuda_stream_prefetch_read(void *) {
     p.ok = cudaSetDevice(p.device) == cudaSuccess;
     uint64_t chunk_index = 0;
     const uint64_t chunk = UINT64_C(8) << 20;
+    /* Buffered path only, the same hint the demand path takes: ask the kernel
+     * to start every merged range before the first one is waited on.  The
+     * reader already drops each range after copying it, so without this it
+     * both fills and empties the cache one chunk at a time. */
+    for (const auto &copy : p.copies) cuda_model_readahead_range(copy.offset, copy.bytes);
     for (const auto &copy : p.copies) {
         for (uint64_t offset = 0; p.ok && offset < copy.bytes; offset += chunk) {
             if (p.cancel.load(std::memory_order_relaxed)) { p.ok = false; break; }
