@@ -267,3 +267,104 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+
+
+
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
+**✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
+
+**✦ above: the README, unchanged**
+
+**✦ below: our modifications and numbers for this branch**
+
+## read the prefill read-ahead in parallel
+
+Upstream's next-layer read-ahead walks its copies one at a time through two 8 MiB staging buffers, so the drive sees queue depth one for the whole speculative read. This branch splits those copies into tasks and runs them on a pread pool.
+
+```
++--  parallel SSD read-ahead - tokens/s owed ------------------------------
+
+      baseline        ____               tokens/s
+      this branch     ____               tokens/s
+      improvement     ____               %
+
+      ----------------------------------------------------------------------
+      switch          DS4_CUDA_SSD_PREFETCH_CHUNK_MB = task and per-worker
+                      staging size (default 8 MiB, cap 64; value 0 IGNORED)
+      fallback        pool declines -> antirez's single reader, unchanged
+      gate            expected output-invariant: WHEN bytes arrive changes,
+                      never how many
+
+   +  a blank cell is AWAITING THE SWEEP, not a zero.
+```
+
+**Standard results table**
+
+| arm / measurement | value | change |
+| --- | ---: | ---: |
+| tokens/s - control (tip, unpatched) | ____ | - |
+| tokens/s - this branch | ____ | ____ % |
+| prefill foreground wait per layer - this branch | ____ | ____ % |
+
+*Cells left blank are AWAITING THE SWEEP, not zero. Nothing here is estimated.*
+
+- The read-ahead's copies are cut into `DS4_CUDA_SSD_PREFETCH_CHUNK_MB` (default 8, capped 64) MiB tasks, one task per chunk, and handed to the read-ahead's own pool instance, `g_prefetch_pread`. Each worker owns a pinned staging buffer and its own upload stream, so the drive sees the layer's whole queue depth instead of one read at a time. On the pooled path a 38-layer prefill creates no threads where it previously created and joined 38; the serial fallback still `pthread_create`s when the pool declines.
+- The pool is SEPARATE from the demand pool on purpose: `cuda_pread_pool_dispatch_start` declines while a batch is in flight, so a shared pool would send every demand miss that arrives during a speculative batch down the serial staged copy, which is the exact path the pool exists to replace. The price is one more set of pinned staging buffers.
+- The pool takes PRIVATE file descriptors per batch: a worker runs while the foreground computes, must not read a descriptor the foreground can close underneath it, and a rejected direct read from a speculative worker must not disable `O_DIRECT` for the demand path.
+- The read-ahead's invariants survive because none of them live in the reader: slots are still reserved `used = UINT64_MAX` and kept out of the gate index, publication is still one foreground act setting `used = 1` after every task reported success, and the join is still a join on cancellation, cache teardown and model teardown.
+- **No off switch for the chunking.** `DS4_CUDA_SSD_PREFETCH_CHUNK_MB` sets a size and silently ignores 0 (the parse demands a value > 0), so the split cannot be turned off while the reader stays. The way back to upstream's single reader is the pool's own enable env, `DS4_CUDA_SSD_PREFETCH_POOL=0`, or `DS4_CUDA_SSD_PREFETCH_THREADS=1`: both decline dispatch and take the serial fallback. That is a revert of the whole pool, not an isolated A/B of the chunk size, and no arm of the chunk-size axis has been run.
+- **IN the stacked tree `triple-all-fastest`.** This change and the `pool` lever modify the
+  same expert-pread code in `ds4_cuda.cu`, and they collided: applying this branch's code-only
+  diff onto the stacked tree produced **30 conflict regions** under `git apply --3way` (a
+  `git merge-tree` comparison of the same pair reports **31**; the two instruments count
+  overlapping regions differently, so treat the number as about thirty rather than exact).
+  All of them were resolved **by hand**, 8 keeping the stacked tree's side, 16 taking this
+  branch's, and 6 combining both, and the merged tree then **built clean natively** on the
+  Spark with 0 errors. An earlier revision of this note said the merge was deferred; it was
+  deferred, then done.
+- The branch's own recorded sweep, `speed-bench/v41_cuda_prefetch_pool_gb10.md` in this tree: twelve runs across seven configurations produce ONE greedy output, sha256 `2f2dd7f89d107bbc` at 33,527 bytes, the value an unpatched tree gives; the foreground's blocking wait for the read-ahead falls **398.0 -> 196.5 ms per layer** at four readers, removing **7.65 s** from a single 4,392-token prefill; four readers beat eight and sixteen by about 11 percent in both passes; a device probe saw **7.6 to 10.1 GB/s** single reader versus 8 readers.
+- Every arm read the same 38 layers at 3,822,059,520 bytes: a prefetch changes WHEN bytes arrive, never how many. Tokens/s against the sweep tip is still owed and the cells above stay blank until it lands.
+
+```
+   ONE READER (upstream)                POOL (this branch)
+   ---------------------                --------------------------
+   copy 1  -->  staging A               task 1  -+
+   copy 2  -->  staging B               task 2  +-  four workers, each
+   copy 3  -->  staging A               task 3  +-  with its own pinned
+     ...                                task 4  +-  buffer and its own
+   copy 38 -->  staging B                           upload stream
+
+   NVMe sees queue depth 1              NVMe sees the layer's whole
+   for the whole speculative read       queue depth; a cancel costs
+   the foreground blocks on             at most one task, checked
+   the whole batch                      under a mutex already held
+
+   chunk = DS4_CUDA_SSD_PREFETCH_CHUNK_MB, default 8 MiB, cap 64
+   value 0 is ignored: no off switch for the chunking itself
+```
+
+**Why these cells are still blank.** A native pass was run on 2026-09-15 and its result files
+exist on the Spark, but its control is not sound, so the numbers are WITHHELD rather than
+published. In that pass every arm read above its control - including the arms that switch this
+lever **off**, and an off arm is the control by construction, so it cannot beat it by several
+percent. Two of the three levers measured better switched off than switched on. That is the
+signature of a bad control rather than of a lever, and the control in that pass read 9.17 to
+9.46 tokens/s against 9.56 in a later pass that produced mixed, believable results.
+
+So the honest statement is that this measurement is **owed** with a clean interleaved control,
+and these cells stay blank until it exists. Publishing the 2026-09-15 figures would put a
+number in a table that the run behind it does not support.
+
+**Where the clean numbers will arrive.** A clean series is being run on the Spark with the
+harness `try.sh` on branch `triple-all-fastest`. Its results land under `~/sweeps/` as dated
+markdown-table files matching `~/sweeps/2026-09-16-*.txt`, plus one MATRIX file beside them,
+and every file states what was ON, the build vintage, the interleaved control and the noise
+floor - so any figure there can be traced back to its run without trusting this README.
+
+Status: **OWED** - until a file in `~/sweeps/` carries this lever's clean interleaved A/B,
+the cells above stay blank.
