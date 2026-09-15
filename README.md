@@ -267,3 +267,11 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+## The prefill-to-decode expert handoff, measured
+
+Over a 4,391 token prompt with a 90GB expert cache the V4.1 prefill takes 36,022 expert
+lookups, hits 35,377 and evicts zero: the read-ahead reaches each layer before the demand
+path does, so there is no handoff being thrown away and this branch proposes no code change.
+The opening is still colder than the steady state, 32.22 misses per token over the first 32
+against 9.16 after, and this lane did not establish why.
