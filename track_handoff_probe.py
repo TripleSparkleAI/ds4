@@ -1,8 +1,24 @@
 #!/usr/bin/env python3
 """Answer the PREFILLHANDOFF lane's three questions from a DS4_PROBE_HANDOFF log.
 
+⚠ THIS INSTRUMENT IS BLIND TO THE READ-AHEAD, AND THAT BLINDNESS PRODUCED A
+CONFIDENT WRONG ANSWER ON 2026-09-15. It replays residency from the DEMAND path
+only. `ds4_gpu_stream_expert_cache_prefetch_finish` publishes the read-ahead's
+reserved slots straight into `g_stream_expert_by_gate`, and nothing here sees
+that, so the replayed arena is far emptier than the real one.
+
+THE CHECK THAT CATCHES IT, and it needs no new run: every line carries the
+engine's own `res=`. Compare it against the replay after each row; if `res=`
+moves by anything other than (misses - evictions) there is an insert path this
+tool cannot see. Measured on the first real log: 21 rows of 2,639 moved by
++384, one whole layer, every one of them during prefill.
+
+⇒ Q1 and Q3 below are ONLY valid once the prefetch publish path is instrumented
+too. Q2 is decode-only and was verified against the engine's own counters
+(evict 1,315 by this tool, 1,315 by the engine).
+
 Reads the `HO ` lines the probe build prints on stderr and replays the expert
-cache exactly, because every membership change is in the log: a miss inserts a
+cache, because every DEMAND membership change is in the log: a miss inserts a
 gate, an eviction removes one, a hit changes nothing.
 
   Q1  what fraction of the prompt's experts is still resident when the first
