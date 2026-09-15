@@ -267,3 +267,110 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+
+
+
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
+**✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
+
+**✦ above: the README, unchanged**
+
+**✦ below: our modifications and numbers for this branch**
+
+## reorder the read-ahead's victims: stop evicting what decode needs
+
+Upstream's prefill read-ahead evicts by `used` ascending, and across a forward sweep that is ascending layer, so it surrenders the earliest layers first while decode restarts at layer 0. This branch changes the order of the victim list, never its membership.
+
+```
++--  victim reorder - A/B not yet run -------------------------------------
+
+      baseline        ____               tokens/s
+      this branch     ____               tokens/s
+      improvement     ____               %
+
+      ----------------------------------------------------------------------
+      switch          none: the reorder is unconditional
+      stats           DS4_CUDA_SSD_PREFETCH_STATS=1 counts only
+      gate            expected output-invariant: residency changes WHEN a
+                      byte arrives, never which byte
+
+   +  a blank cell is AWAITING THE SWEEP, not a zero.
+```
+
+**Standard results table**
+
+| arm / measurement | value | change |
+| --- | ---: | ---: |
+| tokens/s - control (tip, unpatched) | ____ | - |
+| tokens/s - this branch | ____ | ____ % |
+| misses/token, first 32 decode tokens - this branch | ____ | ____ % |
+
+*Cells left blank are AWAITING THE SWEEP, not zero. Nothing here is estimated.*
+
+- Changes one `stable_sort` comparator in `ds4_gpu_stream_expert_cache_prefetch`. The victim SET is identical before and after, so the starvation path (`if (p.slots.size() >= victims.size()) throw 0;`) is reached exactly as often as today: the hazard that silently switches the read-ahead off is structurally unreachable by this change.
+- **No real off switch.** The only environment variable this diff ships is `DS4_CUDA_SSD_PREFETCH_STATS`, which counts and prints and changes no decision; the reorder itself is unconditional. Upstream's `DS4_CUDA_DISABLE_SSD_PREFETCH` kills the whole read-ahead, not this lever in isolation. A true A/B of the reorder needs its own binary.
+- The figures this patch has to beat, measured on the unpatched tip and recorded in `plans/prs/PR_PREFILLHANDOFF.md` on branch `lane-pr-docs` at `cc9bcac8f`: the first 32 decode tokens miss **32.22 experts per token at a 0.8658 hit rate** against a steady state of **9.16 at 0.9618**; a second run reproduced it at 33.09 / 0.8621 against 9.19 / 0.9617.
+- The same record shows the prefill takes 36,022 expert lookups, hits 35,377 and evicts **zero** through the demand path, with the arena full at 8,548 of 8,548. The eviction that matters is the read-ahead's own reservation loop, which a demand-only counter cannot see: `res=` climbing 384 a layer to the cap and then sitting flat is eviction running at exactly the rate of admission.
+- The probe lane's independent measurement, recorded in `plans/prs/MEASURED_PREFETCH_PROBE.md` on the same branch: **93.8 percent of the first decode step's misses were experts the prefill had selected and the cache no longer holds**, and 65.9 percent of the last prefill batch's experts are still resident at that layer's first decode step.
+- The opening is layer-shaped: **98.4 percent of the opening's misses live in layers 0-19**, while layers 20-39 miss 0.47 percent of their lookups (`plans/channel/CUDA_LANES_CHANNEL_snapshot.md`, `lane-pr-docs`).
+- **Caveat on the three citations above:** they name files on branch `lane-pr-docs`, which is
+  **not published on this fork** because it carries the internal coordination log. A reader
+  working from the fork alone cannot fetch them, so treat those three figures as attributable
+  but not independently checkable here.
+- An earlier pair of figures from this lane, 4.7 percent surviving and 92.7 percent loaded-then-evicted, was **withdrawn**: the offline replay reconstructed residency from the demand path alone and read 645 where the engine's own `res=` printed 8,548. They are not used here and are recorded so nobody re-derives them.
+- Counters ship separately so a silent self-disable cannot masquerade as a win: `DS4_CUDA_SSD_PREFETCH_STATS=1` prints asked / started / refused_early / no_victims / cancelled / published / dropped / slots.
+
+```
+   VICTIM ORDER ACROSS ONE PREFILL SWEEP
+
+   layer       0    1    2   ...   20   ...   39
+               |    |    |          |          |
+   sweep  -->------------------------------------------->
+   used stamp   1    2    3   ...   21   ...   40
+                (rises with the layer: an expert tensor's offset rises
+                 with its layer, 40 of 40 strictly, so the gate offset
+                 orders layers without carrying a layer on the slot)
+
+   OLD - sort victims by used ASCENDING
+     evict layer 0 first .................... layer 39 last
+     the arena ends the prefill holding the LATE layers
+     decode restarts at layer 0  ==>  the opening is cold
+
+   NEW - this branch
+     1. slots AHEAD of the sweep go first: the sweep re-reads those
+        layers on the way past anyway, so losing one costs one
+        prefetch, not the opening
+     2. among slots BEHIND the sweep, the ones CLOSEST to the sweep
+        go first: decode reaches layer 0 first, so the earliest
+        layers are the last thing worth surrendering
+     3. used stays the tie-break within one layer, so the least
+        recently routed expert in a layer still goes first
+     evict layer 39 first .................... layer 0 last
+     decode restarts at layer 0  ==>  still resident
+```
+
+**Why these cells are still blank.** A native pass was run on 2026-09-15 and its result files
+exist on the Spark, but its control is not sound, so the numbers are WITHHELD rather than
+published. In that pass every arm read above its control - including the arms that switch this
+lever **off**, and an off arm is the control by construction, so it cannot beat it by several
+percent. Two of the three levers measured better switched off than switched on. That is the
+signature of a bad control rather than of a lever, and the control in that pass read 9.17 to
+9.46 tokens/s against 9.56 in a later pass that produced mixed, believable results.
+
+So the honest statement is that this measurement is **owed** with a clean interleaved control,
+and these cells stay blank until it exists. Publishing the 2026-09-15 figures would put a
+number in a table that the run behind it does not support.
+
+**Where the clean numbers will arrive.** A clean series is being run on the Spark with the
+harness `try.sh` on branch `triple-all-fastest`. Its results land under `~/sweeps/` as dated
+markdown-table files matching `~/sweeps/2026-09-16-*.txt`, plus one MATRIX file beside them,
+and every file states what was ON, the build vintage, the interleaved control and the noise
+floor - so any figure there can be traced back to its run without trusting this README.
+
+Status: **OWED** - until a file in `~/sweeps/` carries this lever's clean interleaved A/B,
+the cells above stay blank.
