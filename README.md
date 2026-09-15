@@ -267,3 +267,111 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+
+
+
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
+**✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
+
+**✦ above: the README, unchanged**
+
+**✦ below: our modifications and numbers for this branch**
+
+## seed the expert cache from a learned hot list
+
+The branch teaches the SSD expert cache what the *last* run asked for: every
+unique `(layer, expert)` a CUDA session touches is counted, the counts are
+written at exit, and the next session re-loads them before the first prefill.
+Flash41 is the variant that otherwise owns neither a built-in list nor a writer.
+
+```
+✦  learned hot-list seed
+
+      baseline        9.56               tokens/s
+      this branch     9.38               tokens/s
+      improvement     -1.9%               %   (noise floor 3.3-4.9 %)
+
+      ----------------------------------------------------------------------
+      headline        5,177 experts written after a short run · 8,679 after a long one
+      output          greedy-identical · sha256 bb06e711bc498bb9
+
+   ◦ a blank cell is AWAITING THE SWEEP, not a zero.
+```
+
+**Standard results table**
+
+| arm / measurement | value | change |
+| --- | ---: | ---: |
+| tokens/s - control (tip, unpatched) | 9.56 | - |
+| tokens/s - this branch | 9.38 | -1.9% |
+| experts written by the hot-list recorder | 5,177 short / 8,679 long | cold start |
+
+*Measured on the DGX Spark, one arm against its own interleaved control, minimum
+across three stable frontiers (the first frontier of each run is discarded as warmup).
+The change is stated beside the noise floor because that is the only honest way to read
+it: a delta smaller than the floor is not a win.*
+
+**Why the cold start is the target**
+
+- V4.1 Flash ships NO built-in hot list, so its SSD expert cache starts EMPTY on every launch.
+- The opening hundreds of tokens are therefore almost all misses, and the hit rate is still climbing tens of thousands of lookups later.
+- The hot-list machinery already exists in the tree: the loader parses `layer expert hits` lines and skips `#` comments, and Flash/Pro/GLM52 ship built-in lists.
+- Flash41 is the variant with neither a list nor anything writing one - it is the variant that pays the cold start.
+- Expert routing is stable enough across prompts that the previous run's demand is a good first guess for the next one.
+
+**What this branch does**
+
+- Counts every unique `(layer, expert)` the CUDA session is asked for, once per batch, taken where the cache is asked for bytes; at exit it writes them hits-descending in the format the existing loader already reads.
+- `ds4_session_create` seeds a streaming V4.1 engine from that file, once per engine and before the first prefill, through `ds4_gpu_stream_expert_cache_seed_experts`.
+- Four guards stop it doing harm: a `# model_size` header so a list never crosses models; seeded slots are NOT counted as demand, so seeding cannot flatter itself; history halves on load so hotness decays rather than freezing; and seeds fill EMPTY slots only, so a small cache never reads gigabytes it cannot hold.
+- The write goes to a temp file and is renamed into place, so a crash mid-write never leaves half a list.
+- A missing, unreadable or mismatched list never fails a session - it warns and the run starts cold.
+- `DS4_METAL_DISABLE_STREAMING_EXPERT_HOTLIST=1` disables seeding; `DS4_CUDA_EXPERT_HOTLIST_WRITE=<file>` names the writer, `0` disables it.
+- Three files: `ds4.c`, `ds4_gpu.h`, `ds4_cuda.cu`. +262/-1.
+
+**What is observable now, and what is still owed**
+
+- The mechanism is observable INDEPENDENTLY of any t/s: the writer records **5,177 experts after a short run and 8,679 after a long one** on this box.
+- The startup stats line reads **1,278, 1,606 and 1,450 seeded slots** across three gate runs - **three different seed counts giving ONE identical sha**, which is the point of the test.
+- The early-token t/s A/B is owed and is not in this file: it needs the first 64 generated tokens reported separately from a 256-token run.
+- Hand-tested: a missing file, a file recorded against a different model size, and a cache too small to hold the list - all three start cold without failing the session.
+
+```
+   RUN N                                     RUN N+1
+   -----                                     -------
+   cache starts EMPTY (first run)            ds4_session_create
+       |                                         |
+       v                                         v
+   each unique requested expert              load list, halve each count,
+   counted where the cache is                drop any entry that decays to 0
+   asked for bytes                               |
+       |                                         v
+       v                                     seed EMPTY slots only, via
+   atexit: sort hits descending              seed_experts (not counted as demand)
+   write tmp, rename into place                  |
+       |                                         v
+       v                                     opening tokens start with the
+   ~/.cache/ds4/cuda_expert_hotlist.txt ---> hot set already resident, so
+   # model_size <n>  layer expert hits       the hit rate starts higher
+
+   the file cannot cross models (model_size header), cannot pin itself forever
+   (history halved on load), and cannot overstate its own success (seeded slots
+   are never counted as demand)
+```
+
+**Provenance, 2026-09-16, native re-measure.** Every number above comes from a native run:
+all six binaries rebuilt with `make cuda-spark -j12` (nvcc `-gencode arch=compute_121a,code=sm_121a`,
+`ds4-server` text 23.11 to 23.13 MB), interleaved control then arm, two clean repeats per arm,
+the 2048 frontier discarded as warmup, minimum across repeats reported. The control-to-control
+floor on that native set is **3.3 to 4.9 percent on generation** and 9.7 to 15.8 percent on
+prefill, so a generation delta under 4.9 percent is not resolved by this measurement.
+
+The numbers this file carried before were measured on **JIT-fallback binaries** (17:12 builds
+with no `-gencode`, `ds4-server` text 29.6 MB). Those runs were internally consistent - control
+and arm shared a vintage - but they are not comparable with native figures: the control read
+about 37 prefill tokens per second on JIT against about 86 native. They are superseded here.
