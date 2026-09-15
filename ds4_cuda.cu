@@ -28125,15 +28125,48 @@ static int cuda_prefetch_probe_enabled(void) {
 static void cuda_prefetch_probe_step(const ds4_gpu_stream_expert_table *table,
                                      const std::vector<int32_t> &unique,
                                      uint32_t slot_count) {
-    if (!cuda_prefetch_probe_enabled()) return;
-    /* Single-token steps only.  A prefill batch selects a different quantity
-     * and mixing the two would make every ratio meaningless. */
-    if (slot_count > 8u || unique.empty()) return;
+    if (!cuda_prefetch_probe_enabled() || unique.empty()) return;
     auto &st = g_prefetch_probe;
 
-    /* A layer index that did not advance means the decode step wrapped. */
+    /* A prefill batch selects a different quantity from a decode step, so the
+     * COUNTERS take single-token steps only.  The DUMP takes both and records
+     * slot_count on every row, because the prefill-to-decode boundary is what
+     * says whether a prompt's experts survive to the first decode token, and
+     * that question costs nothing once the file is open. */
+    const bool decode = slot_count <= 8u;
+
+    /* A layer index that did not advance means the step wrapped. */
     if ((int64_t)table->layer <= st.last_layer) st.token++;
     st.last_layer = (int64_t)table->layer;
+    if (!st.dump_tried) {
+        st.dump_tried = 1;
+        if (const char *path = getenv("DS4_CUDA_PREFETCH_PROBE_DUMP")) {
+            st.dump = fopen(path, "w");
+            if (st.dump)
+                fprintf(st.dump, "# token layer slot_count n_total_expert selected_ids... "
+                                 "| resident_bitmap_hex_lsb_first (residency read BEFORE this "
+                                 "layer's load; slot_count>8 is a prefill batch)\n");
+        }
+    }
+    if (st.dump) {
+        const uint32_t n = table->n_total_expert;
+        st.bitmap.assign((size_t)((n + 3u) / 4u), '0');
+        for (uint32_t e = 0; e < n; e++) {
+            const uint64_t gate = table->gate_offset + (uint64_t)e * table->gate_expert_bytes;
+            if (g_stream_expert_by_gate.find(gate) == g_stream_expert_by_gate.end()) continue;
+            char &c = st.bitmap[e >> 2];
+            const int v = (c <= '9' ? c - '0' : c - 'a' + 10) | (1 << (e & 3u));
+            c = (char)(v < 10 ? '0' + v : 'a' + v - 10);
+        }
+        fprintf(st.dump, "%llu %u %u %u", (unsigned long long)st.token, table->layer,
+                slot_count, n);
+        for (size_t i = 0; i < unique.size(); i++) fprintf(st.dump, " %d", unique[i]);
+        fprintf(st.dump, " | %s\n", st.bitmap.c_str());
+    }
+
+    /* Everything past here is the previous-token predictor and its counters,
+     * which are meaningless across a prefill batch. */
+    if (!decode) return;
 
     auto &L = st.by_layer[table->layer];
     if (L.has_prev) {
@@ -28155,29 +28188,6 @@ static void cuda_prefetch_probe_step(const ds4_gpu_stream_expert_table *table,
             for (size_t i = 0; i < unique.size(); i++) used |= unique[i] == L.prev[j];
             if (!used) st.stale++;
         }
-    }
-
-    if (!st.dump_tried) {
-        st.dump_tried = 1;
-        if (const char *path = getenv("DS4_CUDA_PREFETCH_PROBE_DUMP")) {
-            st.dump = fopen(path, "w");
-            if (st.dump)
-                fprintf(st.dump, "# token layer n_total_expert selected_ids... | resident_bitmap_hex_lsb_first\n");
-        }
-    }
-    if (st.dump) {
-        const uint32_t n = table->n_total_expert;
-        st.bitmap.assign((size_t)((n + 3u) / 4u), '0');
-        for (uint32_t e = 0; e < n; e++) {
-            const uint64_t gate = table->gate_offset + (uint64_t)e * table->gate_expert_bytes;
-            if (g_stream_expert_by_gate.find(gate) == g_stream_expert_by_gate.end()) continue;
-            char &c = st.bitmap[e >> 2];
-            const int v = (c <= '9' ? c - '0' : c - 'a' + 10) | (1 << (e & 3u));
-            c = (char)(v < 10 ? '0' + v : 'a' + v - 10);
-        }
-        fprintf(st.dump, "%llu %u %u", (unsigned long long)st.token, table->layer, n);
-        for (size_t i = 0; i < unique.size(); i++) fprintf(st.dump, " %d", unique[i]);
-        fprintf(st.dump, " | %s\n", st.bitmap.c_str());
     }
 
     L.prev = unique;
