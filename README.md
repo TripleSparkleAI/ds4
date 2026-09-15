@@ -267,3 +267,123 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+
+
+
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
+**✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
+
+**✦ above: the README, unchanged**
+
+**✦ below: our modifications and numbers for this branch**
+
+## run resident experts while the misses stream
+
+A V4.1 decode layer picks six experts, most of them already in the slot cache,
+then waits for every miss to land before computing any of them. This branch runs
+the resident experts during that wait, keeping the arithmetic bit-identical by
+summing per-slot partials in slot order.
+
+```
+✦  hits-first
+
+      baseline        9.56               tokens/s
+      this branch     10.35               tokens/s
+      improvement     +8.3%               %   (noise floor 3.3-4.9 %)
+
+      ----------------------------------------------------------------------
+      headline        +8.3% control vs patch, native build  ·  2 interleaved repeats
+      output          greedy-identical · sha256 bb06e711bc498bb9
+
+   ◦ a blank cell is AWAITING THE SWEEP, not a zero.
+```
+
+**Standard results table**
+
+| arm / measurement | value | change |
+| --- | ---: | ---: |
+| tokens/s - control (tip, unpatched) | 9.56 | - |
+| tokens/s - this branch | 10.35 | +8.3% |
+| A/B, patch on vs off, JIT vintage | 8.31 vs 8.61 t/s | NULL, superseded |
+
+*Measured on the DGX Spark, one arm against its own interleaved control, minimum
+across three stable frontiers (the first frontier of each run is discarded as warmup).
+The change is stated beside the noise floor because that is the only honest way to read
+it: a delta smaller than the floor is not a win.*
+
+**An earlier pass measured a NULL, and the native pass does not reproduce it**
+
+- Three pairs on **JIT-fallback binaries** read **8.21, 8.39 and 8.31 t/s with the patch
+  against 8.37, 8.27 and 8.61 without it** - a run-to-run spread WIDER than any difference
+  between the arms. That vintage runs roughly 2.4x slower on prefill than a native build, so
+  those figures cannot be set beside the native ones above.
+- The decode path already queues the shared expert's gate, up and down between the router and the routed experts.
+- Those kernels occupy EXACTLY the interval this patch wants to fill, so on this tree there is no idle window left to claim. That was the explanation for the null, and it is a hypothesis the native result does not support, so it should be treated as unproven until a native on/off repeat settles it.
+- The `+8.3%` in the panel is the native interleaved control-versus-patch number, and it is the same tip with this patch on top, so it does read the patch. The earlier on/off A/B that read a NULL was taken on JIT-fallback binaries, so that null is superseded rather than refuted, and a native on/off repeat is owed.
+- The same change measured about **+5 percent on our own CUDA backend**, where the shared expert is not overlapped - that number belongs to a different tree and is quoted only to say where the idea pays.
+- Take it on the strength of the measure or leave it, but not on the mechanism alone: the native figures are what they are, and the repeat is the thing that would settle them. Greedy output is identical with the patch on and off, so the change is output-invariant either way.
+- In the stacked tree `triple-all-fastest` hits-first is now compiled in but OFF by default: it is enabled for a run with `DS4_CUDA_HITS_FIRST=1`. There the enable test is `(e && e[0] != '0')` rather than "on unless `0`", so the null arm stays reproducible without a rebuild.
+
+**What this branch does**
+
+- Launches gate and up for the resident experts against a hit mask (the LUT decode kernel gained a `pair_mask` argument and returns early for pairs the launch does not cover), with a per-slot down partial, while the miss reads are in flight.
+- Waits, launches the same kernels for the miss slots, then sums the six partials in slot order starting from `0.0f` - the same float sequence `moe_down_sum_qwarp32_kernel<6>` executes, so the two forms are bit-identical by construction.
+- A second stage reorders the pool's pick-up order only: gate/up of every miss first, then the downs, so the miss gate/up can launch as soon as the first stage lands rather than after the whole batch.
+- `DS4_CUDA_HITS_FIRST=0` restores wait-then-launch over all six slots; `DS4_CUDA_HITS_FIRST_STAGED=0` keeps hits-first but restores the single-stage gate,up,down-per-expert read order.
+- It CARRIES the parallel expert pread pool underneath, because it calls the pool's own entry points - the dependency is real, not incidental. The pool is what makes the misses concurrent in the first place.
+- It is the largest of the series by line count: the gate/up launch and its down tail become mask-parameterised and are instantiated three ways.
+
+```
+   AS SHIPPED                         THIS BRANCH (hits-first)
+   -----------                        ------------------------
+   router picks 6 experts             router picks 6 experts
+        |                                  |
+        v                                  v
+   wait for EVERY miss read           pool dispatches the miss reads NOW
+        |                             (3 tensors per miss, one worker each)
+        v                                  |
+   launch all six together                 +--> launch gate/up with the HIT mask
+        |                                  |    + per-slot down partial for hits
+        v                                  |
+   sum in slot order                       v   wait_stage: miss gate/up bytes in
+        |                                  |
+        v                                  +--> launch gate/up with the MISS mask
+      out                                  |
+                                           v   wait: all miss bytes in
+                                           |
+                                           +--> per-slot down partial for misses
+                                           |
+                                           v
+                                     sum_partials6: slots 0..5, from 0.0f
+                                           |
+                                           v
+                                         out
+
+   the summation order is the SAME sequence the single-pass path produces,
+   which is what makes the greedy dump byte-identical rather than merely close
+```
+
+**Provenance, 2026-09-16, native re-measure.** Every number above comes from a native run:
+all six binaries rebuilt with `make cuda-spark -j12` (nvcc `-gencode arch=compute_121a,code=sm_121a`,
+`ds4-server` text 23.11 to 23.13 MB), interleaved control then arm, two clean repeats per arm,
+the 2048 frontier discarded as warmup, minimum across repeats reported. The control-to-control
+floor on that native set is **3.3 to 4.9 percent on generation** and 9.7 to 15.8 percent on
+prefill, so a generation delta under 4.9 percent is not resolved by this measurement.
+
+The numbers this file carried before were measured on **JIT-fallback binaries** (17:12 builds
+with no `-gencode`, `ds4-server` text 29.6 MB). Those runs were internally consistent - control
+and arm shared a vintage - but they are not comparable with native figures: the control read
+about 37 prefill tokens per second on JIT against about 86 native. They are superseded here.
+
+**This contradicts the null, and the contradiction is left standing.** This branch recorded a
+measured NULL earlier, and the section above explains that as structural. On native binaries the
+same lever measures **+8.3 percent generation**, which is outside the 3.3 to 4.9 percent floor,
+and it is the only generation win in the set of five. Both measurements are real and they
+disagree. The null was taken on JIT-fallback binaries; this one is native. Until a repeat settles
+it, the structural explanation for the null should be treated as **unproven**, and the honest
+statement is that this lever's effect is **unresolved**, not that it is null.
