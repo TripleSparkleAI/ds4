@@ -180,6 +180,14 @@ static std::vector<cuda_stream_expert_slot> g_stream_expert_slots;
 static std::unordered_map<uint64_t, uint32_t> g_stream_expert_by_gate;
 /* Zero is empty; one is an unread look-ahead entry, older than any demand hit. */
 static uint64_t g_stream_expert_clock = 1;
+/* PREFILLHANDOFF probe. Reads cache state and prints; never changes it. */
+static int cuda_probe_handoff(void) {
+    static int on = -1;
+    if (on < 0) on = getenv("DS4_PROBE_HANDOFF") != NULL ? 1 : 0;
+    return on;
+}
+static uint64_t g_probe_call = 0;
+static std::unordered_map<uint64_t, uint64_t> g_probe_gate_id;
 static std::vector<int32_t> g_stream_prefill_ids, g_stream_prefill_slots;
 extern "C" void ds4_gpu_stream_expert_cache_prefetch_finish(bool cancel);
 static void cuda_stream_prefetch_before_load(const ds4_gpu_stream_expert_table *table);
@@ -27244,6 +27252,11 @@ static int cuda_stream_selected_cache_begin_load(
             slots[i] = (int32_t)found->second;
             slot.used = stamp;
         }
+        std::vector<uint64_t> probe_evicted;
+        std::vector<char> probe_hit(cuda_probe_handoff() ? unique.size() : 0, 0);
+        if (cuda_probe_handoff())
+            for (size_t i = 0; i < unique.size(); i++)
+                probe_hit[i] = slots[i] >= 0 ? 1 : 0;
         cuda_stream_upload_batch uploads;
         for (size_t i = 0; i < unique.size(); i++) {
             if (slots[i] >= 0) continue;
@@ -27260,6 +27273,7 @@ static int cuda_stream_selected_cache_begin_load(
             if (victim == UINT32_MAX) return 0;
             auto &slot = g_stream_expert_slots[victim];
             if (slot.used) g_stream_expert_by_gate.erase(slot.gate);
+            if (cuda_probe_handoff() && slot.used) probe_evicted.push_back(slot.gate);
             slot.used = 0;
             const uint64_t expert = (uint32_t)unique[i];
             const uint64_t gate = table->gate_offset + expert * table->gate_expert_bytes;
@@ -27278,6 +27292,8 @@ static int cuda_stream_selected_cache_begin_load(
                 return 0;
             slot = {gate, up, down, stamp};
             g_stream_expert_by_gate[gate] = victim;
+            if (cuda_probe_handoff())
+                g_probe_gate_id[gate] = ((uint64_t)table->layer << 32) | expert;
             slots[i] = (int32_t)victim;
         }
         if (!uploads.finish()) return 0;
@@ -27298,6 +27314,33 @@ static int cuda_stream_selected_cache_begin_load(
         cache.slot_selected_tensor.bytes = (uint64_t)slot_count * sizeof(int32_t);
         cache.slot_selected_tensor.owner = 0;
         cache.slot_selected_tensor.device_id = 0;
+        if (cuda_probe_handoff()) {
+            uint32_t hit_count = 0;
+            for (size_t i = 0; i < unique.size(); i++) hit_count += probe_hit[i] ? 1u : 0u;
+            fprintf(stderr, "HO call=%llu layer=%u nsel=%u uniq=%zu hits=%u "
+                    "evict=%zu res=%zu cap=%zu stamp=%llu",
+                    (unsigned long long)++g_probe_call, table->layer, slot_count,
+                    unique.size(), hit_count, probe_evicted.size(),
+                    g_stream_expert_by_gate.size(), g_stream_expert_slots.size(),
+                    (unsigned long long)stamp);
+            fprintf(stderr, " L=");
+            for (uint32_t i = slot_count >= 6u ? slot_count - 6u : 0u; i < slot_count; i++)
+                fprintf(stderr, "%d,", selected_ids[i]);
+            fprintf(stderr, " H=");
+            for (size_t i = 0; i < unique.size(); i++)
+                if (probe_hit[i]) fprintf(stderr, "%d,", unique[i]);
+            fprintf(stderr, " M=");
+            for (size_t i = 0; i < unique.size(); i++)
+                if (!probe_hit[i]) fprintf(stderr, "%d,", unique[i]);
+            fprintf(stderr, " E=");
+            for (size_t i = 0; i < probe_evicted.size(); i++) {
+                const auto found = g_probe_gate_id.find(probe_evicted[i]);
+                if (found == g_probe_gate_id.end()) fprintf(stderr, "?,");
+                else fprintf(stderr, "%u:%u,", (uint32_t)(found->second >> 32),
+                             (uint32_t)found->second);
+            }
+            fprintf(stderr, "\n");
+        }
         cache.valid = 1;
         return 1;
     } catch (...) {
