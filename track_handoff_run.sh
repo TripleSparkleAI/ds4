@@ -30,7 +30,7 @@ stamp() {
 # record a confounded run.
 LOAD=$(cut -d' ' -f1 /proc/loadavg)
 MEM=$(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo)
-if [ "$(echo "$LOAD > 2" | bc)" = "1" ]; then
+if [ "$(awk -v l="$LOAD" 'BEGIN{print (l > 2) ? 1 : 0}')" = "1" ]; then
     echo "REFUSED: load $LOAD is above 2"; exit 1
 fi
 if [ "$MEM" -lt 100 ]; then
