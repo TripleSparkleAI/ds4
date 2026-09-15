@@ -267,3 +267,90 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+
+
+
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
+**✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
+
+**✦ above: the README, unchanged**
+
+**✦ below: our modifications and numbers for this branch**
+
+## THE FASTEST TREE - every lever stacked
+
+```
+✦  THE FASTEST TREE - every lever stacked
+
+      baseline        ____               tokens/s
+      this branch     ____               tokens/s
+      improvement     ____               %
+
+      ----------------------------------------------------------------------
+      headline        the stack, as one tree — its combined number is OWED
+      output          greedy-identical · sha256 bb06e711bc498bb9
+
+   ◦ a blank cell is AWAITING THE SWEEP, not a zero. This tree is the one the
+     stack sweep measures; the cells fill the moment it lands.
+```
+
+**Theory**
+
+- This is the fastest tree we can build: the tip plus every lever that measured or reasoned its way in.
+- The levers do NOT overlap in WHERE they attack — prefill, the expert-cache miss path, the decode drain, cache warmth, page lifetime, and the Engram read are six different stalls.
+- They DO overlap in what they contend for: the same NVMe, and in one case the same GPU interval.
+- **That is why the combined number cannot be summed from the parts.** Two levers that both shorten the same wait do not add.
+- A streaming decode is byte-bound, so every lever here either reads fewer bytes, reads them faster, or stops the host waiting on bytes it does not need yet.
+
+```
+   TIP  upstream main + the two upstream PRs folded in
+
+     ├── parallel pread pool          prefill + miss reads   ~+12% indicative
+     ├── event-gated id readback      40 drains/token        owed
+     ├── cache reserve knob           arena sizing           no speed claim
+     ├── learned hot-list seed        cold start             mechanism shown
+     ├── staged page drop order       page lifetime          semantics fix
+     ├── read-ahead victim reorder    decode's opening       baseline measured
+     ├── parallel SSD read-ahead      prefill blocking       398.0 -> 196.5 ms  MEASURED
+     ├── Engram batch reader          the read itself        12.04% of the step
+     └── Engram lead                  hiding that read       design measured
+                                                             |
+   hits-first is EXCLUDED: it measured a NULL on this tree ──┘
+
+   six different stalls · one drive · do not add the deltas
+```
+
+**What is in this tree, and what each part is worth**
+
+- **`parallel pread pool`** — a layer's cache misses go to worker threads instead of one serial staging ring, so the NVMe sees real queue depth. Probe: 7.6 GB/s at one reader against 10.1 at eight. Indicative pairs ~**+12 percent**.
+- **`event-gated id readback`** — the decode drains the GPU to idle 40 times per token waiting to learn which experts were chosen; this makes that wait an event recorded right after the router. Kernel order unchanged.
+- **`cache reserve knob`** — the hardcoded 8 GiB arena reserve becomes settable and the sizing is printed. No data-path change and no throughput claim: it exists so an operator can survive a shared box instead of being the OOM killer's first pick.
+- **`learned hot-list seed`** — V4.1 Flash has no built-in hot list, so the cache starts empty every launch. Counts are written at exit and seed the next run. Mechanism shown as a number: **5,177 experts after a short run, 8,679 after a long one**.
+- **`staged page drop order`** — `madvise` before `fadvise`, so the drop actually lands, plus a readahead hint on the buffered path. Correct on the Linux semantics rather than on a measurement; its value on the default `O_DIRECT` path may be nil.
+- **`read-ahead victim reorder`** — the read-ahead's victim list is sorted so it evicts what decode is about to need. Baseline measured: only **4.7 percent** of the prefill's 13,784 triples survive to decode, and early decode misses **32.9 experts per token against 9.19 steady**.
+- **`parallel SSD read-ahead`** — the tip's own read-ahead runs on ONE thread. This splits its copies across a pool. **The one lever here with a finished table: prefill blocking wait 398.0 -> 196.5 ms per layer, 7.65 s off a 4,392-token prefill, output-identical across 12 runs and 7 configurations.**
+- **`Engram batch reader`** — an Engram read is 48 serial 264-byte preads at queue depth one, fully exposed before the first GPU command: **12.04 percent of every decode step**, against sixteen readers that already ship in the tree and that decode cannot reach.
+- **`Engram lead`** — the same read, hidden instead of shortened: the row ids are a pure function of the token and the rolling history, so the step speculates on its own argmax and publishes only on an exact match.
+
+**Result, all together: OWED**
+
+**Standard results table**
+
+| arm / measurement | value | change |
+| --- | ---: | ---: |
+| tokens/s — control (tip, unpatched) | ____ | — |
+| tokens/s — this branch | ____ | ____ % |
+| the stack, measured as one tree | owed | must not be summed |
+
+*Cells left blank are AWAITING THE SWEEP, not zero. Nothing here is estimated. The
+last row is this branch's own measured result and is already in hand.*
+
+- **A stack number is a measurement or it is nothing**, and it is owed.
+- **It must not be assembled by adding the branches' own deltas** — one lever is already proof: hits-first measured a **null** here precisely because the decode path's shared-expert kernels already occupy the window it wanted to fill. It is excluded from this tree for that reason.
+- The pool and the read-ahead both contend for the same NVMe, so their two gains cannot both be taken at full size.
+- Each part's OWN number and status is above, on its own line, so nothing here depends on the stack being measured for a reader to know what each piece did.
