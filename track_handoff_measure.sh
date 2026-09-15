@@ -85,6 +85,27 @@ echo "################ PART 3 · THE CLOCK, WHERE THE EFFECT LIVES #############
 echo "  fixed 4096-token context, 32 generated tokens, arms INTERLEAVED,"
 echo "  fresh process per run, $REPEATS repeats, minimum reported"
 echo
+echo "  ENGRAM PAGE-CACHE POSTURE, stated rather than assumed: on Linux the Engram"
+echo "  descriptor is ordinary buffered, so a second run of the same prompt inherits"
+echo "  the first's page cache and its Engram reads cost ~0.15ms instead of 20-25ms."
+echo "  Expert reads are O_DIRECT and are unaffected, and the expert cache is this"
+echo "  lane's whole subject - but gen_first_ms and gen_tps CONTAIN the Engram cost,"
+echo "  so both arms are deliberately measured WARM on that path: each arm takes a"
+echo "  discarded warmup first, so neither arm is credited with the other's cold run."
+echo "  ALL PART 3 NUMBERS BELOW DESCRIBE A WARM ENGRAM PATH. A cold long generation"
+echo "  is owed and this is not it."
+echo
+for tree in CTL ARM; do
+    eval dir=\$$tree
+    refuse_if_busy
+    "$dir/ds4-bench" -m "$MODEL" --cuda --ssd-streaming \
+        --ssd-streaming-cache-experts 90GB \
+        --prompt-file "$PROMPT" --ctx-start 4096 --ctx-max 4096 \
+        --step-incr 2048 --gen-tokens 32 --csv "$OUT/warmup_${tree}.csv" \
+        > /dev/null 2>&1
+    printf '  warmup %-4s (DISCARDED) ' "$tree"; stamp
+done
+echo
 for r in $(seq 1 "$REPEATS"); do
     for tree in CTL ARM; do
         eval dir=\$$tree
