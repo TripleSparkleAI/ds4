@@ -267,3 +267,106 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+
+
+
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
+**✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
+
+**✦ above: the README, unchanged**
+
+**✦ below: our modifications and numbers for this branch**
+
+## event-gate the selected-expert readback
+
+Read the router's picked experts off the GPU with an event-gated readback instead of a blocking copy, queued before the shared expert so the drain overlaps instead of blocking.
+
+```
+✦  event-gated selected-expert readback
+
+      baseline        9.17               tokens/s
+      this branch     9.09               tokens/s
+      improvement     -0.9%               %   (noise floor 3.3-4.9 %)
+
+      ----------------------------------------------------------------------
+      headline        40 device drains per token removed from the host's wait (A/B owed)
+      output          greedy-identical · sha256 bb06e711bc498bb9
+
+   ◦ a blank cell is AWAITING THE SWEEP, not a zero.
+```
+
+**Standard results table**
+
+| arm / measurement | value | change |
+| --- | ---: | ---: |
+| tokens/s - control (tip, unpatched) | 9.17 | - |
+| tokens/s - this branch | 9.09 | -0.9% |
+| device drains per decode token | 40 | removed |
+
+*Measured on the DGX Spark, one arm against its own interleaved control, minimum
+across three stable frontiers (the first frontier of each run is discarded as warmup).
+The change is stated beside the noise floor because that is the only honest way to read
+it: a delta smaller than the floor is not a win.*
+
+**What the branch does**
+
+- The streaming expert-cache load must learn which experts the router picked before it can prime the cache, and upstream learns them with a blocking `cudaMemcpy` of the selected-id tensor.
+- That blocking read waits for EVERYTHING already queued on the decode stream, and the V4.1 decode path queues the shared expert's gate, up and down matmuls between the router select and the read - once per MoE layer.
+- This branch arms an event-gated readback instead: `ds41_moe_partial` (`ds4.c`) calls `ds4_gpu_selected_readback_begin` immediately after the router select and BEFORE the shared-expert kernels are queued.
+- `begin()` queues an async D2H copy of the selected ids (`DS4_N_EXPERT_USED` int32) into one reusable pinned buffer on the decode stream and records a disable-timing event. Stream order is untouched: the copy sits in the same in-order stream and sees the tensor exactly where the blocking read would.
+- The cache load (`ds4_gpu_glm_stream_expert_cache_begin_selected_load_tensor`) then calls `take()`, which matches on source pointer and byte count, waits on the event alone - the router and the copy, nothing queued after them - and memcpy's the pinned bytes out. Any mismatch or refusal falls back to the blocking read.
+- Scope is deliberately narrow: streaming and single GPU only (`tp_world != 2`). The TP=2 path already overlaps its shared expert and is left alone. Refused during CUDA graph capture. Metal and ROCm compile the call out.
+- Three files: `ds4.c` (+11), `ds4_gpu.h` (+5, one declaration), `ds4_cuda.cu` (+86/-1, pinned buffer, event, wait). +101/-1 total.
+
+**Switch direction, verified in source**
+
+- The lever is ON BY DEFAULT. It queues the selected-expert readback before the shared expert runs, so the drain overlaps instead of blocking.
+- `DS4_CUDA_SELECTED_DRAIN_SYNC=1` RESTORES THE BLOCKING READ - that is the OFF arm of the A/B, not the ON switch. The gate reads, at the top of `ds4_gpu_selected_readback_begin`:
+  `if (drain_sync < 0) drain_sync = getenv("DS4_CUDA_SELECTED_DRAIN_SYNC") != NULL; if (drain_sync) return 0;`
+- An earlier version of this note published the opposite direction. The source line above is the arbiter.
+
+**Verdict on this hardware**
+
+- Re-measured both ways on the GB10: the engaged form did not beat the blocking form at any frontier.
+- There is no evidence the lever helps on this hardware. It is not a measured win and this note does not claim one.
+
+```
+   AS SHIPPED (blocking read)               THIS BRANCH (event-gated)
+   ---------------------------              -------------------------
+   router select kernel                     router select kernel
+        |                                        |
+        |                                        +--> cudaMemcpyAsync: ids -> pinned
+   shared expert gate/up/down                    |    +--> cudaEventRecord
+   queued on the decode stream                   |
+        |                                        v
+        v                                   shared expert gate/up/down RUN
+   blocking cudaMemcpy of ids,               on the GPU while the host waits
+   waits for ALL of it:                      on the EVENT (router + copy
+   router + shared expert                    only), then primes the cache
+        |                                        |
+        v                                        v
+   host primes the expert cache             host primes the expert cache
+   while the device sits IDLE               while the shared expert still runs
+
+   stream order is UNCHANGED - only what the host blocks on changes
+   refused arm (graph capture, or DS4_CUDA_SELECTED_DRAIN_SYNC set) -> blocking read
+```
+
+**Provenance, 2026-09-16, native re-measure.** These numbers come from a native pass: control
+and arm both rebuilt with `make cuda-spark -j12`, interleaved, the 2048 frontier discarded as
+warmup, minimum across repeats. The arm shown is the branch's DEFAULT, which is the lever
+**engaged** (the readback is queued before the shared expert). The same pass also ran the lever
+switched off with `DS4_CUDA_SELECTED_DRAIN_SYNC=1`, and that arm read **9.71 tokens/s, above the
+control**. So the two arms point in opposite directions, neither clears the floor, and the honest
+statement is that this lever is unresolved on this hardware rather than a win or a loss.
+Result files on the Spark: `~/sweeps/2026-09-15-triple-draincut-lever-engaged.txt` and
+`~/sweeps/2026-09-15-triple-draincut-lever-dormant.txt`.
+
+The numbers this file carried before were measured on **JIT-fallback binaries** and are
+superseded: the control read about 37 prefill tokens per second on JIT against about 86 native,
+so the two build vintages are not comparable.
