@@ -267,3 +267,108 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
+**✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
+
+**✦ above: the README, unchanged**
+
+**✦ below: our modifications and numbers for this branch**
+
+## the base: upstream main plus two folded pull requests
+
+The reference tip every other branch in this series is cut from: upstream's main with two upstream pull requests folded in, squashed to one commit so each lever is measured against one control.
+
+```
+✦  the rolled tip - the control, not a lever
+
+      upstream main        9139e2ae5     untouched
+      + PR 1034            folded        Metal decode-queue sync, with its test and bench
+      + PR 1035            folded        macOS Engram parallel reads, +5.2% by its author
+      = this branch        8ee53cb8b     the one base every triple-* branch is cut from
+                                        (tree-identical to 84ba6ef1b, a sibling commit)
+
+      ----------------------------------------------------------------------
+      tokens/s         9.56               our own measured control, native build
+      improvement      reference          this IS the control; it carries no lever
+      PR 1031 / 1030   not taken          superseded by evolution / moot
+```
+
+| arm / measurement | value | change |
+| --- | ---: | ---: |
+| tokens/s - upstream main, untouched | 9.56 | reference, measured by us |
+| tokens/s - this branch | same code path, plus the two PRs | reference |
+| PR 1034, Metal decode-queue sync | folded, test and bench carried | queued decode work |
+| PR 1035, macOS Engram parallel reads | folded, bench and test carried | +5.2% measured by its author |
+| PR 1031, IQ2 selected-expert prefill tier | read, not taken | superseded by an evolved form |
+| PR 1030, Makefile link fix | read, not taken | moot |
+
+*This is the reference branch. It carries no lever of its own, so there is no improvement number to quote - the numbers belong to the branches cut from it.*
+
+**What this branch actually is**
+
+- It is **upstream's main at `9139e2ae5`**, plus **two upstream pull requests folded in**, squashed into one commit so every branch below it starts from a single known point.
+- **PR 1034 folded in** - Dango233's Metal decode-queue sync, its graph test and its schedule bench. Its first commit ("align with upstream") went empty on rebase, which is independent proof upstream had already absorbed that part.
+- **PR 1035 folded in** - Dango233's macOS Engram parallel reads, measured at **+5.2%** by its author, with its bench and its test.
+- **PR 1031 NOT taken** - Matthley's IQ2 selected-expert prefill tier is **superseded**: the tip already carries an evolved form of the same idea (`cuda_stream_compact_prefill`, the aligned fused SoA tier, `small_exact_batch` gating). Folding it would have been a duplicate, not a gain.
+- **PR 1030 NOT taken** - a stale Makefile link fix, already moot.
+- **Why it exists.** The levers were written against an older tip. Measuring them there and upstream's newer code here would straddle two bases and the A/B would be invalid. This branch collapses both into one base, so every measurement is one variable against one control.
+
+**The git refs**
+
+| what | ref |
+| --- | --- |
+| upstream main, the base | `9139e2ae5` |
+| the rolled tip, this branch | `8ee53cb8b` (tree-identical to `84ba6ef1b`) |
+| PR 1034, decode queue | `3974b3c97` |
+| PR 1034, bench revalidation | `03c192389` |
+| PR 1035, Engram parallel reads | `a51510398` |
+| PR 1035, bench revalidation | `06cd63786` |
+
+_PLACEHOLDER_NEVER_MATCHES [upstream repo](https://github.com/antirez/ds4) -
+[commit 9139e2ae5](https://github.com/antirez/ds4/commit/9139e2ae5) -
+[PR #1034](https://github.com/antirez/ds4/pull/1034) -
+[PR #1035](https://github.com/antirez/ds4/pull/1035) -
+[PR #1031](https://github.com/antirez/ds4/pull/1031) -
+[PR #1030](https://github.com/antirez/ds4/pull/1030)
+
+**The roll-up, as a picture.**
+
+```
+   upstream main  9139e2ae5
+        |
+        +-- #1034  Metal decode queue + test + bench
+        |
+        +-- #1035  macOS Engram parallel reads  +5.2% + bench + test
+        |
+        v
+   triple-antirez-tip-latest     8ee53cb8b   <- the one base, squashed
+        |
+        +-- triple-all-fastest        every lever stacked
+        +-- triple-prefetch-pool      read-ahead into the foreground
+        +-- triple-prefill-readahead-order
+        +-- triple-pagecache          keep warm pages
+        +-- triple-pool               shared expert read pool
+        +-- triple-hotlist            expert hot list
+        +-- triple-draincut           bounded decode drain
+        +-- triple-margin             page-drop margin
+        +-- triple-engram-lead        Engram read lead
+        +-- triple-engram-read-threads
+        +-- triple-hitsfirst          measured null
+        +-- triple-word-finisher      closed on measurement
+        |
+        +-- (upstream #1031, #1030 - read, considered, not taken)
+```
+
+**Two corrections to this note, 2026-09-16.** The reference figure is **9.56 tokens/s**, our own
+measured control on a native build (minimum across repeats, interleaved, first context frontier
+discarded as warmup), recorded on the Spark. An earlier revision quoted 11.16 to 11.51 tokens/s
+as an external sweep figure, and nothing in this repository pointed at it, so it has been
+replaced with a number a reader can check.
+
+The branch's own head is a **squashed sibling** of `84ba6ef1b`, not that commit: both carry the
+same tree, and this branch differs only in `README.md`. The other `triple-*` branches are cut
+from `84ba6ef1b`, which is why that sha appears in their notes.
