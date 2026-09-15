@@ -33838,6 +33838,13 @@ static bool metal_graph_seed_streaming_expert_cache_from_hotlist(
         ds4_gpu_stream_expert_cache_current_count();
     const char *path = glm_graph_env_value("DS4_ROCM_STREAMING_EXPERT_HOTLIST",
                                            "DS4_METAL_STREAMING_EXPERT_HOTLIST");
+#if !defined(__APPLE__) && !defined(DS4_ROCM_BUILD)
+    /* V4.1 Flash has no built-in list.  On CUDA the SSD expert cache writes
+     * the experts it was asked for at exit; when no list is named, that file
+     * seeds the next run. */
+    if (!path && g_ds4_shape.variant == DS4_VARIANT_FLASH41)
+        path = ds4_gpu_cuda_expert_hotlist_default_path(model->size);
+#endif
     const bool from_file = path && path[0];
     const bool refresh_builtin_glm =
         !from_file && g_ds4_shape.variant == DS4_VARIANT_GLM52;
@@ -40181,6 +40188,10 @@ typedef struct {
     uint32_t (*prefill_ids)[2][DS4_ENGRAM_COLS];
     ds4_engram_table table[2];
     float rows[2][DS4_ENGRAM_COLS * DS4_ENGRAM_DIM];
+    /* Owned solely by ds41_graph_step. Heap held because this struct is
+     * copied by value on the prefill and batched paths, and those copies
+     * must not duplicate a reader handle or its row buffer. */
+    struct ds41_engram_lead *lead;
     ds4_gpu_tensor *window[40];
     ds4_gpu_tensor *compressed[4], *index_cache[4];
     ds4_gpu_tensor *previous_kv[4], *previous_score[4];
@@ -40201,6 +40212,9 @@ static bool ds41_read_array(const ds4_model *m, const char *key, uint32_t type,
     return cursor_read(&c, out, bytes);
 }
 
+/* Defined with the reader below; the graph teardown above it must join. */
+static bool ds41_engram_lead_join(struct ds41_engram_lead *l);
+
 static void ds41_graph_free(ds41_gpu_graph *g) {
     if (!g) return;
 #if !defined(__APPLE__) && !defined(DS4_ROCM_BUILD)
@@ -40218,6 +40232,12 @@ static void ds41_graph_free(ds41_gpu_graph *g) {
 #define DS41_CARRY_FREE(name, count, format) ds4_gpu_tensor_free(g->carry.name);
     DS41_CARRY_ROWS(DS41_CARRY_FREE)
 #undef DS41_CARRY_FREE
+    /* Before the tables close: the reader holds those descriptors. */
+    if (g->lead) {
+        ds41_engram_lead_join(g->lead);
+        free(g->lead);
+        g->lead = NULL;
+    }
     for (uint32_t i = 0; i < 2; i++) {
         ds4_engram_table_close(&g->table[i]);
         ds4_gpu_tensor_free(g->engram_q_norm[i]);
@@ -40287,6 +40307,10 @@ static ds4_context_memory ds41_graph_memory(uint32_t ctx) {
 }
 
 static void ds41_graph_reset(ds41_gpu_graph *g) {
+    /* A reset changes both the position and the history, so an in-flight
+     * lead reader would miss anyway. Joining here keeps the rule simple: a
+     * reader never outlives the sequence that started it. */
+    ds41_engram_lead_join(g->lead);
     g->pos = 0;
     g->valid = true;
     ds4_engram_history_reset(&g->history);
@@ -40740,6 +40764,17 @@ static bool ds41_moe_partial(ds41_gpu_graph *g, const ds4_model *m,
             m->map, m->size, bias->abs_offset, 0, 0, token,
             DS4_N_EXPERT, DS4_N_EXPERT_USED, DS4_EXPERT_WEIGHT_SCALE, 0, 0, true, false,
             g->route_logits)) return false;
+#if !defined(__APPLE__) && !defined(DS4_ROCM_BUILD)
+    /* Streaming reads the selected ids back on the host before the routed
+     * experts can run.  Queue that readback now, before the shared expert
+     * below, so the wait inside the routed MoE covers the router only and
+     * the shared-expert kernels keep the GPU busy while the host primes the
+     * expert cache.  A refused arm (graph capture, DS4_CUDA_SELECTED_DRAIN_SYNC)
+     * leaves the blocking read in place. */
+    if (g->streaming && g->tp_world != 2)
+        (void)ds4_gpu_selected_readback_begin(g->selected, 0,
+                                              (uint64_t)DS4_N_EXPERT_USED * sizeof(int32_t));
+#endif
     const bool shared_here = !shared_owner || g->tp_rank == (il & 1u);
     bool shared_queued = false;
 #if !defined(__APPLE__) && !defined(DS4_ROCM_BUILD)
@@ -41246,15 +41281,119 @@ static bool ds41_moe_batch(ds41_gpu_graph *g, const ds4_model *m,
         ds41_sum_partial_batch(g, b->routed, il, count);
 }
 
+/* A full token of lead for the Engram rows.
+ *
+ * The row ids are a pure function of the token and the rolling history, so
+ * once a step commits its history the next step's rows are computable from
+ * its token alone. The token is not known until the caller samples, so the
+ * step speculates on its own argmax: under greedy decoding that is the next
+ * token by construction, and any other sampler simply misses and pays what
+ * it pays today. A miss is never wrong, only unhelpful.
+ *
+ * Rows are published only when the token, the history and the position the
+ * reader was given all match what the next step actually asks for. That
+ * makes a rejected speculative token, a session rewind and a fork one case
+ * rather than three: each of them changes at least one of the three, so each
+ * misses and falls back to a demand read. The history is twelve bytes, so
+ * the comparison is a memcmp rather than a protocol. */
+struct ds41_engram_lead {
+    pthread_t thread;
+    const ds4_engram_table *table[2];
+    uint32_t ids[2][DS4_ENGRAM_COLS];
+    float rows[2][DS4_ENGRAM_COLS * DS4_ENGRAM_DIM];
+    ds4_engram_history history;
+    uint32_t pos;
+    int token;
+    bool active, ok;
+};
+
+static void *ds41_engram_lead_read(void *arg) {
+    struct ds41_engram_lead *l = arg;
+    l->ok = true;
+    for (uint32_t i = 0; i < 2; i++) {
+        if (!ds4_engram_read(l->table[i], l->ids[i], DS4_ENGRAM_COLS, l->rows[i])) {
+            l->ok = false;
+            break;
+        }
+    }
+    return NULL;
+}
+
+/* The reader holds the table descriptors, so joining is never optional. */
+static bool ds41_engram_lead_join(struct ds41_engram_lead *l) {
+    if (!l || !l->active) return false;
+    if (pthread_join(l->thread, NULL))
+        ds4_die("cannot join V4.1 Engram lead reader safely");
+    l->active = false;
+    return l->ok;
+}
+
+/* Join first, publish second: a partially read buffer never reaches the
+ * graph, and a mismatch still joins so no reader outlives its step. */
+static bool ds41_engram_lead_take(struct ds41_engram_lead *l, int token, uint32_t pos,
+                                  const ds4_engram_history *history,
+                                  float rows[2][DS4_ENGRAM_COLS * DS4_ENGRAM_DIM]) {
+    if (!l || !l->active) return false;
+    const bool match = l->token == token && l->pos == pos &&
+                       memcmp(&l->history, history, sizeof(*history)) == 0;
+    if (!ds41_engram_lead_join(l) || !match) return false;
+    memcpy(rows, l->rows, sizeof(l->rows));
+    return true;
+}
+
+static void ds41_engram_lead_start(ds41_gpu_graph *g, const float *logits) {
+    static int disabled = -1;
+    if (disabled < 0) disabled = getenv("DS4_V41_ENGRAM_LEAD_OFF") != NULL;
+    /* No logits means no sample to speculate from: the prompt-warm callers
+     * pass NULL and keep today's demand read. */
+    if (disabled || !logits || g->pos >= g->ctx || ds41_image_at(g, g->pos)) return;
+    if (!g->lead) {
+        g->lead = calloc(1, sizeof(*g->lead));
+        if (!g->lead) return;   /* lead is an optimisation, never a requirement */
+    }
+    struct ds41_engram_lead *l = g->lead;
+    if (l->active) return;
+    int best = 0;
+    float top = logits[0];
+    for (uint32_t i = 1; i < DS4_N_VOCAB; i++)
+        if (logits[i] > top) { top = logits[i]; best = (int)i; }
+    /* Hash against a copy: the committed history is the graph's, and the
+     * speculation must not advance it. */
+    ds4_engram_history history = g->history;
+    if (!ds41_hash_tokens(g, &history, &best, 1, &l->ids[0][0])) return;
+    l->history = g->history;
+    l->token = best;
+    l->pos = g->pos;
+    l->table[0] = &g->table[0];
+    l->table[1] = &g->table[1];
+    l->ok = false;
+    if (pthread_create(&l->thread, NULL, ds41_engram_lead_read, l)) return;
+    l->active = true;
+}
+
 static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model *m,
                                              const ds4_weights *w, int token, float *logits) {
     if (!g || !g->valid || g->pos >= g->ctx || token < 0 || (uint32_t)token >= DS4_N_VOCAB) return false;
     uint32_t ids[2][DS4_ENGRAM_COLS];
     ds4_engram_history next_history = g->history;
     if (!ds41_hash_tokens(g, &next_history, &token, 1, &ids[0][0])) return false;
-    for (uint32_t i = 0; !ds41_image_at(g, g->pos) && i < 2; i++) {
-        if (!ds4_engram_read(&g->table[i], ids[i], DS4_ENGRAM_COLS, g->rows[i])) return false;
+    /* Attribute the blocking Engram table read against the step that waits
+     * on it. Both are host wall time; the step includes the logits readback. */
+    static int engram_profile = -1;
+    if (engram_profile < 0) engram_profile = getenv("DS4_V41_ENGRAM_PROFILE") != NULL;
+    const double t_engram_begin = engram_profile ? now_sec() : 0;
+    /* Always offered the reader, hit or miss, so a stale one is joined here
+     * rather than outliving the step that started it. */
+    const bool lead_hit = ds41_engram_lead_take(g->lead, token, g->pos,
+                                                &g->history, g->rows);
+    /* The miss path goes through the batch reader, so the request count decides
+     * how many readers serve it (DS4_ENGRAM_READ_THREADS). One row here is the
+     * decode case; the lead read above is what usually spares it. */
+    for (uint32_t i = 0; !lead_hit && !ds41_image_at(g, g->pos) && i < 2; i++) {
+        if (!ds4_engram_read_batch(&g->table[i], ids[i], 1, DS4_ENGRAM_COLS,
+                                   g->rows[i])) return false;
     }
+    const double t_engram_end = engram_profile ? now_sec() : 0;
     const float initial_pre[] = {1, 0, 0, 0};
     if (!ds4_gpu_tensor_write(g->pre, 0, initial_pre, sizeof(initial_pre)) ||
         !ds4_gpu_begin_commands()) return false;
@@ -41304,7 +41443,14 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model 
         return false;
     }
     g->history = next_history;
+    if (engram_profile)
+        fprintf(stderr, "ds4: v41 decode pos=%u engram=%.3f step=%.3f ms\n",
+                g->pos, (t_engram_end - t_engram_begin) * 1000,
+                (now_sec() - t_engram_begin) * 1000);
     g->pos++;
+    /* Started after the commit and the advance, so it hashes with the state
+     * the next step will actually hold, and stamps the position it is for. */
+    ds41_engram_lead_start(g, logits);
     return true;
 }
 
@@ -42052,7 +42198,8 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step_batch(ds41_gpu_graph *const *graphs
         float (*disk_rows)[DS4_ENGRAM_COLS * DS4_ENGRAM_DIM] =
             engram && (uint32_t)i < prefill_rows ? engram[i] : s->rows;
         for (unsigned table = 0; ok && table < 2; table++)
-            ok = ds4_engram_read(&s->table[table], ids[table], DS4_ENGRAM_COLS, disk_rows[table]);
+            ok = ds4_engram_read_batch(&s->table[table], ids[table], 1,
+                                       DS4_ENGRAM_COLS, disk_rows[table]);
         if (ok) ok = ds4_gpu_tensor_write(g->rows_view[i].pre, 0, initial_pre, sizeof(initial_pre)) &&
             ds4_gpu_embed_token_hc_tensor(g->rows_view[i].residual, model->map, model->size,
                 weights->token_embd->abs_offset, DS4_N_VOCAB, (uint32_t)tokens[i], DS4_N_EMBD, DS4_N_HC);
@@ -42272,6 +42419,7 @@ struct ds4_engine {
     bool ssd_streaming_full_layers_set;
     bool ssd_streaming_budget_finalized;
     bool ssd_streaming_static_decode_map;
+    bool ds41_hotlist_seeded;
     ds4_distributed_options distributed;
     ds4_engine_tp_state tp;
     bool metal_ready;
@@ -72445,6 +72593,24 @@ int ds4_session_create(ds4_session **out, ds4_engine *e, int ctx_size) {
         }
         s->ds41_graph_ready = true;
         s->ds41_graph.quality = e->quality;
+#if !defined(__APPLE__) && !defined(DS4_ROCM_BUILD)
+        /* Seed the CUDA SSD expert cache from a hotlist once per engine,
+         * before the first prefill, as the GLM path does.  A missing or
+         * unusable list must never fail a session: warn and go on cold. */
+        if (e->ssd_streaming && !e->tp.active && !e->ds41_hotlist_seeded) {
+            e->ds41_hotlist_seeded = true;
+            ds4_gpu_graph seed_graph;
+            memset(&seed_graph, 0, sizeof(seed_graph));
+            seed_graph.quality = e->quality;
+            seed_graph.ssd_streaming = e->ssd_streaming;
+            seed_graph.ssd_streaming_cold = e->ssd_streaming_cold;
+            seed_graph.streaming_preload_experts = e->ssd_streaming_preload_experts;
+            if (!metal_graph_seed_streaming_expert_cache_from_hotlist(
+                        &seed_graph, &e->model, &e->weights)) {
+                fprintf(stderr, "ds4: V4.1 expert hotlist seed failed, starting cold\n");
+            }
+        }
+#endif
         if (e->tp.active) {
             s->ds41_graph.tp_world = 2;
             s->ds41_graph.tp_rank = (uint32_t)e->tp.rank;

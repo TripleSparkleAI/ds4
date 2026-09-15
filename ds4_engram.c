@@ -228,7 +228,27 @@ static int request_order(const void *a, const void *b) {
     return (x->row > y->row) - (x->row < y->row);
 }
 
-enum { ENGRAM_READERS = 16 };
+enum { ENGRAM_READERS = 16, ENGRAM_ROWS_PER_READER = 2 };
+
+/* Readers scale with the request count so a small read is not left serial.
+ * A whole-prefix read keeps every reader, as before; a single token's
+ * DS4_ENGRAM_COLS rows per table now get one reader per couple of rows
+ * instead of none. The override is read per call rather than cached: this
+ * runs once per token per table, immediately before dozens of disk reads,
+ * so the lookup is free and no first-caller wins the setting for the
+ * lifetime of the process. */
+static size_t engram_reader_count(size_t count) {
+    const char *env = getenv("DS4_ENGRAM_READ_THREADS");
+    size_t readers = count / ENGRAM_ROWS_PER_READER;
+    if (env) {
+        char *end = NULL;
+        const long configured = strtol(env, &end, 10);
+        if (end != env && !*end && configured >= 0) readers = (size_t)configured;
+    }
+    if (readers > ENGRAM_READERS) readers = ENGRAM_READERS;
+    if (readers > count) readers = count;
+    return readers < 1 ? 1 : readers;
+}
 
 typedef struct {
     const ds4_engram_table *table;
@@ -305,10 +325,11 @@ bool ds4_engram_read_batch(const ds4_engram_table *t, const uint32_t *rows,
         qsort(request, count, sizeof(*request), request_order);
         engram_batch batch = {.table = t, .request = request, .count = count,
             .out = out + start * DS4_ENGRAM_COLS * DS4_ENGRAM_DIM, .readers = 1};
-        /* Fixed concurrency hides random-read latency without caching the table.
+        /* Concurrency hides random-read latency without caching the table.
          * Each worker owns disjoint output rows; all finish before GPU use. */
-        if (count >= 256) {
-            batch.readers = ENGRAM_READERS;
+        const size_t readers = engram_reader_count(count);
+        if (readers > 1) {
+            batch.readers = readers;
 #ifdef __APPLE__
             dispatch_apply_f(batch.readers,
                 dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), &batch, read_batch_part);

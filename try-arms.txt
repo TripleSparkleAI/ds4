@@ -1,0 +1,10 @@
+# try.sh arm map: which ds4-server build directory on the Spark runs a branch.
+#
+#   <branch-slug>  <build-dir-under-~/dwarfstar/_worktrees/>
+#
+# Resolution order in try.sh:  --dir flag, this map, a worktree named exactly
+# after the branch, a worktree checked out on the branch, then a labelled
+# best guess among the tb-* builds.  A future branch needs nothing here if
+# its worktree is named after the branch or checked out on it; otherwise add
+# one line.
+triple-all-fastest   tb-afstack
