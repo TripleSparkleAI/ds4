@@ -267,3 +267,110 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+
+
+
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
+**✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
+
+**✦ above: the README, unchanged**
+
+**✦ below: our modifications and numbers for this branch**
+
+## the expert cache reserve becomes a knob
+
+The expert cache splits honest host free memory into a slot arena and a reserve for everything the process still has to allocate after it. That reserve was the literal 8 GiB, tuned on a 128 GB unified part and wrong on any box that is not one. This branch makes it an operator setting and prints the sizing decision it drives.
+
+```
+✦  expert cache reserve knob
+
+      baseline        9.56               tokens/s
+      this branch     8.68               tokens/s
+      improvement     -9.2%               %   (noise floor 3.3-4.9 %)
+
+      ----------------------------------------------------------------------
+      headline        5,677 slots @0.918 hit vs 5,234 @0.901 (probe, other tree)
+      output          greedy-identical · sha256 bb06e711bc498bb9
+```
+
+**Standard results table**
+
+| arm / measurement | value | change |
+| --- | ---: | ---: |
+| tokens/s - control (tip, unpatched) | 9.56 | - |
+| tokens/s - this branch | 8.68 | -9.2% |
+| slots / hit rate at margin 8 vs 12 | 5,677 @0.918 / 5,234 @0.901 | trade |
+
+*Measured on the DGX Spark, one arm against its own interleaved control, minimum
+across three stable frontiers (the first frontier of each run is discarded as warmup).
+The change is stated beside the noise floor because that is the only honest way to read
+it: a delta smaller than the floor is not a win.*
+
+- **Where it lives**: one block in `cuda_stream_selected_cache_begin_load` in `ds4_cuda.cu`, +17/-1 outside the stats print. No data path, no read ordering, no arithmetic change.
+- **The sizing chain, in order**: the cache starts from `ds4_gpu_stream_expert_cache_budget_for_expert_size`; that budget is then clamped by free memory, where `cudaMemGetInfo` is replaced by `min(host nonmovable, total device bytes)` when the device reports itself integrated and `ds4_linux_nonmovable_memory` can answer, because on unified memory the device free figure and real host headroom diverge; then `available = free - reserve`, zero if the reserve exceeds free; then `capacity = min(capacity, available / expert_bytes)`.
+- **The reserve parse is strict**: `DS4_CUDA_EXPERT_CACHE_MARGIN_GB` is read with `strtoul`, taken only when the whole string parses and the value is at most 120, otherwise left at 8. With the variable unset the reserve is exactly 8 GiB, so a tree that does not set it behaves as before, byte for byte.
+- **Why a knob instead of a better constant**: `cudaMalloc` overcommits, so an arena sized past what the host can really give is accepted and then killed on first touch. That surfaces as an OOM kill during warm-up rather than a clean allocation failure, which means the reserve is the only dial between arena size and being the OOM killer's first pick on a shared box.
+- **Who still needs the reserve**: the KV cache, the staging buffers, and the page cache of the streaming reads are all allocated after the slots take their share.
+- **Sizing is readable now**: under `DS4_CUDA_EXPERT_CACHE_STATS=1` the branch prints free GiB, the integrated flag, host nonmovable GiB, the reserve GiB and the resulting slot budget. The line prints after the `min()` clamp, so the budget it reports is the one the arena is being asked for.
+- **One caveat on that print**: it is emitted before the `while (capacity >= unique.size())` backoff loop that shrinks the arena by 3/4 steps if the allocation cannot actually be served, so on a box where the arena is refused the printed budget is not the final slot count. The `ds4: CUDA SSD expert cache: N slots` line printed afterwards is the one that reports what was really taken.
+- **No throughput claim at the default**: with the variable unset the executed path is identical to the control, so the -9.2 percent recorded above is a reading outside the 3.3 to 4.9 percent noise floor on an UNCHANGED data path, which makes it more likely to be drift or a repeat artefact than a property of the knob. What the knob changes is the price of the reserve, not the arithmetic.
+- **The trade, quoted as a shape**: an equivalent probe on our own CUDA backend gave 5,677 slots at 0.918 hit rate at margin 8 against 5,234 slots at 0.901 at margin 12, about 0.08 t/s per GiB of arena at that point on the curve. That probe belongs to a DIFFERENT tree and is quoted only to show the direction of the trade, so the slot counts and hit rates are not this branch's numbers.
+- **Output identity**: greedy output is identical at both margins, `bb06e711bc498bb9` short and `d3355c94c70a4bb1` long, because a different arena size is still the same arithmetic.
+
+```
+   cuda_stream_selected_cache_begin_load
+        |
+        |  cudaMemGetInfo -> free, total
+        |  integrated device? -> free = min(host nonmovable, total)
+        v
+   free GiB
+        |
+        +-- minus reserve_gb << 30 ------------------------------+
+        |        reserve_gb = DS4_CUDA_EXPERT_CACHE_MARGIN_GB   |
+        |                    default 8 GiB, unset = unchanged   |
+        |                    ignored unless the whole string    |
+        |                    parses and v <= 120                |
+        v                                                       |
+   available  ->  capacity = min(budget_for_expert_size, available / expert_bytes)
+        |
+        |  capacity < unique experts? -> refuse, stay unstreamed
+        v
+   arena: the slots the cache will actually use (min after the clamp)
+
+        |                             arena is a PROMISE, not a reservation:
+        |                             cudaMalloc overcommits and the host
+        |                             settles it on first touch
+        v
+   +---------------------+   +------------------------------------------+
+   | slots, LRU, by_gate |   | KV cache, staging, page cache of reads   |
+   | hit rate follows    |   | <-- too small a reserve dies HERE, during |
+   +---------------------+   |     warm-up, as an OOM kill               |
+                             +------------------------------------------+
+
+   reserve too large -> fewer slots, more misses, slower
+   reserve too small -> more slots, then the OOM killer
+```
+
+**Provenance, 2026-09-16, native re-measure.** Every number above comes from a native run:
+all six binaries rebuilt with `make cuda-spark -j12` (nvcc `-gencode arch=compute_121a,code=sm_121a`,
+`ds4-server` text 23.11 to 23.13 MB), interleaved control then arm, two clean repeats per arm,
+the 2048 frontier discarded as warmup, minimum across repeats reported. The control-to-control
+floor on that native set is **3.3 to 4.9 percent on generation** and 9.7 to 15.8 percent on
+prefill, so a generation delta under 4.9 percent is not resolved by this measurement.
+
+The numbers this file carried before were measured on **JIT-fallback binaries** (17:12 builds
+with no `-gencode`, `ds4-server` text 29.6 MB). Those runs were internally consistent - control
+and arm shared a vintage - but they are not comparable with native figures: the control read
+about 37 prefill tokens per second on JIT against about 86 native. They are superseded here.
+
+**Read the direction, not just the size.** The minimum across repeats is negative, -9.2 percent,
+and at ctx 8192 one repeat read -10.4 percent which is outside the floor. The two repeats
+disagree at that frontier (margin_1 read 9.71), so this is a warning that needs a repeat rather
+than a verdict. The prefill side of the same runs is positive at every frontier (+4.8 to +10.5
+percent), which is at least consistent with the mechanism being about cache reserve rather than
+about decode.
