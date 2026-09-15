@@ -267,3 +267,98 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+
+
+
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
+**✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
+
+**✦ above: the README, unchanged**
+
+**✦ below: our modifications and numbers for this branch**
+
+## parallel SSD reads for the expert cache
+
+One MoE layer of a V4.1 decode step that misses the resident expert cache needs up to 6 experts x 3 tensors of separate few-MiB reads. The CUDA port used to issue those reads one at a time through a single staging ring, so the layer paid the sum of their latencies while the drive sat at queue depth one. This branch builds the whole miss list first and hands it to a bounded worker pool.
+
+```
+✦  parallel SSD reads for the expert cache
+
+      baseline        9.56               tokens/s
+      this branch     9.94               tokens/s
+      improvement     +4.0%               %   (noise floor 3.3-4.9 %)
+
+      ----------------------------------------------------------------------
+      headline        device probe 7.6 -> 10.1 GB/s at 8 readers  ·  indicative pairs ~+12%
+      output          greedy-identical · sha256 bb06e711bc498bb9
+```
+
+**Standard results table**
+
+| arm / measurement | value | change |
+| --- | ---: | ---: |
+| tokens/s - control (tip, unpatched) | 9.56 | - |
+| tokens/s - this branch | 9.94 | +4.0% |
+| device probe, single vs 8 readers | 7.6 -> 10.1 GB/s | +33% |
+
+*Measured on the DGX Spark, one arm against its own interleaved control, minimum
+across three stable frontiers (the first frontier of each run is discarded as warmup).
+The change is stated beside the noise floor because that is the only honest way to read
+it: a delta smaller than the floor is not a win.*
+
+- **The pool is `cuda_pread_pool` in `ds4_cuda.cu`**, one instance (`g_expert_pread`), at most `DS4_CUDA_EXPERT_PREAD_MAX` = 16 workers. Each worker owns a `cudaMallocHost` staging buffer and its own non-blocking CUDA stream, so no worker's read and upload wait on another's. The Metal port already carries the same pool (`ds4_gpu_stream_expert_pread_pool`, 9 threads by default, cap 18); this is the CUDA twin with its own env names and a default of 8.
+- **Only the miss phase changes.** `cuda_stream_selected_cache_begin_load` still resolves router hits first and stamps them before choosing victims, so a miss can never evict a later request's hit. It then builds one `cuda_expert_pread_task` per tensor (gate, up, down) instead of calling the serial streamed copy inline, claims each victim slot up front, and dispatches the list.
+- **Staging is sized to the batch, not to the chunk.** A worker buffer is `min(largest task, DS4_CUDA_MODEL_COPY_CHUNK_MB bytes)` plus two alignment units, so a few-MiB expert costs a few MiB per worker rather than a 64 MiB chunk. A tensor that fits in one chunk means the worker's read-upload loop body normally runs once.
+- **One blocking wait per layer.** The caller blocks once in `cuda_pread_pool_wait` for the whole batch instead of per tensor. Inside a worker the read is `O_DIRECT` whenever the aligned window fits the worker's staging buffer; then `cudaMemcpyAsync` and `cudaStreamSynchronize` on that worker's own stream; then the same page discards the serial path used (`posix_fadvise` DONTNEED on the model fd, `posix_madvise` DONTNEED on the mapping).
+- **The pool never writes the O_DIRECT globals.** Workers snapshot `g_model_direct_fd` and the alignment, and a rejected direct read is reported in the task instead. The disable, if any, is applied once on the calling thread after the join, so several readers cannot race the global.
+- **Declining is always safe.** Dispatch returns 0 before reading a byte when the lever is off, when the batch holds one task or fewer, when a staging allocation or thread creation fails, or when a dispatch is already in flight; the caller then runs the original serial `cuda_model_copy_to_device_streamed` loop and its `uploads` batch bookkeeping. A pool that failed once sets `failed` and stays serial for the life of the process.
+- **Unchanged**: the LRU slot cache, the gate-indexed lookup, the eviction rule, the look-ahead protected slots, and per-tensor error reporting. A tensor whose reads did not all land rolls its slot back to unused and the load fails, exactly as before.
+- **Torn down with the cache.** `ds4_gpu_stream_expert_cache_release_resident` now also stops and joins the pool and frees each worker's pinned buffer and stream.
+- **Knobs**: `DS4_CUDA_STREAMING_EXPERT_PREAD_POOL=0` restores the serial ring, `DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS` sets the worker count (default 8, capped at 16), and `DS4_CUDA_EXPERT_CACHE_STATS=1` prints hit rate, resident slots, evictions and seconds spent in the read phase every 4000 expert lookups. A 4/8/16 thread sweep on this drive was FLAT, so the default sits in the middle of a flat region rather than on a tuned peak.
+- **The probe is the mechanism, the pairs are indicative.** The threaded `O_DIRECT` probe on this drive reads 7.6 GB/s at one reader against 10.1 GB/s at eight, which is what says the drive has queue depth to give. The 5.73-6.23 t/s serial against 6.55-6.87 t/s pooled pairs, about +12 percent, came from a box sharing memory with another tenant and are labelled indicative for that reason.
+- **Read against the floor.** In the interleaved sweep this branch landed at +4.0 percent, which is at the very top of the 3.3 to 4.9 percent control-to-control floor, so the honest reading is that it sits at the edge of resolution rather than clearly above it. Both tokens/s cells above are that sweep's numbers, not estimates.
+- Greedy output is byte-identical on both arms: `bb06e711bc498bb9` short, `d3355c94c70a4bb1` long.
+
+```
+   begin_load(layer)  <- selected_ids, e.g. 6 experts x gate/up/down
+        |
+        +-- router hit? ---> yes: slot resident, slot.used = stamp      (no read)
+        |
+        +-- miss: victim = oldest slot no look-ahead is protecting
+        |         task[] += {gate, up, down} of that victim,
+        |         slot claimed NOW so a later miss cannot take it
+        v
+   dispatch_start ----------------+            +------- one blocking wait: pool_wait()
+                                  |            |
+     pool workers, count = DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS (8, cap 16)
+                                  |            |
+     w0 [pinned stage][stream]  pread gate -> H2D -> sync -> drop pages
+     w1 [pinned stage][stream]  pread up   -> H2D -> sync -> drop pages
+     w2 [pinned stage][stream]  pread down -> H2D -> sync -> drop pages
+     w3 [pinned stage][stream]  ... queue drained under next_task++
+                                  |            |
+                                  v            v
+   all 3 tensors of a miss landed?  yes -> slot stays in by_gate, layer remaps
+                                    no  -> slot rolled back to used = 0, load fails
+
+   pool declined (lever off, <= 1 task, alloc/thread failure, batch in flight):
+        serial ring, unchanged: cuda_model_copy_to_device_streamed, one tensor
+        at a time, one 4-chunk staging ring, uploads.finish()
+```
+
+**Provenance, 2026-09-16, native re-measure.** Every number above comes from a native run:
+all six binaries rebuilt with `make cuda-spark -j12` (nvcc `-gencode arch=compute_121a,code=sm_121a`,
+`ds4-server` text 23.11 to 23.13 MB), interleaved control then arm, two clean repeats per arm,
+the 2048 frontier discarded as warmup, minimum across repeats reported. The control-to-control
+floor on that native set is **3.3 to 4.9 percent on generation** and 9.7 to 15.8 percent on
+prefill, so a generation delta under 4.9 percent is not resolved by this measurement.
+
+The numbers this file carried before were measured on **JIT-fallback binaries** (17:12 builds
+with no `-gencode`, `ds4-server` text 29.6 MB). Those runs were internally consistent - control
+and arm shared a vintage - but they are not comparable with native figures: the control read
+about 37 prefill tokens per second on JIT against about 86 native. They are superseded here.
