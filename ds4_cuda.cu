@@ -3245,6 +3245,85 @@ extern "C" int ds4_gpu_tensor_read(const ds4_gpu_tensor *tensor, uint64_t offset
     return ok;
 }
 
+/* Event-gated readback of the router's expert ids, so the host does not drain
+ * the device to learn them.  The streaming MoE path reads the selected ids
+ * back with a blocking cudaMemcpy, which waits for everything queued before
+ * it on the decode stream - and on the V4.1 decode path the shared-expert
+ * matmuls are queued between the router and that read, once per MoE layer.
+ *
+ * begin(): queue an async D2H copy into a pinned buffer on the decode stream
+ *          right after the router kernel, then record an event.  Work queued
+ *          after this point is not covered by the event.
+ * take():  if the pending readback is for this tensor, wait on the event
+ *          (the router and the copy only), memcpy the pinned bytes out and
+ *          return 1.  Otherwise return 0 and the caller reads the old way.
+ *
+ * Stream order is untouched: the copy sits in the same in-order stream as
+ * every kernel, so it sees the tensor exactly where a blocking read would.
+ * Refused during CUDA graph capture; the caller then drains as before. */
+static void       *g_selected_readback_host;
+static uint64_t    g_selected_readback_bytes;
+static cudaEvent_t g_selected_readback_event;
+static const void *g_selected_readback_src;
+static uint64_t    g_selected_readback_pending;   /* bytes queued, 0 = none */
+static uint64_t    g_selected_readback_taken;     /* armed reads consumed, for the stats line */
+
+extern "C" int ds4_gpu_selected_readback_begin(const ds4_gpu_tensor *tensor,
+                                               uint64_t offset, uint64_t bytes) {
+    g_selected_readback_pending = 0;
+    if (!tensor || offset > tensor->bytes || bytes == 0 || bytes > tensor->bytes - offset) return 0;
+    if (g_decode_graph_capturing) return 0;
+    static int drain_sync = -1;
+    if (drain_sync < 0) drain_sync = getenv("DS4_CUDA_SELECTED_DRAIN_SYNC") != NULL;
+    if (drain_sync) return 0;
+    const int d = ds4_tensor_device_idx(tensor);
+    int ok = 0;
+    WITH_DEVICE(g_gpu[d].device_id) {
+        /* No `break` in here: WITH_DEVICE restores the previous device in its
+         * loop step, and a break would skip that restore. */
+        int ready = 1;
+        if (g_selected_readback_bytes < bytes) {
+            if (g_selected_readback_host) {
+                (void)cudaFreeHost(g_selected_readback_host);
+                g_selected_readback_host = NULL;
+                g_selected_readback_bytes = 0;
+            }
+            ready = cuda_ok(cudaMallocHost(&g_selected_readback_host, (size_t)bytes),
+                            "selected readback pinned alloc");
+            if (ready) g_selected_readback_bytes = bytes;
+        }
+        if (ready && !g_selected_readback_event)
+            ready = cuda_ok(cudaEventCreateWithFlags(&g_selected_readback_event,
+                                                     cudaEventDisableTiming),
+                            "selected readback event create");
+        if (ready) {
+            const cudaStream_t s = cuda_decode_stream();
+            ok = cuda_ok(cudaMemcpyAsync(g_selected_readback_host,
+                                         (const char *)tensor->ptr + offset, (size_t)bytes,
+                                         cudaMemcpyDeviceToHost, s),
+                         "selected readback async copy") &&
+                 cuda_ok(cudaEventRecord(g_selected_readback_event, s),
+                         "selected readback event record");
+        }
+    }
+    if (ok) {
+        g_selected_readback_src = (const char *)tensor->ptr + offset;
+        g_selected_readback_pending = bytes;
+    }
+    return ok;
+}
+
+static int cuda_selected_readback_take(const void *src, void *data, uint64_t bytes) {
+    if (!g_selected_readback_pending) return 0;
+    const int match = src == g_selected_readback_src && bytes <= g_selected_readback_pending;
+    g_selected_readback_pending = 0;
+    if (!match) return 0;
+    if (!cuda_ok(cudaEventSynchronize(g_selected_readback_event), "selected readback wait")) return 0;
+    memcpy(data, g_selected_readback_host, (size_t)bytes);
+    g_selected_readback_taken++;
+    return 1;
+}
+
 extern "C" int ds4_gpu_tensor_copy(ds4_gpu_tensor *dst, uint64_t dst_offset,
                                      const ds4_gpu_tensor *src, uint64_t src_offset,
                                      uint64_t bytes) {
@@ -32915,7 +32994,12 @@ extern "C" int ds4_gpu_glm_stream_expert_cache_begin_selected_load_tensor(
     } catch (...) {
         return 0;
     }
-    if (!cuda_ok(cudaMemcpy(ids.data(), selected->ptr,
+    /* An armed readback (ds4_gpu_selected_readback_begin, queued right after
+     * the router) waits for the router only; the blocking read below also
+     * waits for every kernel queued since, the shared expert included. */
+    if (!cuda_selected_readback_take(selected->ptr, ids.data(),
+                                     (uint64_t)n_selected * sizeof(int32_t)) &&
+        !cuda_ok(cudaMemcpy(ids.data(), selected->ptr,
                             (size_t)n_selected * sizeof(int32_t),
                             cudaMemcpyDeviceToHost),
                  "GLM streaming selected-id read")) {
