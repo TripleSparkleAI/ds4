@@ -27334,6 +27334,44 @@ static struct {
     double started = 0, elapsed = 0;
 } g_stream_prefetch;
 
+/* The read-ahead can decline a layer for a dozen reasons and used to do it
+ * silently, so "it prefetched" and "it did nothing at all" looked identical
+ * from outside. These only count; nothing here changes a decision. */
+static struct {
+    uint64_t asked;          /* calls that reached the function          */
+    uint64_t refused_early;  /* declined by the entry guard              */
+    uint64_t no_victims;     /* ran out of evictable slots mid-reserve   */
+    uint64_t cancelled;      /* any other throw on the way to the thread */
+    uint64_t started;        /* reader threads actually launched         */
+    uint64_t published;      /* finishes that published their slots      */
+    uint64_t dropped;        /* finishes that threw their slots away     */
+    uint64_t slots_published;
+} g_stream_prefetch_stats;
+
+static bool cuda_stream_prefetch_stats_on(void) {
+    static int on = -1;
+    if (on < 0) on = getenv("DS4_CUDA_SSD_PREFETCH_STATS") != NULL ? 1 : 0;
+    return on != 0;
+}
+
+static void cuda_stream_prefetch_stats_report(void) {
+    if (!cuda_stream_prefetch_stats_on()) return;
+    const auto &st = g_stream_prefetch_stats;
+    const double rate = st.asked ? (double)st.started / (double)st.asked : 0.0;
+    fprintf(stderr,
+            "ds4: CUDA SSD read-ahead: asked=%llu started=%llu (%.1f%%) "
+            "refused_early=%llu no_victims=%llu cancelled=%llu "
+            "published=%llu dropped=%llu slots=%llu\n",
+            (unsigned long long)st.asked, (unsigned long long)st.started,
+            100.0 * rate,
+            (unsigned long long)st.refused_early,
+            (unsigned long long)st.no_victims,
+            (unsigned long long)st.cancelled,
+            (unsigned long long)st.published,
+            (unsigned long long)st.dropped,
+            (unsigned long long)st.slots_published);
+}
+
 static bool cuda_stream_slot_in_table(const cuda_stream_expert_slot &slot,
                                       const ds4_gpu_stream_expert_table &table) {
     if (!slot.used || slot.gate < table.gate_offset) return false;
@@ -27404,6 +27442,14 @@ extern "C" void ds4_gpu_stream_expert_cache_prefetch_finish(bool cancel) {
         p.active = false;
     }
     const bool publish = p.ok && !cancel;
+    if (!p.slots.empty()) {
+        if (publish) {
+            g_stream_prefetch_stats.published++;
+            g_stream_prefetch_stats.slots_published += p.slots.size();
+        } else {
+            g_stream_prefetch_stats.dropped++;
+        }
+    }
     for (const auto &reserved : p.slots) {
         auto &slot = g_stream_expert_slots[reserved.index];
         slot.used = 0;
@@ -27446,6 +27492,7 @@ extern "C" void ds4_gpu_stream_expert_cache_prefetch_finish(bool cancel) {
 
 static void cuda_stream_prefetch_exit(void) {
     ds4_gpu_stream_expert_cache_prefetch_finish(true);
+    cuda_stream_prefetch_stats_report();
 }
 
 extern "C" int ds4_gpu_stream_expert_cache_prefetch(
@@ -27465,8 +27512,12 @@ extern "C" int ds4_gpu_stream_expert_cache_prefetch(
         next->gate_expert_bytes != cache.gate_expert_bytes ||
         next->down_expert_bytes != cache.down_expert_bytes ||
         g_stream_expert_slots.size() < (uint64_t)current->n_total_expert + next->n_total_expert ||
-        g_stream_expert_clock >= UINT64_MAX - 2 || g_model_direct_align > (UINT64_C(1) << 20))
+        g_stream_expert_clock >= UINT64_MAX - 2 || g_model_direct_align > (UINT64_C(1) << 20)) {
+        g_stream_prefetch_stats.asked++;
+        g_stream_prefetch_stats.refused_early++;
         return 0;
+    }
+    g_stream_prefetch_stats.asked++;
     try {
         /* Registered after CUDA initialization and the cache's static objects:
          * an early exit must join before either is destroyed. */
@@ -27518,7 +27569,13 @@ extern "C" int ds4_gpu_stream_expert_cache_prefetch(
                 if (slot.up == value.up && slot.down == value.down) continue;
                 throw 0;
             }
-            if (p.slots.size() >= victims.size()) throw 0;
+            if (p.slots.size() >= victims.size()) {
+                /* Not enough evictable slots for this layer, so the whole
+                 * read-ahead for it is abandoned. A victim-list change that
+                 * starves the reader is visible here and nowhere else. */
+                g_stream_prefetch_stats.no_victims++;
+                throw 0;
+            }
             const uint32_t index = victims[p.slots.size()];
             p.slots.push_back({index, value});
             auto &slot = g_stream_expert_slots[index];
@@ -27544,6 +27601,7 @@ extern "C" int ds4_gpu_stream_expert_cache_prefetch(
         }
         p.started = cuda_wall_sec();
         if (pthread_create(&p.thread, NULL, cuda_stream_prefetch_read, NULL) != 0) throw 0;
+        g_stream_prefetch_stats.started++;
         p.active = true;
         return 1;
     } catch (...) {
