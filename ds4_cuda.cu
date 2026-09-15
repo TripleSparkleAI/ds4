@@ -28072,6 +28072,133 @@ static void cuda_expert_hotlist_record(const ds4_gpu_stream_expert_table *table,
     }
 }
 
+
+/* ------------------------------------------------------------------------
+ * PREFETCH PROBE.  DS4_CUDA_PREFETCH_PROBE=1, off by default, host-side only.
+ *
+ * A one-layer-ahead speculative read was measured on this box and lost: its
+ * batch needed roughly 21 GB/s of NVMe to land inside one attention window at
+ * top-6, and about 11 at top-3, against a drive that gives about 10.  Residency
+ * filtering was already applied there, so the binding constraint is LEAD TIME,
+ * not volume.  The only remaining axis is a predictor that can be read further
+ * ahead than one layer.
+ *
+ * THE HEADLINE NUMBER IS MISS COVERAGE, NOT OVERLAP, and it is printed first
+ * because it can be near zero BY CONSTRUCTION.  An expert selected one token
+ * ago is among the most recently used entries in the arena, and the arena holds
+ * many tokens of history, so it is probably still resident.  A MISS is by
+ * definition not resident.  A recency-based predictor may therefore only ever
+ * name experts the cache already has, however stable routing is.  If covered is
+ * near zero the idea is dead and the overlap figure cannot rescue it.
+ *
+ * DS4_CUDA_PREFETCH_PROBE_DUMP=<path> additionally writes one line per
+ * (token, layer) carrying the selected ids and a residency bitmap over every
+ * expert of the layer, taken BEFORE the layer's load runs.  That is enough to
+ * score ANY predictor offline - previous token, cross-layer co-occurrence at
+ * any depth, hot-list frequency - from a single run, without booking the box
+ * again.
+ *
+ * No GPU work, no cache mutation, and the counting path allocates nothing the
+ * steady state repeats, so the greedy dump is identical with it on and off.
+ * ------------------------------------------------------------------------ */
+struct cuda_prefetch_probe_layer {
+    std::vector<int32_t> prev;
+    bool has_prev = false;
+};
+static struct {
+    std::unordered_map<uint32_t, cuda_prefetch_probe_layer> by_layer;
+    uint64_t scored = 0, selected = 0, overlap = 0, missing = 0, covered = 0, stale = 0;
+    uint64_t reported = 0;
+    uint64_t token = 0;
+    int64_t  last_layer = -1;
+    FILE    *dump = NULL;
+    int      dump_tried = 0;
+    std::string bitmap;
+} g_prefetch_probe;
+
+static int cuda_prefetch_probe_enabled(void) {
+    static int cached = -1;
+    if (cached < 0) cached = getenv("DS4_CUDA_PREFETCH_PROBE") != NULL;
+    return cached;
+}
+
+static void cuda_prefetch_probe_step(const ds4_gpu_stream_expert_table *table,
+                                     const std::vector<int32_t> &unique,
+                                     uint32_t slot_count) {
+    if (!cuda_prefetch_probe_enabled()) return;
+    /* Single-token steps only.  A prefill batch selects a different quantity
+     * and mixing the two would make every ratio meaningless. */
+    if (slot_count > 8u || unique.empty()) return;
+    auto &st = g_prefetch_probe;
+
+    /* A layer index that did not advance means the decode step wrapped. */
+    if ((int64_t)table->layer <= st.last_layer) st.token++;
+    st.last_layer = (int64_t)table->layer;
+
+    auto &L = st.by_layer[table->layer];
+    if (L.has_prev) {
+        st.scored++;
+        st.selected += unique.size();
+        for (size_t i = 0; i < unique.size(); i++) {
+            const uint64_t gate = table->gate_offset +
+                (uint64_t)(uint32_t)unique[i] * table->gate_expert_bytes;
+            /* Residency as it stands BEFORE this layer's load, which is the
+             * state a speculative read would have had to beat. */
+            const bool resident = g_stream_expert_by_gate.find(gate) != g_stream_expert_by_gate.end();
+            bool guessed = false;
+            for (size_t j = 0; j < L.prev.size(); j++) guessed |= L.prev[j] == unique[i];
+            st.overlap += guessed ? 1u : 0u;
+            if (!resident) { st.missing++; st.covered += guessed ? 1u : 0u; }
+        }
+        for (size_t j = 0; j < L.prev.size(); j++) {
+            bool used = false;
+            for (size_t i = 0; i < unique.size(); i++) used |= unique[i] == L.prev[j];
+            if (!used) st.stale++;
+        }
+    }
+
+    if (!st.dump_tried) {
+        st.dump_tried = 1;
+        if (const char *path = getenv("DS4_CUDA_PREFETCH_PROBE_DUMP")) {
+            st.dump = fopen(path, "w");
+            if (st.dump)
+                fprintf(st.dump, "# token layer n_total_expert selected_ids... | resident_bitmap_hex_lsb_first\n");
+        }
+    }
+    if (st.dump) {
+        const uint32_t n = table->n_total_expert;
+        st.bitmap.assign((size_t)((n + 3u) / 4u), '0');
+        for (uint32_t e = 0; e < n; e++) {
+            const uint64_t gate = table->gate_offset + (uint64_t)e * table->gate_expert_bytes;
+            if (g_stream_expert_by_gate.find(gate) == g_stream_expert_by_gate.end()) continue;
+            char &c = st.bitmap[e >> 2];
+            const int v = (c <= '9' ? c - '0' : c - 'a' + 10) | (1 << (e & 3u));
+            c = (char)(v < 10 ? '0' + v : 'a' + v - 10);
+        }
+        fprintf(st.dump, "%llu %u %u", (unsigned long long)st.token, table->layer, n);
+        for (size_t i = 0; i < unique.size(); i++) fprintf(st.dump, " %d", unique[i]);
+        fprintf(st.dump, " | %s\n", st.bitmap.c_str());
+    }
+
+    L.prev = unique;
+    L.has_prev = true;
+
+    if (st.scored && st.scored - st.reported >= 2048u) {
+        st.reported = st.scored;
+        fprintf(stderr,
+            "ds4: [prefetch-probe] %llu layer-steps: COVERED %.1f%% of misses (%.2f of %.2f per step) | "
+            "overlap %.2f/%.2f per step (%.1f%%), stale %.2f/step\n",
+            (unsigned long long)st.scored,
+            st.missing ? 100.0 * (double)st.covered / (double)st.missing : 0.0,
+            (double)st.covered / (double)st.scored,
+            (double)st.missing / (double)st.scored,
+            (double)st.overlap / (double)st.scored,
+            (double)st.selected / (double)st.scored,
+            st.selected ? 100.0 * (double)st.overlap / (double)st.selected : 0.0,
+            (double)st.stale / (double)st.scored);
+    }
+}
+
 static int cuda_stream_selected_cache_begin_load(
         const ds4_gpu_stream_expert_table *table,
         const int32_t *selected_ids,
@@ -28105,6 +28232,7 @@ static int cuda_stream_selected_cache_begin_load(
             remap[i] = expert_to_slot[expert];
         }
         cuda_expert_hotlist_record(table, unique);
+        cuda_prefetch_probe_step(table, unique, slot_count);
         auto &cache = g_stream_selected_cache;
         if (cache.model_map != table->model_map ||
             cache.gate_expert_bytes != table->gate_expert_bytes ||
