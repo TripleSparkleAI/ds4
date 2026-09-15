@@ -267,3 +267,106 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+
+
+
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
+**✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
+
+**✦ above: the README, unchanged**
+
+**✦ below: our modifications and numbers for this branch**
+
+## drop staged expert pages in the right order
+
+Fix the staged expert path's host-page release so the kernel actually honours it, and give the buffered miss reads a readahead hint so a layer's experts are already on their way in when the first pread waits.
+
+```
+✦  staged page drop order
+
+      baseline        9.56               tokens/s
+      this branch     9.62               tokens/s
+      improvement     +0.6%               %   (noise floor 3.3-4.9 %)
+
+      ----------------------------------------------------------------------
+      headline        measured: awaiting the clean sweep
+      output          greedy-identical · sha256 bb06e711bc498bb9
+
+   ◦ a blank cell is AWAITING THE SWEEP, not a zero.
+```
+
+**Standard results table**
+
+| arm / measurement | value | change |
+| --- | ---: | ---: |
+| tokens/s - control (tip, unpatched) | 9.56 | - |
+| tokens/s - this branch | 9.62 | +0.6% |
+| ordering fix, no measurement yet | owed | owed |
+
+*Measured on the DGX Spark, one arm against its own interleaved control, minimum
+across three stable frontiers (the first frontier of each run is discarded as warmup).
+The change is stated beside the noise floor because that is the only honest way to read
+it: a delta smaller than the floor is not a win.*
+
+**Change 1: the release order**
+
+- After each staged chunk is copied to the device - in both `cuda_model_copy_to_device_streamed` and `cuda_model_range_ptr_from_fd` - upstream releases the host pages with `posix_fadvise(POSIX_FADV_DONTNEED)` FIRST and `posix_madvise(POSIX_MADV_DONTNEED)` second.
+- That order is one the kernel does not honour: FADV_DONTNEED skips any page still mapped into a process, and the model file is mmap'd by the loader, so every page touched through that mapping survives the fadvise. The madvise then only zaps the PTEs after the drop hint has already passed.
+- The drop therefore never lands and the resident set keeps growing across a streaming run, competing with the expert slots for the same unified-memory pool.
+- This branch wraps both calls in `cuda_model_release_read_range` and issues madvise BEFORE fadvise: zap our PTEs first, then drop the cache. On the O_DIRECT path nothing is cached and both calls are cheap no-ops.
+- `DS4_CUDA_KEEP_MODEL_PAGES=1` keeps the previous behaviour: it disables both the madvise and the fadvise drops.
+
+**Change 2: the readahead hint**
+
+- The buffered read path gets no readahead hint, so a layer's misses are fetched one fault at a time.
+- `cuda_model_readahead_range` issues `posix_fadvise(POSIX_FADV_WILLNEED)` for a range that is about to be pread. Buffered path only - it is a no-op once the O_DIRECT fd is open, because a WILLNEED there would fill exactly the cache the reads bypass. `DS4_CUDA_NO_EXPERT_READAHEAD=1` disables it, and the range is bounds-checked against the model size.
+- It fires in two places. `cuda_stream_selected_cache_begin_load` hints every unique miss's gate, up and down expert ranges BEFORE the staged upload loop starts, so the kernel is already reading while the first copies are queued.
+- The background prefetch reader (`cuda_stream_prefetch_read`) hints every merged range before its chunked read loop. That reader drops each chunk after copying it, so without the hint it fills and empties the page cache one chunk at a time.
+- One file: `ds4_cuda.cu`, +52/-5.
+
+**Honesty**
+
+- The ordering fix is correct on a READING OF THE LINUX SEMANTICS rather than on a measurement.
+- Its value on the default `O_DIRECT` path may be nil, which is why it is stated last in the series and why it carries no number of its own yet.
+- The A/B is owed and is not in this file.
+- Output-invariant: `bb06e711bc498bb9` short, `d3355c94c70a4bb1` long.
+
+```
+   AS SHIPPED                             THIS BRANCH
+   (fadvise, then madvise)                (madvise, then fadvise)
+   --------------------------             -----------------------
+   pread chunk -> H2D copy                pread chunk -> H2D copy
+        |                                      |
+        v                                      v
+   fadvise(DONTNEED)                      madvise(DONTNEED)
+        | page still mmap'd ->                 | zap OUR PTEs first
+        v the kernel SKIPS it                  v
+   madvise(DONTNEED)                      fadvise(DONTNEED)
+        | unmaps too late                      | page now unmapped ->
+        v                                      v  the drop LANDS
+   page cache keeps the pages             page cache actually shrinks
+
+   and, buffered path only (no-op under O_DIRECT):
+   fadvise(WILLNEED) over every miss's gate/up/down ranges
+   before the first pread waits on it
+
+   DS4_CUDA_KEEP_MODEL_PAGES=1     -> disable the drops
+   DS4_CUDA_NO_EXPERT_READAHEAD=1  -> disable the hint
+```
+
+**Provenance, 2026-09-16, native re-measure.** Every number above comes from a native run:
+all six binaries rebuilt with `make cuda-spark -j12` (nvcc `-gencode arch=compute_121a,code=sm_121a`,
+`ds4-server` text 23.11 to 23.13 MB), interleaved control then arm, two clean repeats per arm,
+the 2048 frontier discarded as warmup, minimum across repeats reported. The control-to-control
+floor on that native set is **3.3 to 4.9 percent on generation** and 9.7 to 15.8 percent on
+prefill, so a generation delta under 4.9 percent is not resolved by this measurement.
+
+The numbers this file carried before were measured on **JIT-fallback binaries** (17:12 builds
+with no `-gencode`, `ds4-server` text 29.6 MB). Those runs were internally consistent - control
+and arm shared a vintage - but they are not comparable with native figures: the control read
+about 37 prefill tokens per second on JIT against about 86 native. They are superseded here.
