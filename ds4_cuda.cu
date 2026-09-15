@@ -174,9 +174,20 @@ static cuda_stream_selected_cache g_stream_selected_cache;
 static uint32_t g_stream_expert_budget;
 static uint64_t g_stream_expert_bytes;
 struct cuda_stream_expert_slot {
-    uint64_t gate, up, down, used;
+    uint64_t gate, up, down, used, handoff;
 };
 static std::vector<cuda_stream_expert_slot> g_stream_expert_slots;
+
+/* A prefill ends knowing which experts the prompt's last token routed to at
+ * every layer, and decode resumes from that same context.  Those triples are
+ * already resident when the layer that loaded them finishes, so the handoff
+ * costs no read: it only has to survive the rest of the prefill's sweep, which
+ * touches every expert of every later layer and would otherwise evict them by
+ * age.  The mark is cleared the moment a demand hit lands on the slot, because
+ * at that point ordinary recency protects it and a permanent pin would not. */
+static bool cuda_stream_handoff_protects(const cuda_stream_expert_slot &slot) {
+    return slot.used && slot.handoff;
+}
 static std::unordered_map<uint64_t, uint32_t> g_stream_expert_by_gate;
 /* Zero is empty; one is an unread look-ahead entry, older than any demand hit. */
 static uint64_t g_stream_expert_clock = 1;
@@ -27148,7 +27159,8 @@ struct cuda_stream_upload_batch {
 static int cuda_stream_selected_cache_begin_load(
         const ds4_gpu_stream_expert_table *table,
         const int32_t *selected_ids,
-        uint32_t slot_count) {
+        uint32_t slot_count,
+        uint32_t n_per_token = 0) {
     cuda_stream_prefetch_before_load(table);
     cuda_stream_selected_cache_invalidate();
     if (!g_ssd_streaming_mode) return 1;
@@ -27251,6 +27263,7 @@ static int cuda_stream_selected_cache_begin_load(
             }
             slots[i] = (int32_t)found->second;
             slot.used = stamp;
+            slot.handoff = 0;
         }
         std::vector<uint64_t> probe_evicted;
         std::vector<char> probe_hit(cuda_probe_handoff() ? unique.size() : 0, 0);
@@ -27261,13 +27274,20 @@ static int cuda_stream_selected_cache_begin_load(
         for (size_t i = 0; i < unique.size(); i++) {
             if (slots[i] >= 0) continue;
             uint32_t victim = UINT32_MAX;
-            uint64_t oldest = stamp;
-            for (uint32_t j = 0; j < g_stream_expert_slots.size(); j++) {
-                if (!cuda_stream_prefetch_protects(g_stream_expert_slots[j]) &&
-                    g_stream_expert_slots[j].used < oldest) {
-                    oldest = g_stream_expert_slots[j].used;
-                    victim = j;
-                    if (!oldest) break;
+            /* Pass one spares the handoff; pass two ignores it.  A protected
+             * arena must still be able to load, so protection can only reorder
+             * the choice of victim, never refuse one. */
+            for (unsigned pass = 0; pass < 2 && victim == UINT32_MAX; pass++) {
+                uint64_t oldest = stamp;
+                for (uint32_t j = 0; j < g_stream_expert_slots.size(); j++) {
+                    const auto &candidate = g_stream_expert_slots[j];
+                    if (cuda_stream_prefetch_protects(candidate)) continue;
+                    if (pass == 0 && cuda_stream_handoff_protects(candidate)) continue;
+                    if (candidate.used < oldest) {
+                        oldest = candidate.used;
+                        victim = j;
+                        if (!oldest) break;
+                    }
                 }
             }
             if (victim == UINT32_MAX) return 0;
@@ -27297,6 +27317,17 @@ static int cuda_stream_selected_cache_begin_load(
             slots[i] = (int32_t)victim;
         }
         if (!uploads.finish()) return 0;
+        /* Only a batch carries more than one token, so only a prefill has a
+         * last token to hand over. */
+        if (n_per_token && slot_count > n_per_token) {
+            for (uint32_t i = slot_count - n_per_token; i < slot_count; i++) {
+                const int32_t expert = selected_ids[i];
+                if (expert < 0 || (uint32_t)expert >= table->n_total_expert) continue;
+                const int32_t unique_index = expert_to_slot[expert];
+                if (unique_index < 0 || slots[unique_index] < 0) continue;
+                g_stream_expert_slots[slots[unique_index]].handoff = 1;
+            }
+        }
         g_stream_prefill_ids = remap;
         g_stream_prefill_slots = slots;
         for (auto &id : remap) id = slots[id];
@@ -33831,7 +33862,7 @@ extern "C" int ds4_gpu_stream_expert_cache_prepare_selected_batch(
         return 0;
     }
     return cuda_stream_selected_cache_begin_load(
-            table, selected_ids, n_tokens * n_selected);
+            table, selected_ids, n_tokens * n_selected, n_selected);
 }
 
 extern "C" int ds4_gpu_stream_expert_cache_seed_experts(
