@@ -27553,8 +27553,42 @@ extern "C" int ds4_gpu_stream_expert_cache_prefetch(
             if (!cuda_stream_slot_in_table(slot, *current) && !cuda_stream_slot_in_table(slot, *next))
                 victims.push_back(i);
         }
-        std::stable_sort(victims.begin(), victims.end(), [](uint32_t a, uint32_t b) {
-            return g_stream_expert_slots[a].used < g_stream_expert_slots[b].used;
+        /* Take victims from the layers the sweep has already passed LAST.
+         *
+         * A prefill visits each layer once, so a slot behind the sweep is dead
+         * weight for the rest of this prefill and is exactly what decode wants
+         * first: decode restarts at layer 0 on every token. Sorting purely by
+         * `used` does the opposite, because during a sweep `used` rises with
+         * the layer index, so the oldest slot is always the earliest layer.
+         *
+         * An expert tensor's offset rises with its layer (verified against the
+         * model's own tensor table: 40 of 40 layers strictly increasing), so
+         * the gate offset orders layers without carrying a layer on the slot.
+         *
+         * `used` remains the tie-break, so within one layer the least recently
+         * routed expert still goes first, and a slot the router never touched
+         * (stamped 1 by the look-ahead) still outranks one it did.
+         *
+         * This changes the ORDER of `victims`, never its membership, so the
+         * reserve loop below can run out no more often than it does today. */
+        const uint64_t swept_from = current->gate_offset < next->gate_offset ?
+            current->gate_offset : next->gate_offset;
+        std::stable_sort(victims.begin(), victims.end(),
+                         [swept_from](uint32_t a, uint32_t b) {
+            const auto &sa = g_stream_expert_slots[a];
+            const auto &sb = g_stream_expert_slots[b];
+            const bool a_behind = sa.gate < swept_from;
+            const bool b_behind = sb.gate < swept_from;
+            /* Ahead of the sweep first: those layers are re-read on the way
+             * past anyway, so losing them costs one prefetch, not the opening. */
+            if (a_behind != b_behind) return !a_behind;
+            if (a_behind) {
+                /* Among the layers already passed, give up the ones CLOSEST to
+                 * the sweep: decode reaches layer 0 first, so the earliest
+                 * layers are the last thing worth surrendering. */
+                if (sa.gate != sb.gate) return sa.gate > sb.gate;
+            }
+            return sa.used < sb.used;
         });
         p.slots.reserve(next->n_total_expert);
         p.copies.reserve(3u * next->n_total_expert);
