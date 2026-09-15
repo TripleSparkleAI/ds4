@@ -254,6 +254,66 @@ static void test_all_scaled_values(void) {
     close(fd);
 }
 
+/* The reader count must never change a byte. A single token's worth of rows
+ * is the size the batch reader used to leave serial, so it is swept here
+ * alongside a multi-token read. The serial per-row reader is the reference
+ * because it takes no reader count at all. */
+static void test_reader_counts(void) {
+    char path[] = "/tmp/ds4-engram-readers-XXXXXX";
+    const int fd = mkstemp(path);
+    assert(fd >= 0);
+    enum { ROWS = 7, TOKENS = 40, STRIDE = DS4_ENGRAM_COLS,
+           WIDTH = DS4_ENGRAM_COLS * DS4_ENGRAM_DIM };
+    uint8_t raw[ROWS][DS4_ENGRAM_ROW_BYTES];
+    for (int r = 0; r < ROWS; r++) {
+        for (int i = 0; i < DS4_ENGRAM_DIM; i++)
+            raw[r][i] = (uint8_t)((i * 5 + r) % 127);
+        for (int i = 0; i < 8; i++)
+            raw[r][DS4_ENGRAM_DIM + i] = (uint8_t)(120 + r);
+    }
+    assert(pwrite(fd, raw, sizeof(raw), 0) == sizeof(raw));
+    ds4_engram_table t;
+    assert(ds4_engram_table_open(&t, path, 0, ROWS));
+    assert(unlink(path) == 0);
+
+    uint32_t *ids = malloc((size_t)TOKENS * STRIDE * sizeof(*ids));
+    float *reference = malloc((size_t)TOKENS * WIDTH * sizeof(*reference));
+    float *actual = malloc((size_t)TOKENS * WIDTH * sizeof(*actual));
+    assert(ids && reference && actual);
+    for (size_t i = 0; i < (size_t)TOKENS * STRIDE; i++)
+        ids[i] = (uint32_t)((i * 13) % ROWS);
+    for (size_t tok = 0; tok < TOKENS; tok++)
+        assert(ds4_engram_read(&t, ids + tok * STRIDE, DS4_ENGRAM_COLS,
+                               reference + tok * WIDTH));
+
+    /* This sweep sets the variable itself, so an ambient value in the
+     * environment does not reach it. To hold one setting across the whole
+     * binary, set it outside and do not run this function. */
+    const char *counts[] = {"0", "1", "2", "3", "5", "12", "16", "64", "bogus", ""};
+    const size_t token_counts[] = {1, 2, 40};
+    for (size_t c = 0; c < sizeof(counts) / sizeof(*counts); c++) {
+        assert(setenv("DS4_ENGRAM_READ_THREADS", counts[c], 1) == 0);
+        for (size_t n = 0; n < sizeof(token_counts) / sizeof(*token_counts); n++) {
+            const size_t tokens = token_counts[n];
+            memset(actual, 0, (size_t)TOKENS * WIDTH * sizeof(*actual));
+            assert(ds4_engram_read_batch(&t, ids, tokens, STRIDE, actual));
+            assert(memcmp(actual, reference, tokens * WIDTH * sizeof(*actual)) == 0);
+        }
+    }
+    assert(unsetenv("DS4_ENGRAM_READ_THREADS") == 0);
+    for (size_t n = 0; n < sizeof(token_counts) / sizeof(*token_counts); n++) {
+        const size_t tokens = token_counts[n];
+        memset(actual, 0, (size_t)TOKENS * WIDTH * sizeof(*actual));
+        assert(ds4_engram_read_batch(&t, ids, tokens, STRIDE, actual));
+        assert(memcmp(actual, reference, tokens * WIDTH * sizeof(*actual)) == 0);
+    }
+    free(ids);
+    free(reference);
+    free(actual);
+    ds4_engram_table_close(&t);
+    close(fd);
+}
+
 int main(void) {
     test_hash();
     unsetenv("DS4_ENGRAM_PARALLEL_DECODE");
@@ -262,6 +322,7 @@ int main(void) {
     test_rows();
     unsetenv("DS4_ENGRAM_PARALLEL_DECODE");
     test_all_scaled_values();
-    puts("Engram hashes, history and bounded disk rows: PASS");
+    test_reader_counts();
+    puts("Engram hashes, history, bounded disk rows and reader counts: PASS");
     return 0;
 }
