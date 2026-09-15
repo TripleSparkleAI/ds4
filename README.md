@@ -267,3 +267,91 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+
+
+
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
+**✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
+
+**✦ above: the README, unchanged**
+
+**✦ below: our modifications and numbers for this branch**
+
+## a lookup drafter for the streaming decode - closed on measurement
+
+A suffix-lookup drafter for the streaming decode, built to fold k decode tokens into one verify pass. It is CLOSED, because it was measured as a speed lever and came back negative. It is kept as a design record and as a different approach, not as a speedup.
+
+```
+✦  the lookup drafter - CLOSED on measurement
+
+      verdict          CLOSED, no patch          kept as a design record
+      acceptance       2.37x code / 1.17x prose  real, and it is not the lever
+      NVMe bytes saved 0.0000                    at k of 2, 4 and 8
+      routing overlap  38.90%                    between adjacent decode tokens
+      miss reuse       0 of 1,219                next misses the previous token selected
+      box time spent   0                         scored offline from a sibling lane's dump
+
+      ----------------------------------------------------------------------
+      headline         a k-token verify pass reads the SAME NVMe bytes as k single passes
+      output           not run - there is no patch; this branch is a measurement
+```
+
+| arm / measurement | value | change |
+| --- | ---: | ---: |
+| drafter acceptance, code | 2.37x | tokens committed per verify pass, ceiling only |
+| drafter acceptance, prose | 1.17x | 88 percent of passes commit one token |
+| NVMe bytes saved by a k-token verify pass | 0.0000 | none at k of 2, 4 and 8 |
+| adjacent decode-token routing overlap | 38.90% | the union is in selections, not in misses |
+| next-step misses already selected by the previous token | 0 of 1,219 | the misses are disjoint |
+| tokens/s | not run | no patch exists to run |
+
+*The acceptance figures are a ceiling: mean committed length charges nothing for the verify pass. The byte figure is the quantity that decides a streaming decode, and it is zero. All of it is offline, from a fixed token stream and a sibling lane's probe dump.*
+
+**This branch**
+
+- Drafts `draft_len` tokens from the continuation stored against the last `n` tokens, verifies them in one batched pass, and commits the longest matching prefix plus the token the target emits anyway.
+- Suffix length n=2 and draft length 8 came from a sweep, not from taste: the hit rate rises with n while the propose rate collapses faster, and length past 8 buys 0.18 on code and 0.0001 on prose.
+- Acceptance is real: **2.37x on code and 1.17x on prose**, and 88 percent of prose passes commit exactly one token.
+- **CLOSED, and must not be built on as a speed lever.** A k-token verify pass reads the same NVMe bytes as k single passes.
+- Adjacent decode tokens overlap **38.90 percent** in routing.
+- **Zero of 1,219** next-step misses had been selected by the previous token, so there is no union of misses to save: the union of k steps' misses equals their sum exactly.
+- The selections DO union, and it buys nothing: at k=4 four adjacent tokens touch **15.66 experts per layer against 24 selected**, a real 35 percent reduction, but the experts that union are already resident. The saving falls on bytes nobody was going to read.
+- **Zero box time was spent on it.** The closing finding came from a sibling lane's committed handoff probe, scored offline with no GPU and no model lock, and re-derived through a second, separately written code path.
+- The constraint that outlives the lane: the batched verifier and one-token decode run **different floating-point reduction orders**, upstream does not promise byte-identical output from the batched verifier, and the exact variant handles **two tokens only**. Any rebuild hits that wall first, and it is written here so it costs a sentence rather than a week.
+- Not run: the greedy gate, because there is no patch to gate.
+- This is the one branch in the series offered for a DIFFERENT APPROACH rather than for a number.
+
+**The mechanism, as a picture.**
+
+```
+   THE IDEA                                 WHAT WAS MEASURED
+   --------                                 ----------------
+   draft k tokens from a suffix             selections DO union:
+   lookup, verify all k in one                  k=4 -> 15.66 experts/layer
+   pass, so each expert's bytes                 against 24 selected
+   are read once
+        |                                        |
+        v                                        v
+   so a k-token verify pass                 but that union is of
+   should read FEWER NVMe bytes             SELECTED experts, and the
+   than k single passages                   resident arena already
+        |                                   holds them -> HITS
+        |                                        |
+        v                                        v
+   miss bytes for k tokens                  the union of k steps' MISSES
+   < sum of k single passes                 equals their sum exactly
+                                                 (miss reuse 0 of 1,219,
+                                                  saving 0.0000 at k of 2,4,8)
+                                                 |
+                                                 v
+                                            so the bytes do not move:
+                                            the overlap is real, the
+                                            amortisation is not
+
+   ★ the acceptance is real; the byte saving is nothing. that is the whole finding.
+```
