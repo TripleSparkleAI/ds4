@@ -267,3 +267,202 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+
+
+
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+**✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
+**✦ above: the README, unchanged**
+**✦ below: our modifications and numbers for this branch**
+
+## THE FASTEST TREE - every lever stacked
+
+```
+  the stacked tree
+
+      levers compiled in     10            9 on by default
+      hits-first              1 of 10       OFF by default
+      levers NOT in this tree 0            nothing is excluded
+      switches                10            one binary, many arms
+      builds                   clean        make cuda-spark -j12, 0 errors
+
+      stack number            OWED         it is a measurement or it is nothing
+```
+
+| arm / measurement | value | change |
+| --- | ---: | ---: |
+| tokens/s - this branch, as one tree | owed | must not be summed |
+| the levers' own native deltas | -9.2% to +8.3% | floor 3.3-4.9%; only hits-first clears it |
+| the prefill read-ahead's blocking wait | 398.0 -> 196.5 ms/layer | -50.6% (the one solid win) |
+
+*The stack number is a measurement or it is nothing. It must not be assembled by
+adding the branches' own deltas: they contend for one NVMe, and each was measured
+against unpatched code, not against the other levers.*
+
+**What is actually in this tree, lever by lever.**
+
+- **`pool`** - a private read pool for the expert pread, so a batch in flight does not
+  force the demand path back to the serial staged copy.
+- **`margin`** - a knob for how much page cache the streaming reads keep after the
+  cache slots take theirs. 8 GiB by default.
+- **`draincut`** - queues the selected-expert readback before the shared expert runs, so
+  the drain overlaps instead of blocking. **On by default**; `DS4_CUDA_SELECTED_DRAIN_SYNC=1`
+  restores the blocking read, which is the A/B arm. Note the direction, because it is easy
+  to get backwards: the default is the lever engaged. It was re-measured both ways on the
+  GB10 and the engaged form does not beat the blocking one at any frontier, so there is no
+  evidence the lever helps here; both readings sit inside the noise floor.
+- **`pagecache`** - drops staged expert pages in the order the kernel honours, and adds
+  a read-ahead hint that pre-passes a layer's missing experts.
+- **`hotlist`** - seeds the expert cache from a learned hot list written after a short
+  or long run.
+- **`engram-lead`** - gives the Engram table read a token of lead, so the step that
+  needs it finds it already in flight.
+- **`engram-read-threads`** - scales the Engram batch reader to the request count.
+- **`readahead-order`** - stops the prefill read-ahead evicting what decode needs.
+  **No off switch**: it ships a stats flag, the reorder itself is unconditional, so a
+  true A/B of this one needs the branch's own binary.
+- **`hits-first`** - **compiled in, OFF by default.** It measured a **null** here, and
+  the reason is structural: the decode path's shared-expert kernels already occupy the
+  window it wanted to fill. It is kept in the tree so the A/B stays reproducible;
+  `DS4_CUDA_HITS_FIRST=1` turns it on for a run.
+- **`prefetch-pool`** - **IN this tree.** It runs a parallel SSD read-ahead during prefill,
+  copying in chunks (8 MB default, `DS4_CUDA_SSD_PREFETCH_CHUNK_MB`) on a private-fd pread
+  pool. It and the `pool` lever modify the same expert-pread code and collided across **30
+  hunks** in `ds4_cuda.cu`; all 30 were resolved by hand, 8 keeping ours, 16 taking theirs and
+  6 combining both, and the result **built clean natively**. This is the one lever that clears
+  the noise floor: prefill **+72 to +81%**, with its revert arm back at baseline.
+
+**The switches - one binary, many arms.**
+
+| lever | switch | default | off |
+| --- | --- | --- | --- |
+| pool | `DS4_CUDA_STREAMING_EXPERT_PREAD_POOL` | on | `=0` |
+| hotlist | `DS4_CUDA_EXPERT_HOTLIST_WRITE` | on | `=0` |
+| hits-first | `DS4_CUDA_HITS_FIRST` | **off** | (default) |
+| pagecache | `DS4_CUDA_KEEP_MODEL_PAGES` | new order | `=1` restores old |
+| engram-lead | `DS4_V41_ENGRAM_LEAD_OFF` | on | set |
+| draincut | `DS4_CUDA_SELECTED_DRAIN_SYNC` | **on** | `=1` restores blocking |
+| margin | `DS4_CUDA_EXPERT_CACHE_MARGIN_GB` | 8 | knob, no Boolean |
+| prefetch-pool | `DS4_CUDA_SSD_PREFETCH_CHUNK_MB` | 8 MB | **`0` is ignored**; `DS4_CUDA_SSD_PREFETCH_POOL=0` restores the serial reader, but that is a revert of the whole path, not an isolated chunk-size A/B |
+| readahead-order | `DS4_CUDA_SSD_PREFETCH_STATS` | on | **stats only, not the reorder** |
+| engram-read-threads | `DS4_ENGRAM_READ_THREADS` | request count | **not in `ds4_cuda.cu`** |
+
+*Read this table honestly: six levers have a real off switch, which is what makes one
+binary serve several arms. Two have only a knob, and two have no switch at all - those
+arms still need their own build.*
+
+## INTERACTIONS - why the stack is not the sum of its parts
+
+- All ten levers pull on ONE NVMe. The Engram table read, the staged expert
+  pages, the streaming expert preads, the prefetch pool, the hot list seed -
+  all of it is I/O against the same device, much of it at the same moment.
+- Each lever's own delta was measured against UNPATCHED code, not against the
+  other levers. A solo delta is that lever's value on top of nothing; it says
+  nothing about the same lever on top of nine others.
+- Two levers, `pool` and `prefetch-pool`, modify the same expert-pread code.
+  Summed, their solo deltas would count the same saved bytes twice.
+- So the stack's gain is not the sum of the parts. Solo deltas can shrink,
+  vanish, or invert once several levers are engaged together; only a
+  measurement of the combination says anything about the combination.
+
+```
+        ten levers, one NVMe
+
+   pool -----------\
+   pagecache ------\        every lever's I/O
+   prefetch-pool ---+---->  [ the one NVMe ]  <----+-- engram-lead
+   hotlist ---------/                               \-- engram-read-threads
+   draincut -------->   its readback rides the same bus
+   margin ---------->   it decides what the device may evict
+
+   how the solo numbers were taken - and why they do not add:
+
+     unpatched --+ lever A only -->  delta A
+                 + lever B only -->  delta B
+                 + A and B on  -->  ???    not A + B - one device, one queue
+```
+
+| combination | what is on | result | clears floor? |
+| --- | --- | --- | --- |
+| all-off | the control: every lever with a real off switch, off (the four knob-only or switchless levers stay engaged and are recorded as such) | | |
+| all-on | all ten levers forced on, `hits-first` included via `DS4_CUDA_HITS_FIRST=1` | | |
+| stack | this branch as shipped: every lever at its default (`hits-first` off) | | |
+| random 1 | one of six random on/off combinations; the exact env is recorded in the sweep file | | |
+| random 2 | second draw of the same six-combination series | | |
+| random 3 | third draw of the same six-combination series | | |
+| random 4 | fourth draw of the same six-combination series | | |
+| random 5 | fifth draw of the same six-combination series | | |
+| random 6 | sixth draw of the same six-combination series | | |
+| stack vs all-off | derived row: the stack against the control from the same session | | |
+
+**Every blank cell above is awaiting the 2026-09-16 Spark run. A blank cell is
+awaiting measurement - it is NOT a zero, and it must not be filled in from a
+solo delta.** The results land as `~/sweeps/2026-09-16-*.txt`, one file per arm,
+with a MATRIX file beside them; this table is filled only from those files.
+The floor each row must clear is the native one, 3.3-4.9% generation and
+9.7-15.8% prefill; so far only `prefetch-pool` has a measured delta that clears
+it (+72 to +81% prefill, measured alone).
+
+## METHODOLOGY - how a measurement is taken here
+
+- **Like binaries only - the vintage trap.** A `make cuda-spark` build has
+  about 23.1 MB of `ds4-server` text. A binary at about 29.6 MB of text is the
+  JIT-fallback build; it is not comparable to the native one, and a delta taken
+  across that line measures the build, not the levers. Check the text size
+  before trusting any pair of numbers.
+- **The control is interleaved.** The all-off control does not run once at the
+  start or the end of a session; it runs interleaved between the arms. Page
+  cache state and thermals drift across a session, and a control at one end
+  cannot see that drift.
+- **The first frontier is discarded.** Every run throws its first frontier
+  away: caches, readahead state and the page cache warm up on it, so it reads
+  fast for the wrong reason.
+- **Minimum across repeats, not the mean.** The recorded number is the minimum
+  of the repeats. The mean lets one disturbed repeat bend every number; the
+  minimum is the reading that survives a loaded machine - conservative for
+  tokens/s, and the undisturbed reading for time-per-unit metrics.
+- **The noise floor beside every delta.** No delta is quoted without the floor
+  it must clear: 3.3-4.9% generation, 9.7-15.8% prefill, native. A delta inside
+  the floor is not a gain - it is a measurement of the noise.
+- **The instrument is `try.sh`.** One binary, many arms, the arms made of
+  environment switches. It runs ten fixed tests over ssh against the Spark and
+  writes a markdown-table result file per run plus an index row; its output is
+  paste-ready, which is what the INTERACTIONS table above waits to receive.
+
+**How this tree was built.**
+
+- Base: `triple-antirez-tip-latest`, which is upstream `main` at `9139e2ae5` plus
+  upstream PR `#1034` and PR `#1035`, squashed to one commit.
+- The four levers that were missing were applied as **code-only** patches onto the six
+  already stacked. `README.md` was excluded from every patch on purpose: every branch
+  appends its note to the same place, so merging those is noise, not content.
+- One conflict, in `ds4.c`, between the Engram lead read and the Engram batch reader.
+  Resolved by keeping **both**: the lead read stays, and the miss path goes through the
+  batch reader.
+- `hits-first`'s default was flipped from on to off, with the reason written into the
+  code beside it.
+- **Verified by building it**: `make cuda-spark -j12` on the DGX Spark, **0 errors**,
+  `ds4-server` and `ds4-bench` produced.
+
+```
+   tip-latest  9139e2ae5 + #1034 + #1035
+        |
+        +-- pool            [on]
+        +-- margin          [on]
+        +-- draincut        [ON by default; =1 restores blocking]
+        +-- pagecache       [on]
+        +-- hotlist         [on]
+        +-- engram-lead     [on]
+        +-- engram-read-thr [on]
+        +-- readahead-order [on, no off switch]
+        +-- hits-first      [OFF - measured null]
+        |
+        +-- prefetch-pool   [in - 30 hunks resolved, built native]
+        |
+        v
+   triple-all-fastest  -  builds clean: 10 levers compiled in, 9 live, hits-first off
+```

@@ -28,6 +28,11 @@
 
 set -u
 
+# Numbers must not follow the terminal's locale: a comma decimal point would
+# corrupt the recorded tok/s cells and mis-sort the summary.  C everywhere.
+LC_ALL=C
+export LC_ALL
+
 # ---- knobs ----------------------------------------------------------------
 SPARK="${SPARK:-spark}"
 REMOTE_ROOT="${REMOTE_ROOT:-dwarfstar}"
@@ -47,6 +52,12 @@ MAX_SHORT="${MAX_SHORT:-128}"
 MAX_LONG="${MAX_LONG:-256}"
 
 SSH_OPTS="-o ConnectTimeout=15 -o ServerAliveInterval=10 -o ServerAliveCountMax=3"
+
+# $SPARK is an ssh alias: ssh resolves it from ~/.ssh/config, curl does not.
+# Resolve the real hostname once (ssh -G reads the same config, connects to
+# nothing).  Falls back to $SPARK when it happens to be a plain hostname.
+HTTP_HOST="${HTTP_HOST:-$(ssh $SSH_OPTS -G "$SPARK" 2>/dev/null | awk '$1 == "hostname" { print $2; exit }')}"
+[ -n "$HTTP_HOST" ] || HTTP_HOST="$SPARK"
 
 ROOT=$(cd "$(dirname "$0")" 2>/dev/null && pwd) || ROOT="."
 [ -d "$ROOT/$OUT_DIR" ] || mkdir -p "$ROOT/$OUT_DIR"
@@ -136,7 +147,7 @@ discover_branches() {
 remote_worktrees() {
 	ssh $SSH_OPTS "$SPARK" "
 		for d in \$HOME/$REMOTE_ROOT/_worktrees/*/; do
-			[ -n \"\$d\" ] || continue
+			[ -d \"\$d\" ] || continue
 			n=\$(basename \"\$d\")
 			b=\$(git -C \"\$d\" rev-parse --abbrev-ref HEAD 2>/dev/null || echo none)
 			s=\$(git -C \"\$d\" rev-parse HEAD 2>/dev/null || echo none)
@@ -226,7 +237,7 @@ hotlist|DS4_CUDA_EXPERT_HOTLIST_WRITE|-|0|1|seed the expert cache from a learned
 hits-first|DS4_CUDA_HITS_FIRST|1|-|1|decode window; measured null, kept for the A/B
 pagecache|DS4_CUDA_KEEP_MODEL_PAGES|-|1|1|staged page drop order + read-ahead hint
 engram-lead|DS4_V41_ENGRAM_LEAD_OFF|-|1|1|a token of lead for the Engram read
-draincut|DS4_CUDA_SELECTED_DRAIN_SYNC|1|-|0|bound the selected-expert decode drain (default on; 1 restores blocking)
+draincut|DS4_CUDA_SELECTED_DRAIN_SYNC|-|1|1|bound the selected-expert decode drain (default on; 1 restores blocking)
 margin|DS4_CUDA_EXPERT_CACHE_MARGIN_GB|-|-|0|page-cache reserve after cache slots (knob)
 prefetch-pool|DS4_CUDA_SSD_PREFETCH_CHUNK_MB|-|-|0|parallel SSD read-ahead chunk (not in this tree)
 readahead-order|DS4_CUDA_SSD_PREFETCH_STATS|-|-|0|prefill read-ahead victim reorder; no off
@@ -406,7 +417,8 @@ else
 				esac
 				RMODE=picked
 			else
-				RDIR="$guess"; RMODE=guess
+				# an auto proximity match is a fact, not a guess: keep it
+				[ -n "$RDIR" ] || { RDIR="$guess"; RMODE=guess; }
 			fi
 		fi
 	fi
@@ -416,9 +428,10 @@ fi
 [ "$RMODE" = auto ] && warn "build dir '$RDIR' chosen by proximity - pass --dir <name> to pin it"
 
 TODAY=$(date +%Y-%m-%d)
+RUN_ID=$(date +%Y-%m-%d-%H%M%S)   # time of day: runs of one day sort apart
 DESC="$ARM-${ENGAGED}on"
 for t in ${TOGGLES:-}; do DESC="$DESC-$(printf '%s' "$t" | tr ':' '-')"; done
-OUTFILE="$OUT_DIR/$TODAY-$BRANCH-$DESC.txt"
+OUTFILE="$OUT_DIR/$RUN_ID-$BRANCH-$DESC.txt"
 
 rust "  branch   $GOLD$BRANCH$RST $EMBER$(short_sha "$BR_SHA")$RST"
 rust "  build    $AMBER~/$REMOTE_ROOT/_worktrees/$RDIR$RST $(ember "@ $(wt_field "$RDIR" 3 | cut -c1-9)")"
@@ -456,7 +469,7 @@ fi
 STAMP=$(mktemp); FLIGHT=$(mktemp)
 [ -n "${TMPDIR:-}" ] || TMPDIR=/tmp
 for f in "$STAMP" "$FLIGHT"; do : >"$f"; done
-LOADED=""; TICK=""; HEART=""; WATCH=""
+LOADED=""; TICK=""; HEART=""; WATCH=""; RESFILE=""; VALS=""
 REMOTE_BEAT="\$HOME/.ds4-try.beat"
 
 stop_server() {
@@ -469,8 +482,12 @@ stop_server() {
 	ssh $SSH_OPTS "$SPARK" "pkill -f '[d]s4-server.*--port $PORT'; rm -f $REMOTE_BEAT \$HOME/.ds4-try.pid" \
 		</dev/null >/dev/null 2>&1
 }
-on_exit() { stop_server; rm -f "$STAMP" "$FLIGHT"; }
-trap 'on_exit' EXIT INT TERM HUP
+on_exit() { stop_server; rm -f "$STAMP" "$FLIGHT" ${RESFILE:+"$RESFILE"} ${VALS:+"$VALS"}; }
+trap 'on_exit' EXIT
+# INT/TERM/HUP must EXIT, not only clean up: POSIX sh RESUMES the script
+# after a handled signal, and the tests would keep "running" against a
+# server the trap just unloaded.
+trap 'exit 1' INT TERM HUP
 
 # A test can take longer than IDLE_SECS, so activity is asserted with a ticker
 # while something is in flight; between tests the clock runs, which is what
@@ -488,8 +505,9 @@ spark_watchdog() {
 		while :; do
 			sleep 5
 			now=\$(date +%s)
-			seen=\$(stat -c %Y $REMOTE_BEAT 2>/dev/null || stat -f %m $REMOTE_BEAT 2>/dev/null || echo 0)
-			if [ \$((now - seen)) -ge $IDLE_SECS ]; then
+			seen=\$(stat -c %Y $REMOTE_BEAT 2>/dev/null || stat -f %m $REMOTE_BEAT 2>/dev/null)
+			[ -n \"\$seen\" ] || continue   # beat not written yet - the client is starting up, wait
+			if [ \$((now - seen)) -ge $((IDLE_SECS * 6)) ]; then
 				pkill -f '[d]s4-server.*--port $PORT'
 				rm -f $REMOTE_BEAT \$HOME/.ds4-try.pid
 				exit 0
@@ -517,10 +535,10 @@ spark_watchdog
 touch "$STAMP"
 
 ssh $SSH_OPTS "$SPARK" "
-	cd \$HOME/$REMOTE_ROOT/_worktrees/$RDIR || { echo 'NODIR'; exit 1; }
+	cd \"\$HOME/$REMOTE_ROOT/_worktrees/$RDIR\" || { echo 'NODIR'; exit 1; }
 	if pgrep -f '[d]s4-server.*--port $PORT' >/dev/null 2>&1; then echo 'BUSY'; exit 3; fi
 	touch $REMOTE_BEAT
-	nohup env $ENVSTR $SERVER_CMD > /tmp/try-$RDIR.log 2>&1 &
+	nohup env $ENVSTR $SERVER_CMD > \"/tmp/try-$RDIR.log\" 2>&1 &
 	echo \$! > \$HOME/.ds4-try.pid
 	echo 'STARTED'
 " </dev/null 2>&1 | tee /tmp/try-load.out >/dev/null
@@ -528,27 +546,26 @@ ssh $SSH_OPTS "$SPARK" "
 case "$(cat /tmp/try-load.out 2>/dev/null)" in
 	*BUSY*)   die "a ds4-server is already on port $PORT on $SPARK - refusing to stack another";;
 	*NODIR*)  die "no worktree ~/$REMOTE_ROOT/_worktrees/$RDIR on $SPARK";;
-	*STARTED*) : ;;
+	*STARTED*) LOADED=1 ;;   # a server of ours exists from here on: every exit unloads
 	*) die "could not start the server on $SPARK (see the output above)";;
 esac
 
 i=0
 while [ $i -lt 180 ]; do
-	if curl -s -m 3 "http://$SPARK:$PORT/v1/models" >/dev/null 2>&1; then break; fi
+	if curl -s -m 3 "http://$HTTP_HOST:$PORT/v1/models" >/dev/null 2>&1; then break; fi
 	touch "$FLIGHT"
 	i=$((i + 1)); sleep 5
 done
 if [ $i -ge 180 ]; then
 	warn "server did not answer in 900s - last log lines:"
-	ssh $SSH_OPTS "$SPARK" "tail -20 /tmp/try-$RDIR.log" </dev/null 2>&1 >&2
+	ssh $SSH_OPTS "$SPARK" "tail -20 \"/tmp/try-$RDIR.log\"" </dev/null 2>&1 >&2
 	stop_server
 	exit 1
 fi
-LOADED=1
 touch "$FLIGHT"
 tick_stop
 idle_watch & WATCH=$!
-say "loaded after ~$((i * 5))s.  api: http://$SPARK:$PORT/v1/models"
+say "loaded after ~$((i * 5))s.  api: http://$HTTP_HOST:$PORT/v1/models"
 printf '\n'
 
 # ---- the ten tests --------------------------------------------------------
@@ -594,7 +611,7 @@ run_one() { # $1=test name $2=prompt $3=max_tokens
 	payload=$(printf '{"model":"%s","prompt":"%s","max_tokens":%s,"temperature":0,"stream":false}' \
 		"$MODEL_ID" "$(json_str "$tp")" "$mx")
 	tick_start "$FLIGHT"
-	raw=$(curl -s -m "$CURL_MAX" -X POST "http://$SPARK:$PORT/v1/completions" \
+	raw=$(curl -s -m "$CURL_MAX" -X POST "http://$HTTP_HOST:$PORT/v1/completions" \
 		-H 'Content-Type: application/json' -d "$payload" \
 		-w '\n__T__%{time_total}' 2>/dev/null)
 	tick_stop
