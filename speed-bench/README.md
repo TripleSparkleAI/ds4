@@ -54,6 +54,24 @@ legacy decode path, including token selection, use:
   --tokens 1024
 ```
 
+For DeepSeek V4.1 Flash single-host SSD streaming, compare the opt-in layer
+queue schedule with the existing per-layer drains:
+
+```sh
+DS4_METAL_DISABLE_STREAMING_EXPERT_SLABS=1 \
+./speed-bench/metal_decode_schedule_bench \
+  -m ds4flash.gguf --ssd-streaming \
+  --prompt-file speed-bench/promessi_sposi.txt --prefix-tokens 2048 \
+  --ctx 8257 --tokens 512 --include-selection \
+  --candidate-env DS4_METAL_ENABLE_V41_STREAM_DECODE_QUEUE
+```
+
+Disabling slabs in both arms isolates this comparison from the large-slab
+submission cliff observed on M2 Ultra. The queue flag preserves the drain before
+layer 14 overwrites shared Engram input and the drain at token completion.
+It does not affect resident, quality/imatrix or two-host TP execution. See
+[the M2 Ultra results](v41_decode_queue_m2_ultra.md).
+
 ### Metal prefill variant A/B
 
 Build the balanced prefill comparison. To compare the default resident pre-M5
@@ -99,3 +117,21 @@ Qwen routed MoE quantization specialization is enabled by default on M3 Ultra.
 `DS4_QWEN4_MOE_MM_SPECIALIZE=0` restores the generic kernels; `=1` opts in on
 other devices. To compare the final default against rollback, pass
 `--candidate-env DS4_QWEN4_MOE_MM_SPECIALIZE --candidate-value 0` to the harness.
+
+### DeepSeek V4.1 Flash Engram decode reads
+
+On macOS, `DS4_ENGRAM_PARALLEL_DECODE=1` divides one 24-row decode read among four
+joined readers. Each reader writes its own six rows in original order; the
+batched prefill reader is unchanged. See [the M2 Ultra results](v41_engram_m2_ultra.md).
+
+```sh
+make engram-decode-bench test-engram
+./speed-bench/engram_decode_bench MODEL OFFSET0 ROWS0 OFFSET1 ROWS1
+```
+
+Use the native Engram table payload offsets and row counts from that GGUF,
+not offsets from another quantization. The benchmark reads 128 deterministic
+24-row sets from each of two tables, alternates serial/parallel order over
+eight passes, and checks every float bit against the serial result. Its CSV
+reports milliseconds for both tables per token. It preserves the runtime's
+uncached file descriptor policy; it does not populate an in-memory table.
