@@ -267,3 +267,109 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+
+
+
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
+**✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
+
+**✦ above: the README, unchanged**
+
+**✦ below: our modifications and numbers for this branch**
+
+## give the Engram table read a token of lead
+
+The decode step's blocking Engram table read is started a whole token early, on the step's own
+argmax, and published only when the token, the history and the position all still match.
+
+```
+✦  Engram read, a token of lead
+
+      baseline        ____               tokens/s
+      this branch     ____               tokens/s
+      improvement     ____               %
+
+      ----------------------------------------------------------------------
+      headline        the read is 23.9 ms of a 198.6 ms step · 12.04% · fully exposed
+      record          speed-bench/v41_engram_lead_gb10.md
+      output          ____               gates and the end-to-end A/B are OWED here
+
+   ◦ a blank cell is AWAITING THE SWEEP, not a zero.
+```
+
+**Standard results table**
+
+| arm / measurement | value | change |
+| --- | ---: | ---: |
+| tokens/s - control (tip, unpatched) | ____ | - |
+| tokens/s - this branch | ____ | ____ % |
+| Engram read as a share of the decode step | 23.9 ms of 198.6 ms | 12.04% |
+
+*Cells left blank are AWAITING THE SWEEP, not zero. Nothing here is estimated. The last row is a
+recorded measurement quoted from the file named above, not taken on this branch.*
+
+- A V4.1 decode step reads BOTH Engram tables at the head of the step and completes before `ds4_gpu_begin_commands()` is called, so none of the read overlaps a single GPU command.
+- The row ids are a pure function of the token and the rolling history: `ds4_engram_hash` reads the token id and a three-entry tail, no activation and no layer output. The next step's rows are therefore computable from this step's own argmax, and under greedy decoding that argmax IS the next token.
+- `ds41_engram_lead_start` runs after the history is committed and `pos` advanced, so it hashes with the state the next step will actually hold and stamps the position it is for. It starts one reader over both tables; `ds41_engram_lead_take` joins that reader and publishes the rows only if all three of `(token, history, pos)` match what the step asks for.
+- The join is unconditional: a reader never outlives the step that started it, hit or miss. A rejected speculative token changes the token, a session rewind changes history and pos, a fork changes pos, so each of them misses and falls back to a demand read.
+- A miss is never wrong, only unhelpful. Because the rows depend on nothing but the token and the history, even an exact collision of all three would publish correct rows.
+- On by default. `DS4_V41_ENGRAM_LEAD_OFF` turns the lever OFF when it is set to anything at all, and it is read once per process, so the switch is all-or-nothing rather than a knob.
+- `DS4_V41_ENGRAM_PROFILE` ships on this branch too. It times the blocking Engram read against the step it blocks and prints one `ds4: v41 decode pos=... engram=... step=... ms` line per step. It is the instrument the record's numbers come from, and the only way to re-measure this path.
+- The reader holds the table descriptors, so `ds41_graph_free` joins before the tables close and `ds41_graph_reset` joins before the history and position change. The reader struct is heap held and only pointed at from the graph, because the graph struct is copied by value on the prefill and batched paths and those copies must not duplicate a reader handle or its row buffer.
+- No logits means nothing to speculate from: the prompt-warm callers pass `NULL` and keep the plain demand read, as does an image position.
+- A failed allocation leaves `g->lead` NULL and the step falls through to the demand read. The lead is an optimisation, never a requirement.
+- In the stacked tree `triple-all-fastest` this lever coexists with the batch reader: the lead read stays, and the miss path goes through `ds4_engram_read_batch` instead of this branch's plain per-table row loop.
+- Record: `speed-bench/v41_engram_lead_gb10.md`. Owed there and not claimed here: both gates, the lead-on against lead-off comparison, the end-to-end A/B, and a genuinely cold long-prompt measurement as the first model run in a window.
+
+```
+   AS SHIPPED (demand read)              THIS BRANCH (a token of lead)
+   ------------------------              -----------------------------
+   step N starts                         step N-1 tail, in this order:
+      |                                  history committed
+      v                                  pos advanced
+   hash(token, history) -> 24 ids             |
+      |                                       v
+      v                                  speculate on step N-1's OWN argmax,
+   two tables, 48 preads, one at a       hash against a COPY of history so
+   time, 23.9 ms of a 198.6 ms step      the speculation cannot advance it
+      |                                       |
+      v                                       v
+   the FIRST GPU command of step N       reader runs on BOTH tables while
+   waits for every one of them           step N-1's GPU work is still going
+      |                                       |
+      v                                       v
+   ... step N continues ...              step N starts -> take():
+                                           join ALWAYS
+                                           token AND history AND pos all equal?
+                                             yes -> rows already in hand
+                                             no  -> demand read, as shipped
+
+   reset and free join too, so a speculative reader never
+   outlives the sequence that started it
+```
+
+**Why these cells are still blank.** A native pass was run on 2026-09-15 and its result files
+exist on the Spark, but its control is not sound, so the numbers are WITHHELD rather than
+published. In that pass every arm read above its control - including the arms that switch this
+lever **off**, and an off arm is the control by construction, so it cannot beat it by several
+percent. Two of the three levers measured better switched off than switched on. That is the
+signature of a bad control rather than of a lever, and the control in that pass read 9.17 to
+9.46 tokens/s against 9.56 in a later pass that produced mixed, believable results.
+
+So the honest statement is that this measurement is **owed** with a clean interleaved control,
+and these cells stay blank until it exists. Publishing the 2026-09-15 figures would put a
+number in a table that the run behind it does not support.
+
+**Where the clean numbers will arrive.** A clean series is being run on the Spark with the
+harness `try.sh` on branch `triple-all-fastest`. Its results land under `~/sweeps/` as dated
+markdown-table files matching `~/sweeps/2026-09-16-*.txt`, plus one MATRIX file beside them,
+and every file states what was ON, the build vintage, the interleaved control and the noise
+floor - so any figure there can be traced back to its run without trusting this README.
+
+Status: **OWED** - until a file in `~/sweeps/` carries this lever's clean interleaved A/B,
+the cells above stay blank.
