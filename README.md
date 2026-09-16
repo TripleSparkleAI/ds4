@@ -290,6 +290,7 @@ it rock.
   │
   │  VERDICT    OWED - the seeding arm's -1.9 % is INSIDE THE FLOOR (3.3-4.9 %);
   │             the re-scoped lever, a warm cache at the first 64 tokens, is not measured
+  │             the repair 44bc5398c is unbuilt against CUDA and unmeasured
   │
   │  SWITCH     DS4_CUDA_EXPERT_HOTLIST_WRITE=<file> (0 disables the writer)
   │             DS4_CUDA_EXPERT_HOTLIST_DECAY=none|halve|quarter|eighth|shift:<n>, default halve
@@ -300,48 +301,167 @@ it rock.
   └──────────────────────────────────────────────────────────────────────
 ```
 
-**The mechanism.** The CUDA session counts every unique `(layer, expert)` the streaming cache
-is asked for, once per batch, and at exit writes them hits-descending to
-`~/.cache/ds4/cuda_expert_hotlist.txt` under a `# model_size` header (temp file, renamed into
-place). `ds4_session_create` loads that list, ages each count by the decay rule, and seeds
-EMPTY slots only, before the first prefill, through `ds4_gpu_stream_expert_cache_seed_experts`.
-Seeded slots are not counted as demand, so seeding cannot flatter itself. A missing,
-unreadable or wrong-model list warns and starts cold. Four files: `ds4.c`, `ds4_gpu.h`,
-`ds4_cuda.cu` (module comment is the map), this README.
+## What the branch does
 
-**Why the claim shrank to warm-up.** `WIKI/theory/167` (the content control) measured a
-memory table's PRESENCE effect at z = +7.14, sd 0.00 across seeds, and its CONTENT effect
-with a sign that flipped between seeds: presence is 27x to 45x the content effect. A
-slot-occupancy cache is that regime - a wrong seed wastes one slot, corrupts nothing. So the
-honest claim is "the cache is warm at the first token", and the axis to measure is warmth,
-not ranking. `WIKI/theory/48` section 4 puts the warm-up effect at cold resident 15.87 vs
-warm resident 35.14 t/s (2.2x); its section 4a puts the `--warm-weights` flag at +4.4 % on
-the M5 and -5.4 % on the streaming Spark - the flag is the small one. Section 8 ranks
-hot-expert prefetch (Lever C) as the Spark lever, "not bigger cache".
+- The CUDA session counts every unique `(layer, expert)` the streaming cache is asked for,
+  once per batch.
+- At exit it writes them hits-descending to `~/.cache/ds4/cuda_expert_hotlist.txt`, under a
+  `# model_size` header, through a temp file renamed into place.
+- `ds4_session_create` loads that list, ages each count by the decay rule, and seeds EMPTY
+  slots only, before the first prefill, through `ds4_gpu_stream_expert_cache_seed_experts`.
+- Seeded slots are not counted as demand, so seeding cannot flatter itself.
+- A missing, unreadable or wrong-model list warns and starts cold.
+- Four files: `ds4.c`, `ds4_gpu.h`, `ds4_cuda.cu` (its module comment is the map), this README.
+  The repair adds `ds4_hotcache.h` and `tests/test_hotcache.c`.
 
-**Measured so far.** Seeding arm, native (`make cuda-spark`, sm_121a): 9.38 vs 9.56 gen t/s,
--1.9 %, two repeats per arm, first frontier discarded, minimum across repeats. Writer output:
-5,177 experts after a short run, 8,679 after a long one. Startup seeded 1,278 / 1,606 / 1,450
-slots across three gate runs with one identical sha. Earlier JIT-vintage figures (29.6 MB
-.text) are superseded and not carried.
+```
+   THE VICTIM SCAN, 8 misses against a 4096-slot cache
+   the test's own numbers, tests/test_hotcache.c
 
-**Open question: LFU-with-aging vs LRU.** Upstream NeutronStar
-(`WIKI/research/neutronstar/NEUTRONSTAR_02_expert-streaming.md` section 1) evicts by LFU
-with aging (`uses >>= 1` every 4096 inserts) and says pure LRU thrashes. Our own
-`WIKI/theory/177` (the sparkport day) measured hotness-with-decay WORSE than plain LRU:
-hit 0.851 vs 0.868, 4.95 vs 5.28 t/s, and reverted it. Unresolved whether our
-implementation or their keying explains the sign.
+   BEFORE   miss 1    ████████████████  4096 slots read
+            miss 2    ████████████████  4096
+             ...      the early exit fires only on an EMPTY slot, and
+            miss 8    ████████████████  seeding had filled every one at startup
+                      ────────────────
+                      32768 slot reads   per missed expert, per routed layer,
+                                         per token, across 40 layers
 
-**ROLLINGSPLIT, the decay rule as a measurement.** `halve` was invented here, not measured.
-`DS4_CUDA_EXPERT_HOTLIST_ROLLING=1` keeps a ring of demand windows, mines `[t-k-gap, t-gap)`,
-cuts to the slots the cache has, and scores coverage of window `t` per decay rule; `_K`,
-`_GAP`, `_RULES`, `_STRIDE`, `_WINDOWS` are runtime ladders, `_MODE=report` (default) writes
-a coverage grid and CSV and changes nothing, `act` writes the mined window as the list. Off
-the box, on synthetic Zipf demand: `k=512` covered 71.3 % of the next window vs 15.1 % at
-`k=8`; at `k=8` the rule cost coverage monotonically (`none` 15.07 %, `halve` 3.30 %,
-`quarter` 0.05 %); after a pool replacement, coverage fell 25.0 % at `gap=0` to 12.5 % at
-`gap=256`. Harness numbers, not Spark evidence.
+   AFTER    one pass  ████████████████  4096 slot reads
+                      ────────────────
+                      4096              the SAME 8 victims, in the SAME order
 
-**Owed.** The warm-cache A/B on the Spark (first 64 tokens reported apart from a 256-token
-run, warm vs cold) · the ROLLINGSPLIT curve on a real demand stream · the CUDA build gate,
-since the ROLLINGSPLIT change is committed unbuilt.
+   COLD CACHE, the early exit still intact
+            one pass  ███               stops at the 4th empty slot: 10 of 64 read
+```
+
+## Why the claim shrank to warm-up
+
+- `WIKI/theory/167`, the content control, measured a memory table's PRESENCE effect at
+  z = +7.14, sd 0.00 across seeds.
+- Its CONTENT effect had a sign that flipped between seeds.
+- Presence is 27x to 45x the content effect.
+- A slot-occupancy cache is exactly that regime: a wrong seed wastes one slot and corrupts
+  nothing.
+- So the honest claim is "the cache is warm at the first token", and the axis to measure is
+  warmth, not ranking.
+- `WIKI/theory/48` section 4 puts the warm-up effect at cold resident 15.87 vs warm resident
+  35.14 t/s, a factor of 2.2.
+- Its section 4a puts the `--warm-weights` flag at +4.4 % on the M5 and -5.4 % on the
+  streaming Spark. The flag is the small one.
+- Section 8 ranks hot-expert prefetch (Lever C) as the Spark lever, and says "not bigger cache".
+
+## Measured so far
+
+**The seeding arm, native (`make cuda-spark`, sm_121a).**
+
+- 9.38 vs 9.56 gen t/s, **-1.9 %**, inside the 3.3-4.9 % floor.
+- Two repeats per arm, first frontier discarded, minimum across repeats.
+- Writer output: 5,177 experts after a short run, 8,679 after a long one.
+- Startup seeded 1,278 / 1,606 / 1,450 slots across three gate runs, with one identical sha.
+- Earlier JIT-vintage figures (29.6 MB .text) are superseded and not carried here.
+
+**This branch's writer switch inside the 2026-09-16 bisect.**
+
+- `DS4_CUDA_EXPERT_HOTLIST_WRITE=0` is one of the switches the bisect's ALLOFF2 arm turned off.
+  That arm turns off the WRITER, not the seeding.
+- ALLOFF2 measured **-13.02 %** against the tip, where the stack as shipped measured **-4.35 %**.
+  The gap is 8.67 points, twice the 4.13 % floor
+  (`2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md`).
+- ⇒ **the switchable levers HELP, jointly.** Nothing in that arm attributes any part of the
+  8.67 points to this lever alone.
+- ⚠ That arm is the NINE-lever binary at `dd82361a`, a sibling of `triple-all-fastest` off
+  `84ba6ef1b` (`2026-09-16-CORRECTION-the-measured-stack-is-nine-levers-and-has-diverged.md`).
+  The ten-lever tree has never been measured.
+
+## Open question: LFU-with-aging vs LRU
+
+- Upstream NeutronStar (`WIKI/research/neutronstar/NEUTRONSTAR_02_expert-streaming.md`
+  section 1) evicts by LFU with aging, `uses >>= 1` every 4096 inserts, and says pure LRU
+  thrashes.
+- Our own `WIKI/theory/177`, the sparkport day, measured hotness-with-decay WORSE than plain
+  LRU: hit rate 0.851 vs 0.868, 4.95 vs 5.28 t/s. It was reverted.
+- Unresolved whether our implementation or their keying explains the opposite sign.
+
+## ROLLINGSPLIT, the decay rule as a measurement
+
+- `halve` was invented here. It was never measured.
+- `DS4_CUDA_EXPERT_HOTLIST_ROLLING=1` keeps a ring of demand windows, mines
+  `[t-k-gap, t-gap)`, cuts the result to the slots the cache actually has, and scores its
+  coverage of window `t` under each decay rule.
+- `_K`, `_GAP`, `_RULES`, `_STRIDE` and `_WINDOWS` are runtime ladders.
+- `_MODE=report` is the default: it writes a coverage grid and a CSV and changes nothing.
+  `_MODE=act` writes the mined window as the list.
+- Off the box, on synthetic Zipf demand:
+  - `k=512` covered **71.3 %** of the next window, against **15.1 %** at `k=8`.
+  - At `k=8` the decay rule cost coverage monotonically: `none` 15.07 %, `halve` 3.30 %,
+    `quarter` 0.05 %.
+  - After a pool replacement, coverage fell from 25.0 % at `gap=0` to 12.5 % at `gap=256`.
+- ⚠ Those are harness numbers. They are not Spark evidence.
+
+## The repair carried on this branch (`44bc5398c`)
+
+Four defects from REVIEW-R4, smallest correct change each. The two things `ds4_cuda.cu`
+DECIDES moved into `ds4_hotcache.h`, a pure header with no I/O, no CUDA and no allocation,
+so a C test can reach them on a laptop. Same shape as `ds4_warmset.h` on
+`triple-hippocampal-warmset`.
+
+- **H3, a silent wrong value.** `DS4_CUDA_EXPERT_HOTLIST_DECAY=shift:<junk>` selected "none".
+  `strtol(env + 6, NULL, 10)` with no end pointer returns 0 on `"shift:x"`, and 0 is the valid
+  shift "none", meaning carry the whole history forward. That is the opposite end of the axis
+  from the default. The value was wrong, the run looked fine, and nothing said anything.
+  - The rule is now read whole or refused. A refusal keeps `halve`, and the message names the
+    syntax.
+  - The rolling-rules parser two functions down already read the same syntax this way. The two
+    now agree.
+- **H2, a full victim walk per miss.** The scan exits early only on an EMPTY slot. Seeding
+  fills every free slot at startup, so from token one there are none, and a full cache cost a
+  full walk per missed expert, per routed layer, per token.
+  - **The policy is unchanged**: least-recently-used first, ties to the lowest slot index,
+    never a prefetch-held slot, never a slot this batch has already stamped.
+  - **The seeding is unchanged too**, because presence is 27x to 45x the effect of content
+    (`WIKI/theory/167`) and a changed eviction policy has already measured worse once
+    (`WIKI/theory/177`).
+  - What changes: ONE pass answers a whole batch of misses instead of one pass per miss. The
+    old loop's only mutation between passes was stamping the victim it had just taken, which
+    the next pass would have skipped anyway (`used < stamp` is the candidate test).
+  - The early exit survives whole. A cold cache still stops at the first M empty slots.
+  - The protection mask is built only while a look-ahead reader is in flight.
+- **H1 (part), a getenv on every demand record.** `getenv("DS4_CUDA_EXPERT_HOTLIST_ROLLING")`
+  ran on every routed layer of every token, because `g_rolling.initialized` is only ever set
+  inside the call the guard protects, so with rolling off it never became set. The switch is
+  now read once, in the same block as every other one-time read. No behaviour change: with the
+  variable unset or `=0` the window was built and discarded, and now is not built.
+- **H5, a truncated list could replace a good one.** Both writers tested `fclose` and not
+  `ferror`, and `fclose` reports only the LAST flush, so a write error on an earlier flush (a
+  disk that filled mid-list) could be followed by a successful empty flush and a rename. On
+  any write error the temp file now goes and the previous list stays. An old list is a worse
+  seed; a truncated one is a lie about what the run demanded.
+- No default changed, no switch direction changed, no output byte changed.
+- ⚠ **No performance claim is made for the repair.** What was removed is named above. The
+  number is the bench's.
+
+## The test for the repair
+
+`tests/test_hotcache.c`, 46 checks, `make test-hotcache`. No GPU, no model, no CUDA.
+
+- The victim test carries a transcription of the pre-fix loop and asserts both that the
+  victims are identical over 400 random caches and that a batch costs one pass.
+- RED for H3, with the shipped parse restored: 16 of 46 checks fail, headline
+  `"shift:x" was refused, so the shift must stay at the default halve, not 0`.
+- RED for H2, with the per-miss shape restored: 3 of 46 fail,
+  `a full cache must cost ONE pass over 4096 slots, cost 32768` and
+  `the early exit must stop the pass at the 4th empty slot, examined 10 of 64`.
+- Re-run on this Mac 2026-09-17 (`make test-hotcache`):
+  **46 checks passed (no GPU, no model, no CUDA).**
+- ⚠ `ds4_cuda.cu` is an nvcc translation unit and does not build on this host at all. That is
+  why the two decisions live in a header a C test can reach.
+
+## Owed
+
+- The warm-cache A/B on the Spark: the first 64 tokens reported apart from a 256-token run,
+  warm against cold.
+- The ROLLINGSPLIT curve on a real demand stream, rather than synthetic Zipf.
+- The CUDA build gate. Both the ROLLINGSPLIT change and the repair `44bc5398c` are committed
+  unbuilt.
+- A measurement on the new tip `triple-tip-2026-09-16`. Every number on this card pre-dates
+  the repair.
