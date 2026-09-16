@@ -268,123 +268,64 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
----
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
 
-**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
-
-
-**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
-
-
-**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
-
-**✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
-
-**✦ above: the README, unchanged**
-
-**✦ below: our modifications and numbers for this branch**
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-antirez-tip-latest
+  │  BRANCH     triple-antirez-tip-latest                          CONTROL
   │
-  │  WHAT           the rolled tip: upstream main left untouched with PRs
-  │                 1034 and 1035 folded in. This is the CONTROL every
-  │                 other branch is cut from
+  │  WHAT       upstream main 9139e2ae5 with PRs 1034 and 1035 folded in,
+  │             squashed to one commit. No lever. Every other branch is
+  │             measured against this one.
   │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             9.56       9.56   reference       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
+  │  RESULT     gen t/s   9.70 median (min 9.44, max 9.92, MAD 0.11)   n=16 of 18
+  │             prefill   84.06 median (79.13 - 87.19)                  n=16 of 18
+  │             control = this branch IS the control; nothing to compare against
+  │             session  2026-09-16 04:27-05:38Z, DGX Spark GB10, native .text
+  │                      23,118,434 B, box quiet by the harness gate (load < 2.0,
+  │                      memavail 117 GB, gpu < 50 %), ctx 2048 discarded
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │  VERDICT    CONTROL
+  │             the zero point: 9.70 gen t/s, in-run floor median 1.0-1.5 %
   │
-  │  VERDICT        THIS IS THE TIP: it carries no lever and is the zero
-  │                 point
-  │
-  │  UPSTREAM       9139e2ae5 untouched
-  │  + PR 1034      folded: Metal decode-queue sync, with its test and
-  │                 bench
-  │  + PR 1035      folded: macOS Engram parallel reads, +5.2% by its
-  │                 author
-  │  = BRANCH       8ee53cb8b, tree-identical to 84ba6ef1b
-  │  PR 1031 / 1030 not taken: superseded by evolution / moot
+  │  SWITCH     NONE - no lever in this tree
+  │  OUTPUT     not re-run
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
-| arm / measurement | value | change |
-| --- | ---: | ---: |
-| tokens/s - upstream main, untouched | 9.56 | reference, measured by us |
-| tokens/s - this branch | same code path, plus the two PRs | reference |
-| PR 1034, Metal decode-queue sync | folded, test and bench carried | queued decode work |
-| PR 1035, macOS Engram parallel reads | folded, bench and test carried | +5.2% measured by its author |
-| PR 1031, IQ2 selected-expert prefill tier | read, not taken | superseded by an evolved form |
-| PR 1030, Makefile link fix | read, not taken | moot |
+**What it is.** Upstream `main` at `9139e2ae5` plus two upstream pull requests, squashed so
+every lever branch starts from one base: **PR 1034** (Dango233, Metal decode-queue sync, with
+its graph test and schedule bench) and **PR 1035** (Dango233, macOS Engram parallel reads,
++5.2 % by its author, with bench and test). **PR 1031** (IQ2 selected-expert prefill tier) was
+read and not taken - the tip already carries an evolved form (`cuda_stream_compact_prefill`,
+the aligned fused SoA tier, `small_exact_batch` gating). **PR 1030** (Makefile link fix) is moot.
 
-*This is the reference branch. It carries no lever of its own, so there is no improvement number to quote - the numbers belong to the branches cut from it.*
+**The numbers, with their sources.**
+- 9.70 gen t/s median, n=16 of 18 kept, sealed rule unamended, two prefill stragglers dropped
+  (both FAST, two-sided rule); keeping all 18 gives 9.69. Pass 1 median 9.80, pass 2 median
+  9.58, a ~2.2 % downward drift across the session; quote the level as ~9.6-9.8.
+  `2026-09-16-triple-antirez-tip-latest-BASELINE.txt`.
+- In-run floor, adjacent same-arm pairs (attribution series, 13 kept tip runs): median
+  1.23 / 1.03 / 1.46 %, max 3.14 / 2.70 / 4.05 % at ctx 4096 / 6144 / 8192.
+  `2026-09-16-triple-all-fastest-attrib-SUMMARY-levers-attribution.txt`.
+- Earlier figure: 9.56 gen t/s (minimum across repeats, first frontier discarded), from the
+  session before the 2026-09-16 baseline. Superseded by the 9.70 median above.
+- Cross-vintage sanity only, used for no delta: the 36 stack controls at dd82361a ran
+  8.92-9.57 (median 9.28); the tip's kept set sits above that band.
 
-**What this branch actually is**
-
-- It is **upstream's main at `9139e2ae5`**, plus **two upstream pull requests folded in**, squashed into one commit so every branch below it starts from a single known point.
-- **PR 1034 folded in** - Dango233's Metal decode-queue sync, its graph test and its schedule bench. Its first commit ("align with upstream") went empty on rebase, which is independent proof upstream had already absorbed that part.
-- **PR 1035 folded in** - Dango233's macOS Engram parallel reads, measured at **+5.2%** by its author, with its bench and its test.
-- **PR 1031 NOT taken** - Matthley's IQ2 selected-expert prefill tier is **superseded**: the tip already carries an evolved form of the same idea (`cuda_stream_compact_prefill`, the aligned fused SoA tier, `small_exact_batch` gating). Folding it would have been a duplicate, not a gain.
-- **PR 1030 NOT taken** - a stale Makefile link fix, already moot.
-- **Why it exists.** The levers were written against an older tip. Measuring them there and upstream's newer code here would straddle two bases and the A/B would be invalid. This branch collapses both into one base, so every measurement is one variable against one control.
-
-**The git refs**
-
-| what | ref |
-| --- | --- |
-| upstream main, the base | `9139e2ae5` |
-| the rolled tip, this branch | `8ee53cb8b` (tree-identical to `84ba6ef1b`) |
-| PR 1034, decode queue | `3974b3c97` |
-| PR 1034, bench revalidation | `03c192389` |
-| PR 1035, Engram parallel reads | `a51510398` |
-| PR 1035, bench revalidation | `06cd63786` |
-
-_PLACEHOLDER_NEVER_MATCHES [upstream repo](https://github.com/antirez/ds4) -
-[commit 9139e2ae5](https://github.com/antirez/ds4/commit/9139e2ae5) -
-[PR #1034](https://github.com/antirez/ds4/pull/1034) -
-[PR #1035](https://github.com/antirez/ds4/pull/1035) -
-[PR #1031](https://github.com/antirez/ds4/pull/1031) -
-[PR #1030](https://github.com/antirez/ds4/pull/1030)
-
-**The roll-up, as a picture.**
+**Refs.** upstream base `9139e2ae5` · PR 1034 `3974b3c97` + bench `03c192389` · PR 1035
+`a51510398` + bench `06cd63786` · this head `e6d9d3b83` (code tree as `84ba6ef1b`, the commit
+the other `triple-*` branches are cut from; the two differ only in `README.md`).
 
 ```
    upstream main  9139e2ae5
-        |
         +-- #1034  Metal decode queue + test + bench
-        |
-        +-- #1035  macOS Engram parallel reads  +5.2% + bench + test
-        |
+        +-- #1035  macOS Engram parallel reads + bench + test
         v
-   triple-antirez-tip-latest     8ee53cb8b   <- the one base, squashed
-        |
-        +-- triple-all-fastest        every lever stacked
-        +-- triple-prefetch-pool      read-ahead into the foreground
-        +-- triple-prefill-readahead-order
-        +-- triple-pagecache          keep warm pages
-        +-- triple-pool               shared expert read pool
-        +-- triple-hotlist            expert hot list
-        +-- triple-draincut           bounded decode drain
-        +-- triple-margin             page-drop margin
-        +-- triple-engram-lead        Engram read lead
-        +-- triple-engram-read-threads
-        +-- triple-hitsfirst          measured null
-        +-- triple-word-finisher      closed on measurement
-        |
-        +-- (upstream #1031, #1030 - read, considered, not taken)
+   triple-antirez-tip-latest  e6d9d3b83   9.70 gen t/s   <- the one base
+        +-- triple-all-fastest and every triple-* lever branch
 ```
-
-**Two corrections to this note, 2026-09-16.** The reference figure is **9.56 tokens/s**, our own
-measured control on a native build (minimum across repeats, interleaved, first context frontier
-discarded as warmup), recorded on the Spark. An earlier revision quoted 11.16 to 11.51 tokens/s
-as an external sweep figure, and nothing in this repository pointed at it, so it has been
-replaced with a number a reader can check.
-
-The branch's own head is a **squashed sibling** of `84ba6ef1b`, not that commit: both carry the
-same tree, and this branch differs only in `README.md`. The other `triple-*` branches are cut
-from `84ba6ef1b`, which is why that sha appears in their notes.
