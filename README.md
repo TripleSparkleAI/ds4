@@ -512,43 +512,11 @@ what helped, then what did not, then what nobody has run yet.
 
 ## POSITIVELY MEASURED
 
-Branches whose own measurement came back POSITIVE. Most of these deltas sit inside the session noise floor, so read the group as a DIRECTION and not as a proven win - each card carries its own floor beside its number.
-
-### triple-all-fastest
-
-*the prime configuration - every lever in one binary*
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH    triple-all-fastest
-  │
-  │  WHAT           the stacked tree: every lever compiled into one
-  │                 binary, nine on by default and hits-first off, so one
-  │                 build exposes many arms
-  │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____       9.56        ____       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
-  │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
-  │
-  │  VERDICT        AWAITING THE SWEEP: the stack number is what this tree
-  │                 owes
-  │
-  │  LEVERS         10 compiled in, 9 on by default, hits-first 1 of 10
-  │                 OFF
-  │  EXCLUDED       0 - nothing is left out of this tree
-  │  SWITCHES       10 - one binary, many arms
-  │  BUILD          clean: make cuda-spark -j12, 0 errors
-  │  STACK NUMBER   OWED - it is a measurement or it is nothing
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
+Ordered by the scale of the effect, LARGEST FIRST. Most of these deltas sit inside their session noise floor, so read the group as a DIRECTION and not as a proven win - and note the cards were measured in DIFFERENT sessions, whose floors differ, so the order is indicative rather than a strict ranking.
 
 ### triple-hitsfirst
 
-*resident experts served first, misses deferred*
+*+8.3 % - resident experts served first, misses deferred*
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
@@ -575,9 +543,49 @@ Branches whose own measurement came back POSITIVE. Most of these deltas sit insi
   └──────────────────────────────────────────────────────────────────────
 ```
 
+### triple-all-fastest
+
+*+7.1 % - the prime configuration - every lever in one binary*
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-all-fastest
+  │
+  │  WHAT           the stacked tree: every lever compiled into one
+  │                 binary, nine on by default and hits-first off, so one
+  │                 build exposes many arms
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             9.18       8.57      +7.1 %      7.29 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │
+  │  VERDICT        MEASURED, SIGN-CONSISTENT, NOT FLOOR-CLEARING
+  │
+  │  REFERENCE      the tip column is ALL-OFF (every kill-switch off), not
+  │                 the
+  │                 plain tip: for the stack the meaningful control is its
+  │                 own off state
+  │  FLOOR          this session's floor was 7.29 % gen, twice the 3.3-4.9
+  │                 % of the
+  │                 solo native run - the edge is the SAME ORDER as the
+  │                 floor
+  │  LEVERS         10 compiled in, 9 on by default, hits-first 1 of 10
+  │                 OFF
+  │  EXCLUDED       0 - nothing is left out of this tree
+  │  SWITCHES       10 - one binary, many arms
+  │  BUILD          clean: make cuda-spark -j12, 0 errors
+  │  STACK NUMBER   MEASURED - +7.1 % over all-off, sign-consistent
+  │                 under all three references and NOT floor-clearing
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
 ### triple-pool
 
-*parallel expert reads through a shared SSD pool*
+*+4.0 % - parallel expert reads through a shared SSD pool*
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
@@ -610,38 +618,9 @@ Branches whose own measurement came back POSITIVE. Most of these deltas sit insi
   └──────────────────────────────────────────────────────────────────────
 ```
 
-### triple-margin
-
-*the expert-cache reserve and the budget split*
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH    triple-margin
-  │
-  │  WHAT           turns the expert-cache size into a knob, trading
-  │                 resident experts against the RAM left to everything
-  │                 else on the box
-  │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             8.68       9.56      -9.2 %       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
-  │
-  │  VERDICT        OUTSIDE the floor: a real regression at this
-  │                 measurement
-  │
-  │  SWITCH         is the reserve itself; the size goes up, the margin
-  │                 goes down
-  │  HEADLINE       5,677 slots @0.918 hit vs 5,234 @0.901 (probe, other
-  │                 tree)
-  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
 ### triple-pagecache
 
-*staged page-drop order*
+*+0.6 % - staged page-drop order*
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
@@ -672,11 +651,11 @@ Branches whose own measurement came back POSITIVE. Most of these deltas sit insi
 
 ## NEGATIVELY MEASURED
 
-Branches whose own measurement came back NEGATIVE, or whose idea was killed by measurement. A null is a result: the closed branch below is kept precisely because it stops someone rebuilding it.
+Ordered by the scale of the effect, LEAST HARMFUL FIRST and WORST LAST. A null is a result: the closed branch sits at the bottom because it has no patch at all, and it is kept precisely so nobody rebuilds it.
 
 ### triple-draincut
 
-*event-gated selected-expert readback*
+*-0.9 % - event-gated selected-expert readback*
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
@@ -707,7 +686,7 @@ Branches whose own measurement came back NEGATIVE, or whose idea was killed by m
 
 ### triple-hotlist
 
-*seed the cache from the previous run's demand*
+*-1.9 % - seed the cache from the previous run's demand*
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
@@ -743,9 +722,38 @@ Branches whose own measurement came back NEGATIVE, or whose idea was killed by m
   └──────────────────────────────────────────────────────────────────────
 ```
 
+### triple-margin
+
+*-9.2 % - the expert-cache reserve and the budget split*
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-margin
+  │
+  │  WHAT           turns the expert-cache size into a knob, trading
+  │                 resident experts against the RAM left to everything
+  │                 else on the box
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             8.68       9.56      -9.2 %       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        OUTSIDE the floor: a real regression at this
+  │                 measurement
+  │
+  │  SWITCH         is the reserve itself; the size goes up, the margin
+  │                 goes down
+  │  HEADLINE       5,677 slots @0.918 hit vs 5,234 @0.901 (probe, other
+  │                 tree)
+  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
 ### triple-word-finisher
 
-*CLOSED - the measurement killed the idea*
+*CLOSED, no patch - CLOSED - the measurement killed the idea*
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
@@ -784,7 +792,7 @@ Prepared, committed, and carrying no throughput number yet. Every cell in their 
 
 ### triple-prefetch-pool
 
-*parallel chunked prefill read-ahead*
+*not yet measured - parallel chunked prefill read-ahead*
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
@@ -816,22 +824,24 @@ Prepared, committed, and carrying no throughput number yet. Every cell in their 
 
 ### triple-prefill-readahead-order
 
-*prefill eviction that spares what decode needs*
+*not yet measured - prefill eviction that spares what decode needs*
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
   │  BRANCH    triple-prefill-readahead-order
   │
-  │  WHAT           reorders prefill victim eviction so the experts decode
-  │                 will need are not the ones dropped: the prefill hit
-  │                 list survives into decode
+  │  WHAT           reorders prefill victim eviction and holds the earliest
+  │                 layers of the scan, so the experts decode will need are
+  │                 not the ones dropped: the prefill hit list survives into
+  │                 decode
   │
   │  RESULTS              tokens/s        tip      change       floor
   │    generation             ____       ____        ____       4.9 %
   │    prefill                ____       ____        ____      15.8 %
   │
-  │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
+  │  VERDICT        OWED: no clean interleaved A/B exists yet, so a blank
+  │                 cell is not a zero. The CUDA build gate is OWED as well.
   │
   │  SWITCH         DS4_PREFILL_READAHEAD_HOLD=0 restores upstream exactly:
   │                 the plain used-ascending victim order, no held set.
@@ -847,7 +857,7 @@ Prepared, committed, and carrying no throughput number yet. Every cell in their 
 
 ### triple-engram-lead
 
-*Engram read, a token of lead*
+*not yet measured - Engram read, a token of lead*
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
@@ -876,7 +886,7 @@ Prepared, committed, and carrying no throughput number yet. Every cell in their 
 
 ### triple-engram-read-threads
 
-*Engram readers scaled to the rows needed*
+*not yet measured - Engram readers scaled to the rows needed*
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
@@ -915,7 +925,7 @@ from, and the zero point every number above is measured against.
 
 ### triple-antirez-tip-latest
 
-*the control: upstream main, PRs 1034 and 1035 folded*
+*the zero point - the control: upstream main, PRs 1034 and 1035 folded*
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
