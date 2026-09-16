@@ -274,23 +274,39 @@ it rock.
 
 
 
+
 **✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
 **✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
+
 **✦ above: the README, unchanged**
+
 **✦ below: our modifications and numbers for this branch**
 
-## THE FASTEST TREE - every lever stacked
-
 ```
-  the stacked tree
-
-      levers compiled in     10            9 on by default
-      hits-first              1 of 10       OFF by default
-      levers NOT in this tree 0            nothing is excluded
-      switches                10            one binary, many arms
-      builds                   clean        make cuda-spark -j12, 0 errors
-
-      stack number            OWED         it is a measurement or it is nothing
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-all-fastest
+  │
+  │  WHAT           the stacked tree: every lever compiled into one
+  │                 binary, nine on by default and hits-first off, so one
+  │                 build exposes many arms
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             ____       9.56        ____       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        AWAITING THE SWEEP: the stack number is what this tree
+  │                 owes
+  │
+  │  LEVERS         10 compiled in, 9 on by default, hits-first 1 of 10
+  │                 OFF
+  │  EXCLUDED       0 - nothing is left out of this tree
+  │  SWITCHES       10 - one binary, many arms
+  │  BUILD          clean: make cuda-spark -j12, 0 errors
+  │  STACK NUMBER   OWED - it is a measurement or it is nothing
+  │
+  └──────────────────────────────────────────────────────────────────────
 ```
 
 | arm / measurement | value | change |
