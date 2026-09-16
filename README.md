@@ -324,7 +324,7 @@ it rock.
             miss 8    ████████████████  seeding had filled every one at startup
                       ────────────────
                       32768 slot reads   per missed expert, per routed layer,
-                                         per token, across 40 layers
+                                         per token
 
    AFTER    one pass  ████████████████  4096 slot reads
                       ────────────────
