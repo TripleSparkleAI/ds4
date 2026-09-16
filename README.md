@@ -370,6 +370,13 @@ in its own review, and the card carries the warning rather than burying it:
   hang is gone; whether the decline is clean is an open question and the first thing a Spark build
   should be pointed at.
 
+**Re-check it by name, not by line.** This was read-verified in `ds4_cuda.cu`, in
+`cuda_expert_uring_dispatch`: the queueing loop sets `j->inflight = 1` before `cuda_uring_enter`,
+and the `if (!touched)` branch taken when that enter fails calls `cuda_fetch_buf_put` on every
+`jobs[i].host_buf` and then `cuda_uring_ring_close`, with no wait for the inflight completions.
+The bound that makes the branch reachable is `max_rounds` in `ds4_uring_sq_submit`
+(`ds4_uring_sq.h`), passed as `r->sq.entries + 8u`. Four names, all unique, all greppable.
+
 ### The three engines, in order
 
 `cuda_expert_pread_pool_dispatch` tries them on every miss batch:
