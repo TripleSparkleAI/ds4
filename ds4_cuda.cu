@@ -29,6 +29,26 @@
 #include "cuda/mmq/ds4_repack.h"
 #include "ds4_image.h"
 
+/* io_uring expert-fetch ring availability.  The engine speaks the kernel UAPI
+ * directly (io_uring_setup / io_uring_enter plus mmap'd SQ/CQ rings) so it
+ * needs no liburing and no new build flag: the Linux kernel headers a CUDA
+ * Linux build already sees are enough.  DS4_CUDA_NO_IO_URING compiles it out
+ * on purpose, DS4_CUDA_HAVE_IO_URING=1 forces it in. */
+#if defined(__linux__)
+#include <sys/mman.h>
+#include <sys/syscall.h>
+#endif
+#if !defined(DS4_CUDA_HAVE_IO_URING) && !defined(DS4_CUDA_NO_IO_URING) && defined(__linux__)
+#  if defined(__has_include)
+#    if __has_include(<linux/io_uring.h>) && defined(__NR_io_uring_setup) && defined(__NR_io_uring_enter)
+#      define DS4_CUDA_HAVE_IO_URING 1
+#    endif
+#  endif
+#endif
+#if defined(DS4_CUDA_HAVE_IO_URING)
+#include <linux/io_uring.h>
+#endif
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -2390,6 +2410,10 @@ static int cuda_model_copy_to_device_streamed(
  * task and applied on the calling thread after the join.  Any setup failure
  * makes dispatch return 0 before a single byte is read, and the caller falls
  * back to the serial path.
+ *
+ * The io_uring ring below is pressed before the pool on the same batch.
+ * The pool stays the fallback and the engine that runs when the ring is
+ * off, absent from the build, or unable to stage the batch.
  * ------------------------------------------------------------------------ */
 
 #define DS4_CUDA_EXPERT_PREAD_MAX 16u
@@ -2763,7 +2787,526 @@ static int cuda_pread_pool_wait(cuda_pread_pool *pool) {
 
 static int cuda_expert_pread_pool_wait(void) { return cuda_pread_pool_wait(&g_expert_pread); }
 
+/* ------------------------------------------------------------------------
+ * io_uring expert-fetch ring.
+ *
+ * The pread pool above removes the serial bottleneck, but it pays one pinned
+ * staging buffer and one thread per in-flight read, so its queue depth is the
+ * worker count (16 here).  This engine submits O_DIRECT reads straight to the
+ * kernel ring at a configurable queue depth (DS4_CUDA_FETCH_QD, default 64,
+ * clamped 8-512) and reaps completions on the calling thread, then uploads
+ * each landed payload on one upload stream.  It is the CUDA twin of the Metal
+ * port's reader pool in spirit, and of the upstream ds4 io_uring engine in
+ * mechanism.
+ *
+ * It speaks the kernel UAPI directly (io_uring_setup / io_uring_enter on
+ * mmap'd SQ/CQ rings), so it needs no liburing and no new build flag: the
+ * Linux kernel headers a CUDA Linux build already sees are enough.  The whole
+ * engine compiles out unless <linux/io_uring.h> and the io_uring syscall
+ * numbers are both available (DS4_CUDA_NO_IO_URING compiles it out on
+ * purpose, DS4_CUDA_HAVE_IO_URING=1 forces it in).
+ *
+ * Per task the read strategy mirrors cuda_expert_stage_read_mt: an aligned
+ * O_DIRECT bracket on the direct fd when the window fits the file, else a
+ * buffered read on the model fd.  Host buffers come from an aligned recycling
+ * freelist (posix_memalign at a few MiB goes through mmap, so a per-read
+ * alloc/free pays a page-table teardown each way) and return to it once the
+ * bytes have been uploaded, so buffer turnover is free.
+ * DS4_CUDA_FETCH_BUFFERED=1 forces the buffered path for models that mostly
+ * fit in the page cache; DS4_CUDA_FETCH_URING=0 turns the ring off and leaves
+ * the pread pool in charge.
+ *
+ * Ownership of a buffer ends with the batch: this tree has no disk -> host RAM
+ * expert cache keyed by file range, so there is no cache to donate a
+ * completed buffer to.  The upstream pool's donation half (ownership
+ * following a buffer into the cache and back to the pool on eviction) has no
+ * counterpart here and is deliberately NOT ported.
+ * ------------------------------------------------------------------------ */
+
+#if defined(DS4_CUDA_HAVE_IO_URING)
+
+#define DS4_URING_QD_DEFAULT 64u
+#define DS4_URING_QD_MIN      8u
+#define DS4_URING_QD_MAX    512u
+#define CUDA_FETCH_BUF_POOL_MAX 128u
+#define CUDA_FETCH_BUF_POOL_MAX_BYTES (512ull * 1048576ull)
+
+/* Aligned O_DIRECT read-buffer recycling freelist.  Exact-size lookup, one
+ * free list for the process, bounded in both entries and bytes. */
+static struct { void *ptr; uint64_t size; } g_fetch_buf_pool[CUDA_FETCH_BUF_POOL_MAX];
+static uint32_t g_fetch_buf_pool_n;
+static uint64_t g_fetch_buf_pool_bytes;
+
+static void *cuda_fetch_buf_get(uint64_t size, uint64_t align) {
+    for (uint32_t i = g_fetch_buf_pool_n; i-- > 0;) {
+        if (g_fetch_buf_pool[i].size == size) {
+            void *p = g_fetch_buf_pool[i].ptr;
+            g_fetch_buf_pool[i] = g_fetch_buf_pool[--g_fetch_buf_pool_n];
+            g_fetch_buf_pool_bytes -= size;
+            return p;
+        }
+    }
+    if (align < sizeof(void *)) align = sizeof(void *);
+    void *p = NULL;
+    if (posix_memalign(&p, (size_t)align, (size_t)size) != 0) return NULL;
+    return p;
+}
+
+static void cuda_fetch_buf_put(void *ptr, uint64_t size) {
+    if (!ptr) return;
+    if (g_fetch_buf_pool_n < CUDA_FETCH_BUF_POOL_MAX &&
+        g_fetch_buf_pool_bytes + size <= CUDA_FETCH_BUF_POOL_MAX_BYTES) {
+        g_fetch_buf_pool[g_fetch_buf_pool_n].ptr = ptr;
+        g_fetch_buf_pool[g_fetch_buf_pool_n].size = size;
+        g_fetch_buf_pool_bytes += size;
+        g_fetch_buf_pool_n++;
+        return;
+    }
+    free(ptr);
+}
+
+static void cuda_fetch_buf_pool_release(void) {
+    for (uint32_t i = 0; i < g_fetch_buf_pool_n; i++) free(g_fetch_buf_pool[i].ptr);
+    g_fetch_buf_pool_n = 0;
+    g_fetch_buf_pool_bytes = 0;
+}
+
+typedef struct {
+    int       fd;
+    unsigned  entries;
+    unsigned  submitted;   /* SQEs already handed to the kernel */
+    unsigned  tail;        /* next SQE index we will fill */
+    unsigned  inflight;    /* submitted and not yet reaped */
+    unsigned *sq_head, *sq_tail, *sq_mask, *sq_array;
+    unsigned *cq_head, *cq_tail, *cq_mask;
+    struct io_uring_sqe *sqes;
+    struct io_uring_cqe *cqes;
+    void     *sq_ring, *cq_ring;
+    size_t    sq_ring_sz, cq_ring_sz, sqes_sz;
+} cuda_uring_ring;
+
+static cuda_uring_ring g_fetch_ring;
+static int      g_fetch_ring_state = -1;  /* -1 unchecked, 0 off, 1 ready */
+static unsigned g_fetch_ring_qd = DS4_URING_QD_DEFAULT;
+static cudaStream_t g_fetch_uring_upload_stream = NULL;
+static int      g_fetch_ring_busy;        /* one batch owns the ring at a time */
+
+static void cuda_uring_ring_close(cuda_uring_ring *r) {
+    if (r->sqes) (void)munmap(r->sqes, r->sqes_sz);
+    if (r->cq_ring && r->cq_ring != r->sq_ring) (void)munmap(r->cq_ring, r->cq_ring_sz);
+    if (r->sq_ring) (void)munmap(r->sq_ring, r->sq_ring_sz);
+    if (r->fd >= 0) (void)close(r->fd);
+    memset(r, 0, sizeof *r);
+    r->fd = -1;
+}
+
+static int cuda_uring_ring_init(cuda_uring_ring *r, unsigned entries) {
+    struct io_uring_params p;
+    memset(&p, 0, sizeof p);
+    const int fd = (int)syscall(__NR_io_uring_setup, entries, &p);
+    if (fd < 0) return 0;
+    memset(r, 0, sizeof *r);
+    r->fd = fd;
+    r->entries = p.sq_entries ? p.sq_entries : entries;
+
+    r->sq_ring_sz = p.sq_off.array + p.sq_entries * sizeof(unsigned);
+    r->cq_ring_sz = p.cq_off.cqes + p.cq_entries * sizeof(struct io_uring_cqe);
+    if (p.features & IORING_FEAT_SINGLE_MMAP) {
+        if (r->cq_ring_sz > r->sq_ring_sz) r->sq_ring_sz = r->cq_ring_sz;
+        r->cq_ring_sz = r->sq_ring_sz;
+    }
+    void *sq = mmap(NULL, r->sq_ring_sz, PROT_READ | PROT_WRITE, MAP_SHARED,
+                    fd, IORING_OFF_SQ_RING);
+    if (sq == MAP_FAILED) { r->fd = -1; (void)close(fd); return 0; }
+    r->sq_ring = sq;
+    r->cq_ring = sq;
+    if (!(p.features & IORING_FEAT_SINGLE_MMAP)) {
+        void *cq = mmap(NULL, r->cq_ring_sz, PROT_READ | PROT_WRITE, MAP_SHARED,
+                        fd, IORING_OFF_CQ_RING);
+        if (cq == MAP_FAILED) { cuda_uring_ring_close(r); return 0; }
+        r->cq_ring = cq;
+    }
+    r->sqes_sz = p.sq_entries * sizeof(struct io_uring_sqe);
+    void *sqes = mmap(NULL, r->sqes_sz, PROT_READ | PROT_WRITE, MAP_SHARED,
+                      fd, IORING_OFF_SQES);
+    if (sqes == MAP_FAILED) { cuda_uring_ring_close(r); return 0; }
+    r->sqes = (struct io_uring_sqe *)sqes;
+
+    r->sq_head  = (unsigned *)((char *)sq + p.sq_off.head);
+    r->sq_tail  = (unsigned *)((char *)sq + p.sq_off.tail);
+    r->sq_mask  = (unsigned *)((char *)sq + p.sq_off.ring_mask);
+    r->sq_array = (unsigned *)((char *)sq + p.sq_off.array);
+    r->cq_head  = (unsigned *)((char *)r->cq_ring + p.cq_off.head);
+    r->cq_tail  = (unsigned *)((char *)r->cq_ring + p.cq_off.tail);
+    r->cq_mask  = (unsigned *)((char *)r->cq_ring + p.cq_off.ring_mask);
+    r->cqes     = (struct io_uring_cqe *)((char *)r->cq_ring + p.cq_off.cqes);
+    return 1;
+}
+
+static struct io_uring_sqe *cuda_uring_get_sqe(cuda_uring_ring *r) {
+    if (r->tail - *r->sq_head >= r->entries) return NULL;
+    const unsigned idx = r->tail & *r->sq_mask;
+    struct io_uring_sqe *sqe = &r->sqes[idx];
+    r->sq_array[idx] = idx;
+    return sqe;
+}
+
+static void cuda_uring_prep_read(cuda_uring_ring *r, struct io_uring_sqe *sqe,
+                                 int fd, void *buf, unsigned len, uint64_t off,
+                                 uint64_t user_data) {
+    memset(sqe, 0, sizeof *sqe);
+    sqe->opcode = IORING_OP_READ;
+    sqe->fd = fd;
+    sqe->addr = (uint64_t)(uintptr_t)buf;
+    sqe->len = len;
+    sqe->off = off;
+    sqe->user_data = user_data;
+    r->tail++;
+}
+
+/* Hand every queued SQE to the kernel and wait for one completion when the
+ * caller asks for it.  Only the calling thread touches the ring. */
+static int cuda_uring_enter(cuda_uring_ring *r, unsigned wait_nr) {
+    for (;;) {
+        const unsigned to_submit = r->tail - r->submitted;
+        const unsigned flags = wait_nr ? (unsigned)IORING_ENTER_GETEVENTS : 0u;
+        const int rc = (int)syscall(__NR_io_uring_enter, r->fd, to_submit,
+                                    wait_nr, flags, NULL, 0);
+        if (rc < 0) {
+            if (errno == EINTR) continue;
+            return 0;
+        }
+        r->submitted += (unsigned)rc;
+        if (to_submit == 0 || r->submitted >= r->tail) return 1;
+    }
+}
+
+static struct io_uring_cqe *cuda_uring_peek_cqe(cuda_uring_ring *r) {
+    if (*r->cq_head == *r->cq_tail) return NULL;
+    return &r->cqes[*r->cq_head & *r->cq_mask];
+}
+
+static void cuda_uring_cqe_seen(cuda_uring_ring *r) {
+    __atomic_store_n(r->cq_head, *r->cq_head + 1u, __ATOMIC_RELEASE);
+}
+
+static int cuda_fetch_uring_upload_stream_ensure(void) {
+    if (g_fetch_uring_upload_stream) return 1;
+    cudaError_t err = cudaStreamCreateWithFlags(&g_fetch_uring_upload_stream,
+                                                cudaStreamNonBlocking);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "ds4: CUDA fetch io_uring upload stream creation failed: %s\n",
+                cudaGetErrorString(err));
+        (void)cudaGetLastError();
+        g_fetch_uring_upload_stream = NULL;
+        return 0;
+    }
+    return 1;
+}
+
+static int cuda_fetch_buffered_mode(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *env = getenv("DS4_CUDA_FETCH_BUFFERED");
+        cached = env && env[0] == '1';
+    }
+    return cached;
+}
+
+/* One queued read per expert tensor.  read_len is what the ring reads; the
+ * payload the device wants starts at host_buf + payload_off. */
+typedef struct {
+    cuda_expert_pread_task *task;
+    void    *host_buf;
+    uint64_t aligned_off;
+    uint64_t read_len;
+    uint64_t read_done;
+    uint32_t payload_off;
+    int      read_fd;
+    int      finished;
+    int      inflight;
+    int      retried_direct;
+    int      attempts;
+} cuda_uring_job;
+
+static int cuda_fetch_direct_errno(int res) {
+    const int e = res < 0 ? -res : res;
+    return e == EINVAL || e == EFAULT || e == ENOTSUP || e == EOPNOTSUPP;
+}
+
+/* Pick the read for one task.  Same geometry as cuda_expert_stage_read_mt. */
+static int cuda_uring_job_prepare(cuda_uring_job *j, cuda_expert_pread_task *t) {
+    memset(j, 0, sizeof *j);
+    j->task = t;
+    const uint64_t align = g_model_direct_align > 1 ? g_model_direct_align : 1;
+    if (!cuda_fetch_buffered_mode() && g_model_direct_fd >= 0 && align > 1 &&
+        g_model_file_size != 0) {
+        const uint64_t aligned_off = t->offset & ~(align - 1u);
+        const uint64_t payload = t->offset - aligned_off;
+        const uint64_t read_len = cuda_round_up(payload + t->bytes, align);
+        if (aligned_off <= g_model_file_size &&
+            read_len <= g_model_file_size - aligned_off &&
+            payload <= UINT32_MAX && read_len <= (uint64_t)UINT32_MAX) {
+            void *buf = cuda_fetch_buf_get(read_len, align);
+            if (buf) {
+                j->host_buf = buf;
+                j->read_fd = g_model_direct_fd;
+                j->aligned_off = aligned_off;
+                j->read_len = read_len;
+                j->payload_off = (uint32_t)payload;
+                return 1;
+            }
+        }
+    }
+    void *buf = cuda_fetch_buf_get(t->bytes, align);
+    if (!buf) return 0;
+    j->host_buf = buf;
+    j->read_fd = g_model_fd;
+    j->aligned_off = t->offset;
+    j->read_len = t->bytes;
+    j->payload_off = 0;
+    return 1;
+}
+
+/* Upload one landed job on the shared upload stream, then drop the pages the
+ * serial path drops.  A few-MiB tensor is far below one copy chunk, so this is
+ * a single copy; the serial path still chunks larger ranged copies. */
+static int cuda_uring_job_upload(cuda_uring_job *j) {
+    cuda_expert_pread_task *t = j->task;
+    const char *payload = (const char *)j->host_buf + j->payload_off;
+    cudaError_t err = cudaMemcpyAsync(t->dst, payload, (size_t)t->bytes,
+                                      cudaMemcpyHostToDevice,
+                                      g_fetch_uring_upload_stream);
+    if (err == cudaSuccess) err = cudaStreamSynchronize(g_fetch_uring_upload_stream);
+    if (err != cudaSuccess) {
+        fprintf(stderr,
+                "ds4: CUDA expert io_uring upload failed for %s at %.2f MiB: %s\n",
+                t->what ? t->what : "expert", (double)t->bytes / 1048576.0,
+                cudaGetErrorString(err));
+        (void)cudaGetLastError();
+        return 0;
+    }
+    cuda_model_drop_file_pages(t->offset, t->bytes);
+    cuda_model_discard_source_pages(t->model_map, t->model_size, t->offset, t->bytes);
+    return 1;
+}
+
+static int cuda_fetch_ring_ready(void) {
+    if (g_fetch_ring_state >= 0) return g_fetch_ring_state;
+    g_fetch_ring_state = 0;
+    const char *off = getenv("DS4_CUDA_FETCH_URING");
+    if (off && off[0] == '0') return 0;
+    /* DS4_CUDA_FETCH_QD is the documented switch; the upstream spelling
+     * DS4_CUDA_FETCH_URING_QD is accepted as an alias. */
+    const char *qd_env = getenv("DS4_CUDA_FETCH_QD");
+    if (!qd_env || !qd_env[0]) qd_env = getenv("DS4_CUDA_FETCH_URING_QD");
+    if (qd_env && qd_env[0]) {
+        char *end = NULL;
+        unsigned long long v = strtoull(qd_env, &end, 10);
+        if (end != qd_env && v >= DS4_URING_QD_MIN && v <= DS4_URING_QD_MAX)
+            g_fetch_ring_qd = (unsigned)v;
+    }
+    errno = 0;
+    if (!cuda_uring_ring_init(&g_fetch_ring, g_fetch_ring_qd)) {
+        fprintf(stderr, "ds4: CUDA fetch io_uring init failed (%s); using the pread pool\n",
+                strerror(errno ? errno : ENOSYS));
+        return 0;
+    }
+    fprintf(stderr, "ds4: CUDA fetch io_uring enabled (queue depth %u)\n", g_fetch_ring_qd);
+    g_fetch_ring_state = 1;
+    return 1;
+}
+
+/* Run one batch of misses through the ring.  Returns 1 when the ring owned
+ * the batch (each task's ok flag says whether its bytes landed), 0 when the
+ * ring declined before touching anything and the caller must use the pool or
+ * the serial path. */
+static int cuda_expert_uring_dispatch(cuda_expert_pread_task *tasks, uint32_t n_tasks) {
+    if (!tasks || n_tasks <= 1) return 0;
+    if (g_model_fd < 0) return 0;
+    if (!cuda_expert_pread_pool_enabled()) return 0;   /* lever off: stay serial */
+    if (g_fetch_ring_busy) return 0;
+    if (!cuda_fetch_ring_ready()) return 0;
+    if (!cuda_fetch_uring_upload_stream_ensure()) return 0;
+
+    std::vector<cuda_uring_job> jobs(n_tasks);
+    for (uint32_t i = 0; i < n_tasks; i++) {
+        tasks[i].ok = 0;
+        tasks[i].direct_unsupported = 0;
+        if (!tasks[i].dst || tasks[i].bytes == 0) return 0;
+        if (!cuda_uring_job_prepare(&jobs[i], &tasks[i])) {
+            for (uint32_t k = 0; k < i; k++) {
+                cuda_fetch_buf_put(jobs[k].host_buf, jobs[k].read_len);
+                jobs[k].host_buf = NULL;
+            }
+            return 0;
+        }
+    }
+
+    g_fetch_ring_busy = 1;
+    uint32_t unfinished = n_tasks;
+    uint32_t next = 0;
+    int touched = 0;
+    int direct_unsupported = 0;
+    for (;;) {
+        unsigned queued = 0;
+        while (next < n_tasks && queued < g_fetch_ring_qd) {
+            cuda_uring_job *j = &jobs[next];
+            if (j->finished || j->inflight) { next++; continue; }
+            struct io_uring_sqe *sqe = cuda_uring_get_sqe(&g_fetch_ring);
+            if (!sqe) break;
+            cuda_uring_prep_read(&g_fetch_ring, sqe, j->read_fd,
+                                 (char *)j->host_buf + j->read_done,
+                                 (unsigned)(j->read_len - j->read_done),
+                                 j->aligned_off + j->read_done, (uint64_t)next);
+            j->inflight = 1;
+            j->attempts++;
+            g_fetch_ring.inflight++;
+            next++;
+            queued++;
+        }
+        if (!cuda_uring_enter(&g_fetch_ring, g_fetch_ring.inflight ? 1u : 0u)) {
+            if (!touched) {
+                /* Nothing has landed and the ring is unusable: decline. */
+                for (uint32_t i = 0; i < n_tasks; i++) {
+                    cuda_fetch_buf_put(jobs[i].host_buf, jobs[i].read_len);
+                    jobs[i].host_buf = NULL;
+                }
+                g_fetch_ring_busy = 0;
+                cuda_uring_ring_close(&g_fetch_ring);
+                g_fetch_ring_state = 0;
+                return 0;
+            }
+            break;
+        }
+
+        int progressed = 0;
+        for (;;) {
+            struct io_uring_cqe *cqe = cuda_uring_peek_cqe(&g_fetch_ring);
+            if (!cqe) break;
+            const int res = cqe->res;
+            const uint64_t idx = cqe->user_data;
+            cuda_uring_cqe_seen(&g_fetch_ring);
+            if (g_fetch_ring.inflight) g_fetch_ring.inflight--;
+            progressed = 1;
+            touched = 1;
+            if (idx >= n_tasks) continue;
+            cuda_uring_job *j = &jobs[idx];
+            j->inflight = 0;
+            if (res > 0) {
+                j->read_done += (uint64_t)res;
+                if (j->read_done >= j->read_len) { j->finished = 1; unfinished--; }
+            } else if (res == -EINTR || res == -EAGAIN) {
+                if (j->attempts >= 4) {
+                    fprintf(stderr,
+                            "ds4: CUDA expert io_uring read failed for %s at %.2f MiB: %s\n",
+                            j->task->what ? j->task->what : "expert",
+                            (double)j->read_done / 1048576.0, strerror(-res));
+                    j->finished = 1;
+                    unfinished--;
+                }
+            } else if (!j->retried_direct && j->read_fd == g_model_direct_fd &&
+                       cuda_fetch_direct_errno(res)) {
+                /* O_DIRECT rejected this read: re-read the range buffered. */
+                cuda_expert_pread_task *t = j->task;
+                direct_unsupported = 1;
+                cuda_fetch_buf_put(j->host_buf, j->read_len);
+                j->host_buf = NULL;
+                j->retried_direct = 1;
+                void *buf = cuda_fetch_buf_get(t->bytes, 1);
+                if (buf) {
+                    j->host_buf = buf;
+                    j->read_fd = g_model_fd;
+                    j->aligned_off = t->offset;
+                    j->read_len = t->bytes;
+                    j->read_done = 0;
+                    j->payload_off = 0;
+                    j->attempts = 0;
+                } else {
+                    j->finished = 1;
+                    unfinished--;
+                }
+            } else {
+                fprintf(stderr,
+                        "ds4: CUDA expert io_uring read failed for %s at %.2f MiB: %s\n",
+                        j->task->what ? j->task->what : "expert",
+                        (double)j->read_done / 1048576.0,
+                        strerror(res == 0 ? EIO : -res));
+                j->finished = 1;
+                unfinished--;
+            }
+        }
+        if (progressed) next = 0;
+        if (unfinished == 0) break;
+        if (!progressed && queued == 0 && g_fetch_ring.inflight == 0) break;
+    }
+
+    /* Never leave the kernel writing into buffers we are about to recycle. */
+    while (g_fetch_ring.inflight != 0) {
+        if (!cuda_uring_enter(&g_fetch_ring, 1u)) break;
+        struct io_uring_cqe *cqe = cuda_uring_peek_cqe(&g_fetch_ring);
+        if (!cqe) break;
+        const int res = cqe->res;
+        const uint64_t idx = cqe->user_data;
+        cuda_uring_cqe_seen(&g_fetch_ring);
+        g_fetch_ring.inflight--;
+        if (idx < n_tasks && jobs[idx].inflight) {
+            jobs[idx].inflight = 0;
+            if (res > 0) jobs[idx].read_done += (uint64_t)res;
+        }
+    }
+
+    for (uint32_t i = 0; i < n_tasks; i++) {
+        cuda_uring_job *j = &jobs[i];
+        const int landed = j->read_len != 0 && j->read_done >= j->read_len;
+        tasks[i].ok = landed && cuda_uring_job_upload(j);
+        cuda_fetch_buf_put(j->host_buf, j->read_len);
+        j->host_buf = NULL;
+    }
+    g_fetch_ring_busy = 0;
+
+    /* Same once-only disable as cuda_pread_pool_wait, applied on this thread
+     * and only after every CQE has been reaped. */
+    if (direct_unsupported && g_model_direct_fd >= 0) {
+        if (getenv("DS4_CUDA_WEIGHT_CACHE_VERBOSE")) {
+            fprintf(stderr, "ds4: CUDA direct model read disabled by the io_uring fetch ring\n");
+        }
+        (void)close(g_model_direct_fd);
+        g_model_direct_fd = -1;
+        g_model_direct_align = 1;
+    }
+    return 1;
+}
+
+static void cuda_fetch_uring_shutdown(void) {
+    if (g_fetch_uring_upload_stream) {
+        (void)cudaStreamDestroy(g_fetch_uring_upload_stream);
+        g_fetch_uring_upload_stream = NULL;
+    }
+    if (g_fetch_ring.fd >= 0) cuda_uring_ring_close(&g_fetch_ring);
+    g_fetch_ring_state = -1;   /* a later session may init a fresh ring */
+    g_fetch_ring_busy = 0;
+}
+
+#else  /* no io_uring in this build: the pread pool is the parallel engine */
+
+static int cuda_expert_uring_dispatch(cuda_expert_pread_task *tasks, uint32_t n_tasks) {
+    (void)tasks;
+    (void)n_tasks;
+    return 0;
+}
+
+static void cuda_fetch_uring_shutdown(void) {}
+
+static void cuda_fetch_buf_pool_release(void) {}
+
+#endif
 static int cuda_expert_pread_pool_dispatch(cuda_expert_pread_task *tasks, uint32_t n_tasks) {
+    /* Press the io_uring ring first: real queue depth without one thread per
+     * read.  It declines (returns 0) when it is off, cannot init, holds one
+     * task or fewer, or cannot stage the batch, and then the pool takes the
+     * batch exactly as it did before. */
+    if (cuda_expert_uring_dispatch(tasks, n_tasks)) return 1;
     if (!cuda_expert_pread_pool_dispatch_start(tasks, n_tasks)) return 0;
     return cuda_expert_pread_pool_wait();
 }
@@ -2791,6 +3334,8 @@ static void cuda_pread_pool_shutdown(cuda_pread_pool *pool) {
 }
 static void cuda_expert_pread_pool_shutdown(void) {
     cuda_pread_pool_shutdown(&g_expert_pread);
+    cuda_fetch_uring_shutdown();
+    cuda_fetch_buf_pool_release();
 }
 
 
