@@ -291,19 +291,27 @@ it rock.
   │  BRANCH    triple-pool
   │
   │  WHAT           serves expert reads from a shared parallel SSD pool
-  │                 instead of one serial reader, so prefill expert loads
-  │                 overlap instead of queueing
+  │                 instead of one serial reader, and now puts an io_uring
+  │                 O_DIRECT ring in front of that pool so queue depth is a
+  │                 switch rather than the worker count
   │
   │  RESULTS              tokens/s        tip      change       floor
-  │    generation             9.94       9.56      +4.0 %       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
+  │    generation             ____       ____        ____        ____
+  │    prefill                ____       ____        ____        ____
   │
-  │  VERDICT        inside the floor: this measurement does not resolve it
+  │  VERDICT        OWED: the fetch engine changed after the last
+  │                 measurement, so the old +4.0 % no longer describes it
   │
-  │  SWITCH         DS4_SSD_READERS=<n>; the serial reader stays as the
-  │                 fallback
-  │  HEADLINE       device probe 7.6 -> 10.1 GB/s at 8 readers
-  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │  SWITCH         DS4_CUDA_FETCH_QD=<n>; io_uring queue depth, default 64,
+  │                 clamped 8-512
+  │                 DS4_CUDA_FETCH_URING=0 falls back to the pread pool;
+  │                 DS4_CUDA_FETCH_BUFFERED=1 forces buffered reads
+  │                 DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS=<n>; pool workers
+  │                 when the ring is off, default 8, cap 16
+  │  HEADLINE       the ring is ported; device concurrency is now a knob, and
+  │                 no number here has been re-measured since
+  │  OUTPUT         not re-run on this engine: sha256 ____
+  │  BUILD          OWED: a CUDA build needs the DGX Spark, which is busy
   │
   └──────────────────────────────────────────────────────────────────────
 ```
@@ -312,27 +320,30 @@ it rock.
 
 | arm / measurement | value | change |
 | --- | ---: | ---: |
-| tokens/s - control (tip, unpatched) | 9.56 | - |
-| tokens/s - this branch | 9.94 | +4.0% |
-| device probe, single vs 8 readers | 7.6 -> 10.1 GB/s | +33% |
+| tokens/s - control (tip, unpatched) | ____ | - |
+| tokens/s - this branch | ____ | ____ |
+| device probe, single vs 8 readers | ____ | ____ |
 
-*Measured on the DGX Spark, one arm against its own interleaved control, minimum
-across three stable frontiers (the first frontier of each run is discarded as warmup).
-The change is stated beside the noise floor because that is the only honest way to read
-it: a delta smaller than the floor is not a win.*
+*Every cell above is `____` on purpose. The previous card on this branch carried
+9.94 t/s against a 9.56 t/s tip and a 7.6 -> 10.1 GB/s device probe; those numbers
+were measured against the pthread-only pool, and this branch now presses an
+io_uring ring first, so they are stale and are deliberately not restated. The
+measurement is OWED, and so is the build gate: the CUDA build needs the DGX Spark,
+which is running an unrelated measurement series, so nothing in this section was
+compiled or run after the port. Do not read an unmeasured branch as a win.*
 
-- **The pool is `cuda_pread_pool` in `ds4_cuda.cu`**, one instance (`g_expert_pread`), at most `DS4_CUDA_EXPERT_PREAD_MAX` = 16 workers. Each worker owns a `cudaMallocHost` staging buffer and its own non-blocking CUDA stream, so no worker's read and upload wait on another's. The Metal port already carries the same pool (`ds4_gpu_stream_expert_pread_pool`, 9 threads by default, cap 18); this is the CUDA twin with its own env names and a default of 8.
-- **Only the miss phase changes.** `cuda_stream_selected_cache_begin_load` still resolves router hits first and stamps them before choosing victims, so a miss can never evict a later request's hit. It then builds one `cuda_expert_pread_task` per tensor (gate, up, down) instead of calling the serial streamed copy inline, claims each victim slot up front, and dispatches the list.
-- **Staging is sized to the batch, not to the chunk.** A worker buffer is `min(largest task, DS4_CUDA_MODEL_COPY_CHUNK_MB bytes)` plus two alignment units, so a few-MiB expert costs a few MiB per worker rather than a 64 MiB chunk. A tensor that fits in one chunk means the worker's read-upload loop body normally runs once.
-- **One blocking wait per layer.** The caller blocks once in `cuda_pread_pool_wait` for the whole batch instead of per tensor. Inside a worker the read is `O_DIRECT` whenever the aligned window fits the worker's staging buffer; then `cudaMemcpyAsync` and `cudaStreamSynchronize` on that worker's own stream; then the same page discards the serial path used (`posix_fadvise` DONTNEED on the model fd, `posix_madvise` DONTNEED on the mapping).
-- **The pool never writes the O_DIRECT globals.** Workers snapshot `g_model_direct_fd` and the alignment, and a rejected direct read is reported in the task instead. The disable, if any, is applied once on the calling thread after the join, so several readers cannot race the global.
-- **Declining is always safe.** Dispatch returns 0 before reading a byte when the lever is off, when the batch holds one task or fewer, when a staging allocation or thread creation fails, or when a dispatch is already in flight; the caller then runs the original serial `cuda_model_copy_to_device_streamed` loop and its `uploads` batch bookkeeping. A pool that failed once sets `failed` and stays serial for the life of the process.
-- **Unchanged**: the LRU slot cache, the gate-indexed lookup, the eviction rule, the look-ahead protected slots, and per-tensor error reporting. A tensor whose reads did not all land rolls its slot back to unused and the load fails, exactly as before.
-- **Torn down with the cache.** `ds4_gpu_stream_expert_cache_release_resident` now also stops and joins the pool and frees each worker's pinned buffer and stream.
-- **Knobs**: `DS4_CUDA_STREAMING_EXPERT_PREAD_POOL=0` restores the serial ring, `DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS` sets the worker count (default 8, capped at 16), and `DS4_CUDA_EXPERT_CACHE_STATS=1` prints hit rate, resident slots, evictions and seconds spent in the read phase every 4000 expert lookups. A 4/8/16 thread sweep on this drive was FLAT, so the default sits in the middle of a flat region rather than on a tuned peak.
-- **The probe is the mechanism, the pairs are indicative.** The threaded `O_DIRECT` probe on this drive reads 7.6 GB/s at one reader against 10.1 GB/s at eight, which is what says the drive has queue depth to give. The 5.73-6.23 t/s serial against 6.55-6.87 t/s pooled pairs, about +12 percent, came from a box sharing memory with another tenant and are labelled indicative for that reason.
-- **Read against the floor.** In the interleaved sweep this branch landed at +4.0 percent, which is at the very top of the 3.3 to 4.9 percent control-to-control floor, so the honest reading is that it sits at the edge of resolution rather than clearly above it. Both tokens/s cells above are that sweep's numbers, not estimates.
-- Greedy output is byte-identical on both arms: `bb06e711bc498bb9` short, `d3355c94c70a4bb1` long.
+**What is in the tree, and what is not**
+
+- **The ring is `cuda_expert_uring_dispatch` in `ds4_cuda.cu`**, pressed before the pool on every miss batch. `cuda_expert_pread_pool_dispatch` tries the ring first, then the pthread pool, then the serial staged copy, so the three engines compose instead of replacing each other.
+- **It speaks the kernel UAPI directly** (`io_uring_setup` / `io_uring_enter` plus mmap'd SQ/CQ rings, `__NR_io_uring_setup`), so it needs **no liburing and no Makefile change**: the Linux kernel headers a CUDA Linux build already sees are enough. The engine compiles out unless `__has_include(<linux/io_uring.h>)` and the two io_uring syscall numbers are both present; `DS4_CUDA_NO_IO_URING` compiles it out on purpose, `DS4_CUDA_HAVE_IO_URING=1` forces it in.
+- **Queue depth is the new switch.** `DS4_CUDA_FETCH_QD=<n>` (default **64**, clamped 8-512) sets the number of reads the ring keeps in flight; the upstream spelling `DS4_CUDA_FETCH_URING_QD` is accepted as an alias. `DS4_CUDA_FETCH_URING=0` leaves the pread pool in charge, and `DS4_CUDA_STREAMING_EXPERT_PREAD_POOL=0` still restores the serial path.
+- **Ring init failure is not a failure.** A ring that cannot init, a batch of one task or fewer, a batch the ring cannot stage, or the pool lever turned off all make the ring decline before a byte is read, and the pool takes the batch exactly as before. A ring that breaks mid-batch after bytes have landed reports the failed tasks through their own `ok` flags, the same contract the pool uses.
+- **Aligned read buffers recycle.** `cuda_fetch_buf_get` / `cuda_fetch_buf_put` in `ds4_cuda.cu` keep a process-wide freelist of `posix_memalign` buffers keyed by exact size (capped at 128 buffers and 512 MiB), so the ~3 MiB aligned bracket a direct read needs no longer pays an mmap plus a page-table teardown per expert part. Buffers go back on completion and the list is drained when the streaming cache is released.
+- **Per task, the geometry matches `cuda_expert_stage_read_mt`**: an aligned `O_DIRECT` bracket on the direct fd when the window fits the file, else a buffered read on the model fd. `DS4_CUDA_FETCH_BUFFERED=1` forces the buffered route for models that mostly fit in the page cache. A direct read the kernel rejects (`EINVAL`, `EFAULT`, `ENOTSUP`, `EOPNOTSUPP`) is re-read buffered once inside the batch, and the direct fd is then closed once, on the calling thread, after every completion has been reaped.
+- **Not ported, on purpose:** upstream donates a completed read buffer to its disk -> host RAM expert cache and takes ownership of it back on eviction. This tree has no such cache (its cache is the VRAM slot table keyed by gate offset), so there is nothing to donate to and that half of upstream's pool has no counterpart here. It is listed as a deliberate non-port, not an oversight.
+- **The card above used to name `DS4_SSD_READERS=<n>`, which is not a switch in this tree.** No source file ever read that name; the pool's worker count is `DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS` (default 8, cap 16). The row now names the switches the code actually reads.
+- **Unchanged**: the resident slot cache, the gate-indexed lookup, the LFU-with-stamp eviction, the look-ahead protected slots, and per-tensor error reporting. A tensor whose reads did not all land still rolls its slot back to unused and the load fails.
+- **Torn down with the cache.** `ds4_gpu_stream_expert_cache_release_resident` stops and joins the pool, destroys the ring, destroys the upload stream and drains the buffer freelist.
 
 ```
    begin_load(layer)  <- selected_ids, e.g. 6 experts x gate/up/down
@@ -343,32 +354,35 @@ it: a delta smaller than the floor is not a win.*
         |         task[] += {gate, up, down} of that victim,
         |         slot claimed NOW so a later miss cannot take it
         v
-   dispatch_start ----------------+            +------- one blocking wait: pool_wait()
-                                  |            |
-     pool workers, count = DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS (8, cap 16)
-                                  |            |
+   cuda_expert_pread_pool_dispatch(tasks)
+        |
+        +-- io_uring ring ready? --yes--> submit at DS4_CUDA_FETCH_QD (64, 8-512),
+        |                                 reap on this thread, upload on the
+        |                                 ring stream, recycle the aligned buffer
+        |                                 (a rejected O_DIRECT read is re-read
+        |                                  buffered once, in batch)
+        |                                 declined? -> pool
+        v
+   pread pool, DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS workers (8, cap 16)
      w0 [pinned stage][stream]  pread gate -> H2D -> sync -> drop pages
      w1 [pinned stage][stream]  pread up   -> H2D -> sync -> drop pages
      w2 [pinned stage][stream]  pread down -> H2D -> sync -> drop pages
-     w3 [pinned stage][stream]  ... queue drained under next_task++
-                                  |            |
-                                  v            v
-   all 3 tensors of a miss landed?  yes -> slot stays in by_gate, layer remaps
-                                    no  -> slot rolled back to used = 0, load fails
+     w3 [pinned stage][stream]  ... one blocking wait drains the batch
+        |
+        +-- pool declined (lever off, <= 1 task, alloc/thread failure,
+        |   batch in flight):
+        v
+   serial ring, unchanged: cuda_model_copy_to_device_streamed, one tensor at a
+   time, one 4-chunk staging ring, uploads.finish()
 
-   pool declined (lever off, <= 1 task, alloc/thread failure, batch in flight):
-        serial ring, unchanged: cuda_model_copy_to_device_streamed, one tensor
-        at a time, one 4-chunk staging ring, uploads.finish()
+   all 3 tensors of a miss landed?  yes -> layer remaps
+                                    no  -> that slot is rolled back, load fails
 ```
 
-**Provenance, 2026-09-16, native re-measure.** Every number above comes from a native run:
-all six binaries rebuilt with `make cuda-spark -j12` (nvcc `-gencode arch=compute_121a,code=sm_121a`,
-`ds4-server` text 23.11 to 23.13 MB), interleaved control then arm, two clean repeats per arm,
-the 2048 frontier discarded as warmup, minimum across repeats reported. The control-to-control
-floor on that native set is **3.3 to 4.9 percent on generation** and 9.7 to 15.8 percent on
-prefill, so a generation delta under 4.9 percent is not resolved by this measurement.
-
-The numbers this file carried before were measured on **JIT-fallback binaries** (17:12 builds
-with no `-gencode`, `ds4-server` text 29.6 MB). Those runs were internally consistent - control
-and arm shared a vintage - but they are not comparable with native figures: the control read
-about 37 prefill tokens per second on JIT against about 86 native. They are superseded here.
+**Nothing here is measured yet.** The last native re-measure on this branch
+(native `make cuda-spark` binaries, interleaved control then arm, minimum across
+repeats with the first frontier discarded) produced the 9.94 / 9.56 numbers and
+the 7.6 -> 10.1 GB/s probe. Those runs predate the io_uring port and are superseded
+by it, so this file carries no numbers rather than stale ones. What is owed: a
+build (`make cuda-spark` on the Spark) and one interleaved A/B of the ring against
+the pool, with `DS4_CUDA_EXPERT_CACHE_STATS=1` on both arms.
