@@ -276,31 +276,36 @@ it rock.
 
 **✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
 
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
 **✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
 
 **✦ above: the README, unchanged**
 
 **✦ below: our modifications and numbers for this branch**
 
-## run resident experts while the misses stream
-
-A V4.1 decode layer picks six experts, most of them already in the slot cache,
-then waits for every miss to land before computing any of them. This branch runs
-the resident experts during that wait, keeping the arithmetic bit-identical by
-summing per-slot partials in slot order.
-
 ```
-✦  hits-first
-
-      baseline        9.56               tokens/s
-      this branch     10.35               tokens/s
-      improvement     +8.3%               %   (noise floor 3.3-4.9 %)
-
-      ----------------------------------------------------------------------
-      headline        +8.3% control vs patch, native build  ·  2 interleaved repeats
-      output          greedy-identical · sha256 bb06e711bc498bb9
-
-   ◦ a blank cell is AWAITING THE SWEEP, not a zero.
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-hitsfirst
+  │
+  │  WHAT           serves the experts already resident first and defers
+  │                 the misses, so the token does not stall on the slowest
+  │                 read in the batch
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation            10.35       9.56      +8.3 %       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        OUTSIDE the floor: a real improvement at this
+  │                 measurement
+  │
+  │  SWITCH         DS4_CUDA_HITS_FIRST=1 (default OFF in the stack)
+  │  HEADLINE       +8.3% control vs patch, native build, 2 repeats
+  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │
+  └──────────────────────────────────────────────────────────────────────
 ```
 
 **Standard results table**
