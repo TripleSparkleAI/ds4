@@ -280,6 +280,9 @@ it rock.
 
 **✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
 
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
 **✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
 
 **✦ above: the README, unchanged**
@@ -296,20 +299,28 @@ it rock.
   │                 build exposes many arms
   │
   │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____       9.56        ____       4.9 %
+  │    generation             9.18       8.57      +7.1 %      7.29 %
   │    prefill                ____       ____        ____      15.8 %
   │
   │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
   │
-  │  VERDICT        AWAITING THE SWEEP: the stack number is what this tree
-  │                 owes
+  │  VERDICT        MEASURED, SIGN-CONSISTENT, NOT FLOOR-CLEARING
   │
+  │  REFERENCE      the tip column is ALL-OFF (every kill-switch off), not
+  │                 the
+  │                 plain tip: for the stack the meaningful control is its
+  │                 own off state
+  │  FLOOR          this session's floor was 7.29 % gen, twice the 3.3-4.9
+  │                 % of the
+  │                 solo native run - the edge is the SAME ORDER as the
+  │                 floor
   │  LEVERS         10 compiled in, 9 on by default, hits-first 1 of 10
   │                 OFF
   │  EXCLUDED       0 - nothing is left out of this tree
   │  SWITCHES       10 - one binary, many arms
   │  BUILD          clean: make cuda-spark -j12, 0 errors
-  │  STACK NUMBER   OWED - it is a measurement or it is nothing
+  │  STACK NUMBER   MEASURED - +7.1 % over all-off, sign-consistent
+  │                 under all three references and NOT floor-clearing
   │
   └──────────────────────────────────────────────────────────────────────
 ```
