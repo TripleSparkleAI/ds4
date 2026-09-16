@@ -27,6 +27,7 @@
 #include "cuda/mmq/ds4_mmq.h"
 #include "cuda/mmq/ds4_repack.h"
 #include "ds4_image.h"
+#include "ds4_prefill_hold.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -249,9 +250,20 @@ static bool cuda_stream_prefill_readahead_hold(void) {
  * while it holds an early-layer expert and stops being held when it holds
  * something else, which is the whole point.
  *
- * The band is a quarter of the cache, at least one layer, so the read-ahead
- * always has room for the layer it is installing. A chosen constant, not a
- * tuned one; the A/B that would tune it is owed. */
+ * The band is a quarter of the cache measured in GATE-offset bytes, floored at
+ * one layer's worth of gate bytes, so the read-ahead always has room for the
+ * layer it is installing. Note what that is and is not: consecutive layers'
+ * gate blocks are separated in the file by that layer's up, down and attention
+ * tensors, so a band of `hold_layers` gate-block lengths spans FEWER than
+ * `hold_layers` layers - at least layer 0's, whose gate block starts at the low
+ * gate. It is a quarter of the cache in gate bytes, never a quarter of the
+ * cache in layers. A chosen constant, not a tuned one; the A/B that would tune
+ * it is owed.
+ *
+ * The band depends only on the table and the cache size, so it is derived ONCE
+ * per victim scan (ds4_prefill_hold_band_make, ds4_prefill_hold.h) and the
+ * per-slot question is a compare. Every division in the rule lives in that
+ * header; tests/test_prefill_hold.c asserts a scan of N slots pays them once. */
 static uint64_t g_stream_prefill_low_gate;
 static bool g_stream_prefill_low_gate_set;
 
@@ -267,19 +279,20 @@ static void cuda_stream_prefill_low_gate_clear(void) {
     g_stream_prefill_low_gate_set = false;
 }
 
-static bool cuda_stream_prefill_slot_held(const cuda_stream_expert_slot &slot,
-                                          const ds4_gpu_stream_expert_table &table) {
-    if (!cuda_stream_prefill_readahead_hold() || !slot.used) return false;
-    if (!g_stream_prefill_low_gate_set) return false;
-    if (!table.gate_expert_bytes || !table.n_total_expert) return false;
-    if (table.n_total_expert > UINT64_MAX / table.gate_expert_bytes) return false;
-    const uint64_t layer_bytes = (uint64_t)table.n_total_expert * table.gate_expert_bytes;
-    uint64_t hold_layers = g_stream_expert_slots.size() / 4u / table.n_total_expert;
-    if (!hold_layers) hold_layers = 1;
-    if (hold_layers > UINT64_MAX / layer_bytes) return false;
-    const uint64_t band = hold_layers * layer_bytes;
-    if (g_stream_prefill_low_gate > UINT64_MAX - band) return false;
-    return slot.gate < g_stream_prefill_low_gate + band;
+/* Derive the held band for one whole scan. Every input is loop-invariant for
+ * the scan that follows: `table` is the caller's, `g_stream_expert_slots` is
+ * only resized in the cache (re)allocation block that runs before any victim
+ * scan, and the low gate is only written by cuda_stream_prefill_low_gate_note
+ * / _clear, neither of which is reachable from inside a scan. */
+static ds4_prefill_hold_band cuda_stream_prefill_hold_band(
+        const ds4_gpu_stream_expert_table &table) {
+    return ds4_prefill_hold_band_make(
+        cuda_stream_prefill_readahead_hold() ? 1 : 0,
+        g_stream_prefill_low_gate_set ? 1 : 0,
+        g_stream_prefill_low_gate,
+        (uint64_t)g_stream_expert_slots.size(),
+        (uint64_t)table.n_total_expert,
+        (uint64_t)table.gate_expert_bytes);
 }
 
 static void cuda_stream_selected_cache_invalidate(void) {
@@ -27342,6 +27355,8 @@ static int cuda_stream_selected_cache_begin_load(
             slot.used = stamp;
         }
         cuda_stream_upload_batch uploads;
+        /* Loop-invariant for every victim scan below: derive it once. */
+        const ds4_prefill_hold_band hold_band = cuda_stream_prefill_hold_band(*table);
         for (size_t i = 0; i < unique.size(); i++) {
             if (slots[i] >= 0) continue;
             uint32_t victim = UINT32_MAX;
@@ -27355,7 +27370,9 @@ static int cuda_stream_selected_cache_begin_load(
                 for (uint32_t j = 0; j < g_stream_expert_slots.size(); j++) {
                     const auto &slot = g_stream_expert_slots[j];
                     if (cuda_stream_prefetch_protects(slot)) continue;
-                    if (pass == 0 && cuda_stream_prefill_slot_held(slot, *table)) continue;
+                    if (pass == 0 &&
+                        ds4_prefill_hold_slot_held(&hold_band, slot.gate, slot.used))
+                        continue;
                     if (slot.used < oldest) {
                         oldest = slot.used;
                         victim = j;
@@ -27660,12 +27677,15 @@ extern "C" int ds4_gpu_stream_expert_cache_prefetch(
         if (p.fd < 0) throw 0;
         p.direct_fd = g_model_direct_fd >= 0 ? dup(g_model_direct_fd) : -1;
         const bool hold = cuda_stream_prefill_readahead_hold();
+        /* Loop-invariant for the scan below: derive it once, not per slot. */
+        const ds4_prefill_hold_band hold_band = cuda_stream_prefill_hold_band(*next);
         std::vector<uint32_t> victims, held;
         for (uint32_t i = 0; i < g_stream_expert_slots.size(); i++) {
             const auto &slot = g_stream_expert_slots[i];
             if (cuda_stream_slot_in_table(slot, *current) || cuda_stream_slot_in_table(slot, *next))
                 continue;
-            if (hold && cuda_stream_prefill_slot_held(slot, *next)) held.push_back(i);
+            if (hold && ds4_prefill_hold_slot_held(&hold_band, slot.gate, slot.used))
+                held.push_back(i);
             else victims.push_back(i);
         }
         /* Upstream's rule, kept verbatim as the control arm: the switch is what
