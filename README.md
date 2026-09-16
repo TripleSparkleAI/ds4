@@ -279,6 +279,9 @@ it rock.
 
 **✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
 
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
 **✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
 
 **✦ above: the README, unchanged**
@@ -297,6 +300,8 @@ it rock.
   │  RESULTS              tokens/s        tip      change       floor
   │    generation            10.35       9.56      +8.3 %       4.9 %
   │    prefill                ____       ____        ____      15.8 %
+  │
+  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
   │
   │  VERDICT        OUTSIDE the floor: a real improvement at this
   │                 measurement
