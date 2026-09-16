@@ -28718,25 +28718,54 @@ extern "C" int ds4_gpu_stream_expert_cache_prefetch(
          *
          * This changes the ORDER of `victims`, never its membership, so the
          * reserve loop below can run out no more often than it does today. */
+        /* THE SWEEP-AWARE ORDER IS OFF BY DEFAULT. IT WAS MEASURED AND IT LOST.
+         *
+         * The reasoning above is preserved because it is not obviously wrong -
+         * it argues that a layer ahead of the sweep is re-read on the way past
+         * anyway, so losing it costs one prefetch rather than the opening. Two
+         * sealed rounds on the DGX Spark say the argument does not survive
+         * contact with this cache size and this prompt:
+         *
+         *   the stack carrying this order, against the clean tip .... -4.35 %
+         *   the same stack with ONLY this comparator reverted ....... +3.46 %
+         *                                                            --------
+         *   one comparator, and the bands do not touch: the slowest reverted
+         *   run beat the fastest tip run by 0.21 t/s, 8 repeats of 8.
+         *
+         * Round 1: 2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md
+         * Round 2: 2026-09-17-ROUND2-RESULT-the-revert-beats-the-tip.md
+         * Round 1 measured +3.69 at n=4, round 2 +3.46 at n=8 on a cleared box.
+         *
+         * DS4_CUDA_PREFETCH_SWEEP_ORDER=1 restores the sweep-aware order, so the
+         * A/B stays runnable from one binary and the losing arm is not deleted. */
         const uint64_t swept_from = current->gate_offset < next->gate_offset ?
             current->gate_offset : next->gate_offset;
-        std::stable_sort(victims.begin(), victims.end(),
-                         [swept_from](uint32_t a, uint32_t b) {
-            const auto &sa = g_stream_expert_slots[a];
-            const auto &sb = g_stream_expert_slots[b];
-            const bool a_behind = sa.gate < swept_from;
-            const bool b_behind = sb.gate < swept_from;
-            /* Ahead of the sweep first: those layers are re-read on the way
-             * past anyway, so losing them costs one prefetch, not the opening. */
-            if (a_behind != b_behind) return !a_behind;
-            if (a_behind) {
-                /* Among the layers already passed, give up the ones CLOSEST to
-                 * the sweep: decode reaches layer 0 first, so the earliest
-                 * layers are the last thing worth surrendering. */
-                if (sa.gate != sb.gate) return sa.gate > sb.gate;
-            }
-            return sa.used < sb.used;
-        });
+        static int sweep_order = -1;
+        if (sweep_order < 0) {
+            const char *e = getenv("DS4_CUDA_PREFETCH_SWEEP_ORDER");
+            sweep_order = (e && e[0] == '1') ? 1 : 0;
+        }
+        if (sweep_order) {
+            std::stable_sort(victims.begin(), victims.end(),
+                             [swept_from](uint32_t a, uint32_t b) {
+                const auto &sa = g_stream_expert_slots[a];
+                const auto &sb = g_stream_expert_slots[b];
+                const bool a_behind = sa.gate < swept_from;
+                const bool b_behind = sb.gate < swept_from;
+                if (a_behind != b_behind) return !a_behind;
+                if (a_behind) {
+                    if (sa.gate != sb.gate) return sa.gate > sb.gate;
+                }
+                return sa.used < sb.used;
+            });
+        } else {
+            /* THE DEFAULT, and the measured one: least recently routed first. */
+            (void)swept_from;
+            std::stable_sort(victims.begin(), victims.end(),
+                             [](uint32_t a, uint32_t b) {
+                return g_stream_expert_slots[a].used < g_stream_expert_slots[b].used;
+            });
+        }
         p.slots.reserve(next->n_total_expert);
         p.copies.reserve(3u * next->n_total_expert);
         for (uint32_t expert = 0; expert < next->n_total_expert; expert++) {
