@@ -292,24 +292,26 @@ it rock.
   │
   │  WHAT           serves expert reads from a shared parallel SSD pool
   │                 instead of one serial reader, and now puts an io_uring
-  │                 O_DIRECT ring in front of that pool so queue depth is a
-  │                 switch rather than the worker count
+  │                 O_DIRECT ring in front of that pool so queue depth
+  │                 is a switch rather than the worker count
   │
   │  RESULTS              tokens/s        tip      change       floor
   │    generation             ____       ____        ____        ____
   │    prefill                ____       ____        ____        ____
   │
+  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │
   │  VERDICT        OWED: the fetch engine changed after the last
   │                 measurement, so the old +4.0 % no longer describes it
   │
-  │  SWITCH         DS4_CUDA_FETCH_QD=<n>; io_uring queue depth, default 64,
-  │                 clamped 8-512
+  │  SWITCH         DS4_CUDA_FETCH_QD=<n>; io_uring queue depth,
+  │                 default 64, clamped 8-512
   │                 DS4_CUDA_FETCH_URING=0 falls back to the pread pool;
   │                 DS4_CUDA_FETCH_BUFFERED=1 forces buffered reads
-  │                 DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS=<n>; pool workers
-  │                 when the ring is off, default 8, cap 16
-  │  HEADLINE       the ring is ported; device concurrency is now a knob, and
-  │                 no number here has been re-measured since
+  │                 DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS=<n>; pool
+  │                 workers when the ring is off, default 8, cap 16
+  │  HEADLINE       the ring is ported; device concurrency is now a
+  │                 knob, and no number here has been re-measured since
   │  OUTPUT         not re-run on this engine: sha256 ____
   │  BUILD          OWED: a CUDA build needs the DGX Spark, which is busy
   │
