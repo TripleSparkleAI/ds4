@@ -493,10 +493,15 @@ it (+72 to +81% prefill, measured alone).
 
 ## The index: every branch card, in full
 
-Every branch in the fork, its card as the branch itself carries it. **`triple-all-fastest`**
-comes first because it is the prime configuration: the one tree that carries every lever
-at once, rather than one lever against a control. **`triple-antirez-tip-latest`** comes last,
-because it is the control rather than a lever.
+Every branch in the fork, its card as the branch itself carries it, grouped by what
+its own measurement said. The separators are real rules and the order is the point:
+what helped, then what did not, then what nobody has run yet.
+
+---
+
+## POSITIVELY MEASURED
+
+Branches whose own measurement came back POSITIVE. Most of these deltas sit inside the session noise floor, so read the group as a DIRECTION and not as a proven win - each card carries its own floor beside its number.
 
 ### triple-all-fastest
 
@@ -515,6 +520,8 @@ because it is the control rather than a lever.
   │    generation             ____       9.56        ____       4.9 %
   │    prefill                ____       ____        ____      15.8 %
   │
+  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │
   │  VERDICT        AWAITING THE SWEEP: the stack number is what this tree
   │                 owes
   │
@@ -528,20 +535,33 @@ because it is the control rather than a lever.
   └──────────────────────────────────────────────────────────────────────
 ```
 
+### triple-hitsfirst
+
+*resident experts served first, misses deferred*
+
 ```
-  PRIME CONFIG - what makes this the fastest tree we have measured
-
-    levers compiled in      10        every lever we built, in ONE binary
-    on by default            9        hits-first is the one that is not
-    hits-first               1 of 10   OFF by default: DS4_CUDA_HITS_FIRST=1
-    no off switch            prefill-readahead-order is unconditional, and
-                             prefetch-pool ignores a chunk value of 0
-    switches                10        one binary, many arms
-    build                    clean     make cuda-spark -j12, 0 errors
-
-    STACK NUMBER             ____      the FULLSTACK series is running now;
-                                      this cell is the number the tree owes,
-                                      and it fills first
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-hitsfirst
+  │
+  │  WHAT           serves the experts already resident first and defers
+  │                 the misses, so the token does not stall on the slowest
+  │                 read in the batch
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation            10.35       9.56      +8.3 %       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │
+  │  VERDICT        OUTSIDE the floor: a real improvement at this
+  │                 measurement
+  │
+  │  SWITCH         DS4_CUDA_HITS_FIRST=1 (default OFF in the stack)
+  │  HEADLINE       +8.3% control vs patch, native build, 2 repeats
+  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │
+  └──────────────────────────────────────────────────────────────────────
 ```
 
 ### triple-pool
@@ -554,26 +574,34 @@ because it is the control rather than a lever.
   │  BRANCH    triple-pool
   │
   │  WHAT           serves expert reads from a shared parallel SSD pool
-  │                 instead of one serial reader, so prefill expert loads
-  │                 overlap instead of queueing
+  │                 instead of one serial reader, and now puts an io_uring
+  │                 O_DIRECT ring in front of that pool so queue depth is a
+  │                 switch rather than the worker count
   │
   │  RESULTS              tokens/s        tip      change       floor
-  │    generation             9.94       9.56      +4.0 %       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
+  │    generation             ____       ____        ____        ____
+  │    prefill                ____       ____        ____        ____
   │
-  │  VERDICT        inside the floor: this measurement does not resolve it
+  │  VERDICT        OWED: the fetch engine changed after the last
+  │                 measurement, so the old +4.0 % no longer describes it
   │
-  │  SWITCH         DS4_SSD_READERS=<n>; the serial reader stays as the
-  │                 fallback
-  │  HEADLINE       device probe 7.6 -> 10.1 GB/s at 8 readers
-  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │  SWITCH         DS4_CUDA_FETCH_QD=<n>; io_uring queue depth, default 64,
+  │                 clamped 8-512
+  │                 DS4_CUDA_FETCH_URING=0 falls back to the pread pool;
+  │                 DS4_CUDA_FETCH_BUFFERED=1 forces buffered reads
+  │                 DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS=<n>; pool workers
+  │                 when the ring is off, default 8, cap 16
+  │  HEADLINE       the ring is ported; device concurrency is now a knob, and
+  │                 no number here has been re-measured since
+  │  OUTPUT         not re-run on this engine: sha256 ____
+  │  BUILD          OWED: a CUDA build needs the DGX Spark, which is busy
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
 ### triple-margin
 
-*the expert-cache size as a knob*
+*the expert-cache reserve and the budget split*
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
@@ -600,35 +628,6 @@ because it is the control rather than a lever.
   └──────────────────────────────────────────────────────────────────────
 ```
 
-### triple-draincut
-
-*event-gated selected-expert readback*
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH    triple-draincut
-  │
-  │  WHAT           reads selected experts back on an event instead of
-  │                 blocking, removing 40 device drains per token from the
-  │                 host's wait
-  │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             9.09       9.17      -0.9 %       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
-  │
-  │  VERDICT        inside the floor: this measurement does not resolve it
-  │
-  │  POLARITY       the lever is ON by default;
-  │                 DS4_CUDA_SELECTED_DRAIN_SYNC=1
-  │                 restores the blocking read, which is the OFF arm
-  │  HEADLINE       40 device drains per token removed from the host's
-  │                 wait
-  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
 ### triple-pagecache
 
 *staged page-drop order*
@@ -646,11 +645,50 @@ because it is the control rather than a lever.
   │    generation             9.62       9.56      +0.6 %       4.9 %
   │    prefill                ____       ____        ____      15.8 %
   │
+  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │
   │  VERDICT        inside the floor: this measurement does not resolve it
   │
   │  SWITCH         the drop order is staged; the arms are in the section
   │                 below
   │  HEADLINE       measured: awaiting the clean sweep
+  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+---
+
+## NEGATIVELY MEASURED
+
+Branches whose own measurement came back NEGATIVE, or whose idea was killed by measurement. A null is a result: the closed branch below is kept precisely because it stops someone rebuilding it.
+
+### triple-draincut
+
+*event-gated selected-expert readback*
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-draincut
+  │
+  │  WHAT           reads selected experts back on an event instead of
+  │                 blocking, removing 40 device drains per token from the
+  │                 host's wait
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             9.09       9.17      -0.9 %       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │
+  │  VERDICT        inside the floor: this measurement does not resolve it
+  │
+  │  POLARITY       the lever is ON by default;
+  │                 DS4_CUDA_SELECTED_DRAIN_SYNC=1
+  │                 restores the blocking read, which is the OFF arm
+  │  HEADLINE       40 device drains per token removed from the host's
+  │                 wait
   │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
   │
   └──────────────────────────────────────────────────────────────────────
@@ -665,49 +703,102 @@ because it is the control rather than a lever.
   │
   │  BRANCH    triple-hotlist
   │
-  │  WHAT           counts every (layer, expert) a CUDA session asks for
-  │                 and seeds the next session's SSD expert cache from it,
-  │                 so the opening tokens start warm instead of cold
+  │  WHAT           seeds the next session's SSD expert cache from the
+  │                 previous run's demand, so the opening tokens start
+  │                 WARM instead of cold.  A WARM-UP device, not a
+  │                 selection device.
   │
   │  RESULTS              tokens/s        tip      change       floor
-  │    generation             9.38       9.56      -1.9 %       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
+  │    generation             ____        ____        ____       4.9 %
+  │    prefill                ____        ____        ____      15.8 %
   │
-  │  VERDICT        inside the floor: this measurement does not resolve it
+  │  VERDICT        OWED.  The seeding arm this branch shipped measured
+  │                 -1.9 %, which is INSIDE the floor.  The re-scoped
+  │                 lever, a warm cache, is not measured yet.
   │
   │  SWITCH         DS4_CUDA_EXPERT_HOTLIST_WRITE=<file>, 0 disables
+  │                 DS4_CUDA_EXPERT_HOTLIST_DECAY=none|halve|quarter|
+  │                 eighth|shift:<n>, DEFAULT halve, UNCHANGED
+  │                 DS4_CUDA_EXPERT_HOTLIST_ROLLING=1 turns the
+  │                 retention rule into a measurement
   │                 DS4_METAL_DISABLE_STREAMING_EXPERT_HOTLIST=1
   │                 disables seeding
-  │  HEADLINE       5,177 experts written after a short run, 8,679 after a
-  │                 long one
+  │  HEADLINE       presence 27x to 45x the content effect
+  │                 (WIKI/theory/167, lines 57 and 68-70); warm resident
+  │                 35.14 vs cold 15.87 tokens/s, 2.2x
+  │                 (WIKI/theory/48, section 4, lines 148-152)
   │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
-### triple-hitsfirst
+### triple-word-finisher
 
-*resident experts served first, misses deferred*
+*CLOSED - the measurement killed the idea*
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-hitsfirst
+  │  BRANCH    triple-word-finisher
   │
-  │  WHAT           serves the experts already resident first and defers
-  │                 the misses, so the token does not stall on the slowest
-  │                 read in the batch
+  │  WHAT           the lookup drafter, tested and CLOSED on measurement:
+  │                 a k-token verify pass reads the SAME NVMe bytes as k
+  │                 single passes, so it saves nothing
   │
   │  RESULTS              tokens/s        tip      change       floor
-  │    generation            10.35       9.56      +8.3 %       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
+  │    no patch   a measurement branch, see VERDICT
   │
-  │  VERDICT        OUTSIDE the floor: a real improvement at this
+  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │
+  │  VERDICT        CLOSED: the measurement killed the idea, and that is a
+  │                 result
+  │
+  │  ACCEPTANCE     2.37x code / 1.17x prose: the speedup is real, and not
+  │                 the lever
+  │  BYTES SAVED    0.0000 at k of 2, 4 and 8
+  │  ROUTING OVERLAP 38.90% between adjacent decode tokens
+  │  MISS REUSE     0 of 1,219: no next miss was selected by the previous
+  │                 token
+  │  OUTPUT         not run - there is no patch; this branch is a
   │                 measurement
   │
-  │  SWITCH         DS4_CUDA_HITS_FIRST=1 (default OFF in the stack)
-  │  HEADLINE       +8.3% control vs patch, native build, 2 repeats
-  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  └──────────────────────────────────────────────────────────────────────
+```
+
+---
+
+## NOT YET MEASURED
+
+Prepared, committed, and carrying no throughput number yet. Every cell in their cards is blank on purpose, with the reason stated on the card itself.
+
+### triple-prefetch-pool
+
+*parallel chunked prefill read-ahead*
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-prefetch-pool
+  │
+  │  WHAT           a parallel chunked read-ahead for prefill, with the
+  │                 single reader kept as the fallback whenever the pool
+  │                 declines the work
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             ____       ____        ____       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │
+  │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
+  │
+  │  SWITCH         DS4_CUDA_SSD_PREFETCH_CHUNK_MB, default 8 MiB, cap 64;
+  │                 a
+  │                 value of 0 is IGNORED, so there is no clean off arm
+  │  FALLBACK       pool declines -> the single reader, unchanged
+  │  GATE           expected output-invariant: WHEN bytes arrive changes,
+  │                 never
+  │                 how many
   │
   └──────────────────────────────────────────────────────────────────────
 ```
@@ -731,42 +822,14 @@ because it is the control rather than a lever.
   │
   │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
   │
-  │  SWITCH         NONE: the reorder is unconditional in this branch
+  │  SWITCH         DS4_PREFILL_READAHEAD_HOLD=0 restores upstream exactly:
+  │                 the plain used-ascending victim order, no held set.
+  │                 Unset or 1 keeps the reorder plus the held band. This is
+  │                 the A/B switch the branch did not have before.
   │  STATS          DS4_CUDA_SSD_PREFETCH_STATS=1 counts only, it does not
   │                 gate
   │  GATE           expected output-invariant: residency changes WHEN a
-  │                 byte
-  │                 arrives, never which byte
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
-### triple-prefetch-pool
-
-*parallel chunked prefill read-ahead*
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH    triple-prefetch-pool
-  │
-  │  WHAT           a parallel chunked read-ahead for prefill, with the
-  │                 single reader kept as the fallback whenever the pool
-  │                 declines the work
-  │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____       ____        ____       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
-  │
-  │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
-  │
-  │  SWITCH         DS4_CUDA_SSD_PREFETCH_CHUNK_MB, default 8 MiB, cap 64;
-  │                 a
-  │                 value of 0 is IGNORED, so there is no clean off arm
-  │  FALLBACK       pool declines -> the single reader, unchanged
-  │  GATE           expected output-invariant: WHEN bytes arrive changes,
-  │                 never
-  │                 how many
+  │                 byte arrives, never which byte
   │
   └──────────────────────────────────────────────────────────────────────
 ```
@@ -788,6 +851,8 @@ because it is the control rather than a lever.
   │    generation             ____       ____        ____       4.9 %
   │    prefill                ____       ____        ____      15.8 %
   │
+  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │
   │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
   │
   │  HEADLINE       the read is 23.9 ms of a 198.6 ms step, 12.04%, fully
@@ -807,9 +872,9 @@ because it is the control rather than a lever.
   │
   │  BRANCH    triple-engram-read-threads
   │
-  │  WHAT           scales the Engram table readers to the rows the batch
-  │                 actually needs, instead of a fixed 2 rows per reader
-  │                 capped at 16
+  │  WHAT           issues a decode step's Engram read as ONE WAVE: one row
+  │                 per reader on a single persistent pool shared by both
+  │                 tables, instead of two serial rounds of twelve readers
   │
   │  RESULTS              tokens/s        tip      change       floor
   │    generation             ____       ____        ____       4.9 %
@@ -817,46 +882,25 @@ because it is the control rather than a lever.
   │
   │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
   │
-  │  HEADLINE       48 serial 264-byte preads, 12,672 bytes, 12.04% of
-  │                 every step
+  │  SWITCH         DS4_ENGRAM_ROWS_PER_READER=1|2, default 1
+  │                 2 restores the old two-round divisor as the control arm
+  │                 DS4_ENGRAM_READ_THREADS=<n> still overrides the count
+  │  HEADLINE       48 serial 264-byte preads, 12,672 bytes, 12.04% of the
+  │                 step; the one-wave fix itself is OWED
   │  RECORD         speed-bench/v41_engram_read_threads_gb10.md
-  │  OUTPUT         gates match; short bb06e711bc498bb9, long
-  │                 2f2dd7f89d107bbc,
-  │                 generation 652dcda32c176cab; the end-to-end A/B is OWED
+  │  OUTPUT         the reader count is proven not to change a byte
+  │                 (tests/test_engram.c); the release gates and the
+  │                 end-to-end A/B are OWED
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
-### triple-word-finisher
+---
 
-*CLOSED - the measurement killed the idea*
+## THE CONTROL
 
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH    triple-word-finisher
-  │
-  │  WHAT           the lookup drafter, tested and CLOSED on measurement:
-  │                 a k-token verify pass reads the SAME NVMe bytes as k
-  │                 single passes, so it saves nothing
-  │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    no patch   a measurement branch, see VERDICT
-  │
-  │  VERDICT        CLOSED: the measurement killed the idea, and that is a
-  │                 result
-  │
-  │  ACCEPTANCE     2.37x code / 1.17x prose: the speedup is real, and not
-  │                 the lever
-  │  BYTES SAVED    0.0000 at k of 2, 4 and 8
-  │  ROUTING OVERLAP 38.90% between adjacent decode tokens
-  │  MISS REUSE     0 of 1,219: no next miss was selected by the previous
-  │                 token
-  │  OUTPUT         not run - there is no patch; this branch is a
-  │                 measurement
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
+Not a lever and never grouped with one: this is the tip every other branch is cut
+from, and the zero point every number above is measured against.
 
 ### triple-antirez-tip-latest
 
@@ -874,6 +918,8 @@ because it is the control rather than a lever.
   │  RESULTS              tokens/s        tip      change       floor
   │    generation             9.56       9.56   reference       4.9 %
   │    prefill                ____       ____        ____      15.8 %
+  │
+  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
   │
   │  VERDICT        THIS IS THE TIP: it carries no lever and is the zero
   │                 point
