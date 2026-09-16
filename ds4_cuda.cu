@@ -28,6 +28,7 @@
 #include "cuda/mmq/ds4_mmq.h"
 #include "cuda/mmq/ds4_repack.h"
 #include "ds4_image.h"
+#include "ds4_hitsfirst_logic.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -22777,8 +22778,10 @@ __global__ static void moe_down_sum_qwarp32_kernel(
     #pragma unroll
     for (uint32_t slot = 0; slot < SLOTS; slot++) {
         int32_t expert_i = selected[slot];
-        /* Unowned slots may have no initialized quantized intermediate. */
-        if (expert_i < 0) continue;
+        /* Unowned slots may have no initialized quantized intermediate. Shared
+         * with moe_down_slot_partial_qwarp32_kernel so the split and the fused
+         * form cannot drift apart. */
+        if (!ds4_hitsfirst_slot_contributes(expert_i)) continue;
         const cuda_block_q8_K *xq = midq + (uint64_t)slot * midq_blocks;
         float acc = 0.0f;
         for (uint32_t b = lane; b < midq_blocks; b += 8u) {
@@ -22834,8 +22837,15 @@ __global__ static void moe_down_slot_partial_qwarp32_kernel(
     uint32_t lane = threadIdx.x & 7u;
     uint32_t row = blockIdx.x * 32u + (threadIdx.x >> 3u);
     if (row >= out_dim) return;
-    int32_t expert_i = selected[slot];
-    if (expert_i < 0) expert_i = 0;
+    const int32_t expert_i = selected[slot];
+    /* Unowned slots may have no initialized quantized intermediate. The fused
+     * kernel this splits (moe_down_sum_qwarp32_kernel) skips them; writing zero
+     * here makes moe_down_sum_partials6_kernel's sum agree with that skip. One
+     * rule, ds4_hitsfirst_slot_contributes, called by both. */
+    if (!ds4_hitsfirst_slot_contributes(expert_i)) {
+        if (lane == 0) partial[(uint64_t)slot * out_dim + row] = 0.0f;
+        return;
+    }
     const cuda_block_q2_K *wr = (const cuda_block_q2_K *)(down_base + (uint64_t)(uint32_t)expert_i * down_expert_bytes + (uint64_t)row * down_row_bytes);
     const cuda_block_q8_K *xq = midq + (uint64_t)slot * midq_blocks;
     float acc = 0.0f;
@@ -24904,6 +24914,7 @@ static cuda_hits_first_state g_hits_first;
 static float *g_hf_partials = NULL;      /* 6 x out_dim floats, device; own allocation, never a scratch alias */
 static uint64_t g_hf_partials_floats = 0;
 static float *cuda_hf_partials(uint64_t floats);
+static void cuda_hf_partials_release(void);
 static int cuda_hits_first_wait(void);
 static void cuda_hits_first_wait_gate_up(void);
 
@@ -25144,6 +25155,14 @@ static int routed_moe_launch(
         if (!cuda_use_mxfp4_mmq()) {
             fprintf(stderr, "ds4: CUDA MXFP4 requires the MMQ backend\n");
             return 0;
+        }
+        /* This block launches and returns before the hits-first wait further
+         * down is reached at all, so it drains here. Nothing on the MXFP4 path
+         * consumes a hits-first batch (ds4_hitsfirst_split_consumes is false for
+         * it), and its kernels read the same victim slots the pool is filling. */
+        if (ds4_hitsfirst_must_wait(g_hits_first.active, n_tokens,
+                                    /*use_decode_lut_gate=*/0, q4k_path, mxfp4_path)) {
+            if (!cuda_hits_first_wait()) return 0;
         }
         const uint64_t gate_total =
             (uint64_t)n_total_expert * gate_expert_bytes;
@@ -25530,8 +25549,16 @@ static int routed_moe_launch(
             getenv("DS4_CUDA_MOE_NO_DECODE_LUT_GATE") == NULL;
         int hf_split_down = 0;   /* hits-first ran the per-slot down kernels itself */
         /* Hits-first overlaps only the plain one-token LUT gate/up launch; every
-         * other path reads all six experts at once, so drain the pending load now. */
-        if (g_hits_first.active && !(n_tokens == 1u && use_decode_lut_gate)) {
+         * other path reads all six experts at once, so drain the pending load now.
+         *
+         * The QUANT is part of that question and used not to be. For n_tokens == 1
+         * the launch chain below is `if (q4k_path) { Q4_K gate/up } else if
+         * (use_decode_lut_gate) { the hits-first split }`, and use_decode_lut_gate
+         * does not depend on the quant - so a Q4_K-expert model skipped this wait
+         * and then launched gate/up kernels over victim slots the pool's workers
+         * were still uploading on their own non-blocking streams. */
+        if (ds4_hitsfirst_must_wait(g_hits_first.active, n_tokens,
+                                    (int)use_decode_lut_gate, q4k_path, mxfp4_path)) {
             if (!cuda_hits_first_wait()) return 0;
         }
         const uint32_t gate_row_span =
@@ -27690,6 +27717,24 @@ static float *cuda_hf_partials(uint64_t floats) {
     g_hf_partials_floats = floats;
     return g_hf_partials;
 }
+/* Released with the rest of the hits-first state; the wait above has already
+ * returned, so no kernel is reading these partials. */
+static void cuda_hf_partials_release(void) {
+    if (!g_hf_partials) return;
+    (void)cudaFree(g_hf_partials);
+    g_hf_partials = NULL;
+    g_hf_partials_floats = 0;
+}
+/* DS4_CUDA_EXPERT_CACHE_STATS was read with getenv on every begin_load call -
+ * a linear scan of environ per MoE layer per token, on the hit path too, and
+ * begin_load sits between a cudaStreamSynchronize of the decode stream and the
+ * routed launch, so host time there is GPU idle time. Read once, like the
+ * hits-first switches. Consequence, stated: the switch is now sampled at the
+ * first begin_load of the process and cannot be flipped mid-run. */
+static int cuda_expert_cache_stats_enabled(void) {
+    static ds4_env_gate gate = DS4_ENV_GATE_INIT;
+    return ds4_env_gate_on(&gate, "DS4_CUDA_EXPERT_CACHE_STATS");
+}
 static int cuda_hits_first_enabled(void) {
     static int cached = -1;
     /* On by default.  DS4_CUDA_HITS_FIRST=0 disables it and restores the plain
@@ -27711,7 +27756,8 @@ static int cuda_hits_first_wait(void) {
     if (!g_hits_first.active) return 1;
     g_hits_first.active = 0;
     (void)cuda_expert_pread_pool_wait();
-    g_stream_expert_sec_read += cuda_wall_sec() - g_hits_first.t0;
+    if (cuda_expert_cache_stats_enabled())
+        g_stream_expert_sec_read += cuda_wall_sec() - g_hits_first.t0;
     int all_ok = 1;
     for (uint32_t m = 0; m < g_hits_first.n_miss; m++) {
         const std::vector<cuda_expert_pread_task> &t = g_hits_first.tasks;
@@ -27865,13 +27911,18 @@ static int cuda_stream_selected_cache_begin_load(
          * pool declines, the serial staged copy below runs exactly as before. */
         std::vector<cuda_expert_pread_task> tasks;
         std::vector<uint32_t> task_victim;
-        std::vector<char> was_miss(unique.size(), 0);
+        /* The miss set is only ever read inside the hits-first block below,
+         * which requires slot_count <= 8, so a mask carries it and no heap
+         * allocation happens on any path - including the all-hit path, which
+         * used to allocate a vector it never read. */
+        uint64_t miss_mask = 0;
         cuda_stream_upload_batch uploads;
-        const double t_read0 = cuda_wall_sec();
+        const int stats_on = cuda_expert_cache_stats_enabled();
+        const double t_read0 = stats_on ? cuda_wall_sec() : 0.0;
         for (size_t i = 0; i < unique.size(); i++) {
             g_stream_expert_lookups++;
             if (slots[i] >= 0) { g_stream_expert_hits++; continue; }
-            was_miss[i] = 1;
+            ds4_hitsfirst_miss_set(&miss_mask, i);
             uint32_t victim = UINT32_MAX;
             uint64_t oldest = stamp;
             for (uint32_t j = 0; j < g_stream_expert_slots.size(); j++) {
@@ -27941,7 +27992,8 @@ static int cuda_stream_selected_cache_begin_load(
                 g_hits_first.t0 = t_read0;
                 g_hits_first.pair_miss_mask = 0;
                 for (uint32_t i = 0; i < slot_count && i < 32u; i++)
-                    if (was_miss[(uint32_t)remap[i]]) g_hits_first.pair_miss_mask |= 1u << i;
+                    if (ds4_hitsfirst_miss_get(miss_mask, (size_t)(uint32_t)remap[i]))
+                        g_hits_first.pair_miss_mask |= 1u << i;
                 if (cuda_expert_pread_pool_dispatch_start_staged(g_hits_first.tasks.data(),
                         (uint32_t)g_hits_first.tasks.size(),
                         g_hits_first.staged ? g_hits_first.n_gate_up : 0u)) {
@@ -27971,10 +28023,10 @@ static int cuda_stream_selected_cache_begin_load(
                 if (slot.used) g_stream_expert_by_gate.erase(slot.gate);
                 slot.used = 0;
             }
-            g_stream_expert_sec_read += cuda_wall_sec() - t_read0;
+            if (stats_on) g_stream_expert_sec_read += cuda_wall_sec() - t_read0;
             if (!all_ok) return 0;
         }
-        if (getenv("DS4_CUDA_EXPERT_CACHE_STATS") && g_stream_expert_lookups &&
+        if (cuda_expert_cache_stats_enabled() && g_stream_expert_lookups &&
             g_stream_expert_lookups / 4000u != (g_stream_expert_lookups - unique.size()) / 4000u)
             fprintf(stderr, "ds4: [expert-cache] %llu lookups, hit_rate=%.3f, resident=%zu/%zu, evictions=%llu, read %.1f s\n",
                     (unsigned long long)g_stream_expert_lookups,
@@ -34471,6 +34523,7 @@ extern "C" void ds4_gpu_stream_expert_cache_release_resident(void) {
     if (g_hits_first.active) (void)cuda_hits_first_wait();
     cuda_stream_selected_cache_release();
     cuda_expert_pread_pool_shutdown();
+    cuda_hf_partials_release();
 }
 
 extern "C" int ds4_gpu_stream_expert_cache_seed_selected(
