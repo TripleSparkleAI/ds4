@@ -275,6 +275,9 @@ it rock.
 
 **✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
 
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
 **✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
 
 **✦ above: the README, unchanged**
@@ -293,6 +296,8 @@ it rock.
   │  RESULTS              tokens/s        tip      change       floor
   │    generation             9.56       9.56   reference       4.9 %
   │    prefill                ____       ____        ____      15.8 %
+  │
+  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
   │
   │  VERDICT        THIS IS THE TIP: it carries no lever and is the zero
   │                 point
