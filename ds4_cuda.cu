@@ -21,6 +21,7 @@
 #include <pthread.h>
 #include <atomic>
 #include "ds4_linux_memory.h"
+#include "ds4_pread_pool_config.h"   /* pooled SSD read-ahead: env resolution, testable on any host */
 #include <unordered_map>
 #include <vector>
 #include <algorithm>
@@ -2433,6 +2434,11 @@ typedef struct cuda_pread_pool {
     pthread_t       thread[DS4_CUDA_EXPERT_PREAD_MAX];
     cuda_pread_worker_arg args[DS4_CUDA_EXPERT_PREAD_MAX];
     cuda_expert_pread_ctx ctx[DS4_CUDA_EXPERT_PREAD_MAX];
+    /* Resolved from the two env vars above on first use, then reused.  Sits
+     * after the positionally-initialized members on purpose: an all-zero cache
+     * means "not resolved yet", so g_expert_pread's short initializer list
+     * leaves it correct.  See ds4_pread_pool_config.h. */
+    ds4_pread_pool_cfg cfg;
     uint32_t thread_count;
     uint32_t active;
     uint32_t remaining;
@@ -2461,22 +2467,19 @@ static cuda_pread_pool g_expert_pread = { "expert", "DS4_CUDA_STREAMING_EXPERT_P
     "DS4_CUDA_STREAMING_EXPERT_PREAD_POOL", 8u,
     PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, PTHREAD_COND_INITIALIZER };
 
-static int cuda_pread_pool_enabled(const cuda_pread_pool *pool) {
-    const char *env = getenv(pool->enable_env);
-    return !(env && strcmp(env, "0") == 0);
+/* The resolution rules live in ds4_pread_pool_config.h so they can be tested
+ * on a host with no CUDA toolkit; tests/test_pread_pool_config.c exercises the
+ * parse, both clamps and the read count.  The pool's own ceiling and the
+ * header's must agree, because both index thread[]/args[]/ctx[]. */
+static_assert(DS4_PREAD_POOL_MAX == DS4_CUDA_EXPERT_PREAD_MAX,
+              "pread pool worker ceiling must match the fixed array bound");
+
+static int cuda_pread_pool_enabled(cuda_pread_pool *pool) {
+    return ds4_pread_pool_enabled(&pool->cfg, pool->enable_env);
 }
 
-static uint32_t cuda_pread_pool_limit(const cuda_pread_pool *pool) {
-    uint32_t threads = pool->default_threads;
-    const char *env = getenv(pool->threads_env);
-    if (env && env[0]) {
-        char *end = NULL;
-        unsigned long v = strtoul(env, &end, 10);
-        if (end != env && *end == '\0') threads = v > UINT32_MAX ? UINT32_MAX : (uint32_t)v;
-    }
-    if (threads == 0) threads = 1;
-    if (threads > DS4_CUDA_EXPERT_PREAD_MAX) threads = DS4_CUDA_EXPERT_PREAD_MAX;
-    return threads;
+static uint32_t cuda_pread_pool_limit(cuda_pread_pool *pool) {
+    return ds4_pread_pool_threads(&pool->cfg, pool->threads_env, pool->default_threads);
 }
 
 /* Thread-safe twin of cuda_model_stage_read.  Snapshots the O_DIRECT globals
@@ -2715,10 +2718,13 @@ static int cuda_pread_pool_dispatch_start(cuda_pread_pool *pool,
                                           uint32_t n_tasks) {
     if (!tasks || n_tasks <= 1) return 0;
     if (g_model_fd < 0) return 0;
-    uint32_t n_workers = cuda_pread_pool_limit(pool);
-    if (n_workers > n_tasks) n_workers = n_tasks;
-    if (n_workers <= 1) return 0;
-    if (!cuda_pread_pool_init(pool, cuda_pread_pool_limit(pool))) return 0;
+    /* One resolution, two uses.  The pool is persistent and takes the
+     * UNCLAMPED limit, so a first batch of two tasks cannot pin it at two
+     * threads for the run; this batch takes the clamped count. */
+    const uint32_t limit = cuda_pread_pool_limit(pool);
+    uint32_t n_workers = ds4_pread_pool_workers(limit, n_tasks);
+    if (n_workers == 0) return 0;
+    if (!cuda_pread_pool_init(pool, limit)) return 0;
 
     /* Staging is sized to the largest task, capped at the chunk size, so a
      * few-MiB expert costs a few MiB per worker and not a 64 MiB chunk. */
