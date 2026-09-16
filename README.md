@@ -482,3 +482,404 @@ it (+72 to +81% prefill, measured alone).
         v
    triple-all-fastest  -  builds clean: 10 levers compiled in, 9 live, hits-first off
 ```
+
+
+---
+
+## The index: every branch card, in full
+
+Every branch in the fork, its card as the branch itself carries it. **`triple-all-fastest`**
+comes first because it is the prime configuration: the one tree that carries every lever
+at once, rather than one lever against a control. **`triple-antirez-tip-latest`** comes last,
+because it is the control rather than a lever.
+
+### triple-all-fastest
+
+*the prime configuration - every lever in one binary*
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-all-fastest
+  │
+  │  WHAT           the stacked tree: every lever compiled into one
+  │                 binary, nine on by default and hits-first off, so one
+  │                 build exposes many arms
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             ____       9.56        ____       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        AWAITING THE SWEEP: the stack number is what this tree
+  │                 owes
+  │
+  │  LEVERS         10 compiled in, 9 on by default, hits-first 1 of 10
+  │                 OFF
+  │  EXCLUDED       0 - nothing is left out of this tree
+  │  SWITCHES       10 - one binary, many arms
+  │  BUILD          clean: make cuda-spark -j12, 0 errors
+  │  STACK NUMBER   OWED - it is a measurement or it is nothing
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+```
+  PRIME CONFIG - what makes this the fastest tree we have measured
+
+    levers compiled in      10        every lever we built, in ONE binary
+    on by default            9        hits-first is the one that is not
+    hits-first               1 of 10   OFF by default: DS4_CUDA_HITS_FIRST=1
+    no off switch            prefill-readahead-order is unconditional, and
+                             prefetch-pool ignores a chunk value of 0
+    switches                10        one binary, many arms
+    build                    clean     make cuda-spark -j12, 0 errors
+
+    STACK NUMBER             ____      the FULLSTACK series is running now;
+                                      this cell is the number the tree owes,
+                                      and it fills first
+```
+
+### triple-pool
+
+*parallel expert reads through a shared SSD pool*
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-pool
+  │
+  │  WHAT           serves expert reads from a shared parallel SSD pool
+  │                 instead of one serial reader, so prefill expert loads
+  │                 overlap instead of queueing
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             9.94       9.56      +4.0 %       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        inside the floor: this measurement does not resolve it
+  │
+  │  SWITCH         DS4_SSD_READERS=<n>; the serial reader stays as the
+  │                 fallback
+  │  HEADLINE       device probe 7.6 -> 10.1 GB/s at 8 readers
+  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-margin
+
+*the expert-cache size as a knob*
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-margin
+  │
+  │  WHAT           turns the expert-cache size into a knob, trading
+  │                 resident experts against the RAM left to everything
+  │                 else on the box
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             8.68       9.56      -9.2 %       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        OUTSIDE the floor: a real regression at this
+  │                 measurement
+  │
+  │  SWITCH         is the reserve itself; the size goes up, the margin
+  │                 goes down
+  │  HEADLINE       5,677 slots @0.918 hit vs 5,234 @0.901 (probe, other
+  │                 tree)
+  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-draincut
+
+*event-gated selected-expert readback*
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-draincut
+  │
+  │  WHAT           reads selected experts back on an event instead of
+  │                 blocking, removing 40 device drains per token from the
+  │                 host's wait
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             9.09       9.17      -0.9 %       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        inside the floor: this measurement does not resolve it
+  │
+  │  POLARITY       the lever is ON by default;
+  │                 DS4_CUDA_SELECTED_DRAIN_SYNC=1
+  │                 restores the blocking read, which is the OFF arm
+  │  HEADLINE       40 device drains per token removed from the host's
+  │                 wait
+  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-pagecache
+
+*staged page-drop order*
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-pagecache
+  │
+  │  WHAT           drops staged pages in an order that keeps the working
+  │                 set resident, instead of dropping them in arrival
+  │                 order
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             9.62       9.56      +0.6 %       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        inside the floor: this measurement does not resolve it
+  │
+  │  SWITCH         the drop order is staged; the arms are in the section
+  │                 below
+  │  HEADLINE       measured: awaiting the clean sweep
+  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-hotlist
+
+*seed the cache from the previous run's demand*
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-hotlist
+  │
+  │  WHAT           counts every (layer, expert) a CUDA session asks for
+  │                 and seeds the next session's SSD expert cache from it,
+  │                 so the opening tokens start warm instead of cold
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             9.38       9.56      -1.9 %       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        inside the floor: this measurement does not resolve it
+  │
+  │  SWITCH         DS4_CUDA_EXPERT_HOTLIST_WRITE=<file>, 0 disables
+  │                 DS4_METAL_DISABLE_STREAMING_EXPERT_HOTLIST=1
+  │                 disables seeding
+  │  HEADLINE       5,177 experts written after a short run, 8,679 after a
+  │                 long one
+  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-hitsfirst
+
+*resident experts served first, misses deferred*
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-hitsfirst
+  │
+  │  WHAT           serves the experts already resident first and defers
+  │                 the misses, so the token does not stall on the slowest
+  │                 read in the batch
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation            10.35       9.56      +8.3 %       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        OUTSIDE the floor: a real improvement at this
+  │                 measurement
+  │
+  │  SWITCH         DS4_CUDA_HITS_FIRST=1 (default OFF in the stack)
+  │  HEADLINE       +8.3% control vs patch, native build, 2 repeats
+  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-prefill-readahead-order
+
+*prefill eviction that spares what decode needs*
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-prefill-readahead-order
+  │
+  │  WHAT           reorders prefill victim eviction so the experts decode
+  │                 will need are not the ones dropped: the prefill hit
+  │                 list survives into decode
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             ____       ____        ____       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
+  │
+  │  SWITCH         NONE: the reorder is unconditional in this branch
+  │  STATS          DS4_CUDA_SSD_PREFETCH_STATS=1 counts only, it does not
+  │                 gate
+  │  GATE           expected output-invariant: residency changes WHEN a
+  │                 byte
+  │                 arrives, never which byte
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-prefetch-pool
+
+*parallel chunked prefill read-ahead*
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-prefetch-pool
+  │
+  │  WHAT           a parallel chunked read-ahead for prefill, with the
+  │                 single reader kept as the fallback whenever the pool
+  │                 declines the work
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             ____       ____        ____       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
+  │
+  │  SWITCH         DS4_CUDA_SSD_PREFETCH_CHUNK_MB, default 8 MiB, cap 64;
+  │                 a
+  │                 value of 0 is IGNORED, so there is no clean off arm
+  │  FALLBACK       pool declines -> the single reader, unchanged
+  │  GATE           expected output-invariant: WHEN bytes arrive changes,
+  │                 never
+  │                 how many
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-engram-lead
+
+*Engram read, a token of lead*
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-engram-lead
+  │
+  │  WHAT           starts the Engram table read a token of lead ahead of
+  │                 first use, so the read overlaps the step instead of
+  │                 landing exposed inside it
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             ____       ____        ____       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
+  │
+  │  HEADLINE       the read is 23.9 ms of a 198.6 ms step, 12.04%, fully
+  │                 exposed
+  │  RECORD         speed-bench/v41_engram_lead_gb10.md
+  │  OUTPUT         ____  gates and the end-to-end A/B are OWED here
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-engram-read-threads
+
+*Engram readers scaled to the rows needed*
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-engram-read-threads
+  │
+  │  WHAT           scales the Engram table readers to the rows the batch
+  │                 actually needs, instead of a fixed 2 rows per reader
+  │                 capped at 16
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             ____       ____        ____       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
+  │
+  │  HEADLINE       48 serial 264-byte preads, 12,672 bytes, 12.04% of
+  │                 every step
+  │  RECORD         speed-bench/v41_engram_read_threads_gb10.md
+  │  OUTPUT         gates match; short bb06e711bc498bb9, long
+  │                 2f2dd7f89d107bbc,
+  │                 generation 652dcda32c176cab; the end-to-end A/B is OWED
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-word-finisher
+
+*CLOSED - the measurement killed the idea*
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-word-finisher
+  │
+  │  WHAT           the lookup drafter, tested and CLOSED on measurement:
+  │                 a k-token verify pass reads the SAME NVMe bytes as k
+  │                 single passes, so it saves nothing
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    no patch   a measurement branch, see VERDICT
+  │
+  │  VERDICT        CLOSED: the measurement killed the idea, and that is a
+  │                 result
+  │
+  │  ACCEPTANCE     2.37x code / 1.17x prose: the speedup is real, and not
+  │                 the lever
+  │  BYTES SAVED    0.0000 at k of 2, 4 and 8
+  │  ROUTING OVERLAP 38.90% between adjacent decode tokens
+  │  MISS REUSE     0 of 1,219: no next miss was selected by the previous
+  │                 token
+  │  OUTPUT         not run - there is no patch; this branch is a
+  │                 measurement
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-antirez-tip-latest
+
+*the control: upstream main, PRs 1034 and 1035 folded*
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-antirez-tip-latest
+  │
+  │  WHAT           the rolled tip: upstream main left untouched with PRs
+  │                 1034 and 1035 folded in. This is the CONTROL every
+  │                 other branch is cut from
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             9.56       9.56   reference       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        THIS IS THE TIP: it carries no lever and is the zero
+  │                 point
+  │
+  │  UPSTREAM       9139e2ae5 untouched
+  │  + PR 1034      folded: Metal decode-queue sync, with its test and
+  │                 bench
+  │  + PR 1035      folded: macOS Engram parallel reads, +5.2% by its
+  │                 author
+  │  = BRANCH       8ee53cb8b, tree-identical to 84ba6ef1b
+  │  PR 1031 / 1030 not taken: superseded by evolution / moot
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
