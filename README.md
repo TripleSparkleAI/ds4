@@ -414,925 +414,734 @@ Spark, 0 errors.
 
 ---
 
-## The index: every branch card, in full
+## The index: every branch card
 
-Every branch on the fork, one card each, taken verbatim from that branch's
-own README and grouped by what its own card says about it. A delta is the
-generation percentage the card states against that branch's own control.
-
-Placement rule for a branch that carries no throughput claim: it goes in the
-group its own card's verdict belongs to. The IQ2 LUT check and the 4-bit
-re-encode are closed questions - the first found our tree already clean, the
-second argues against itself - so they sit with the other closed ideas, where
-a null is still a result. The prepared arms of triple-spec-under-offload have
-had no run, so they sit in NOT YET MEASURED.
-
-Two branches withdrew their own number and moved with it: triple-pool and
-triple-margin each carry a blank result and an OWED verdict saying the old
-figure no longer describes the code, so both are placed as not yet measured
-rather than at the withdrawn value.
-
-No fourth group was needed; every branch fitted one of the three honestly.
-
----
+One card per branch, the box copied from that branch's own README at its HEAD by
+`rebuild_index.py`, grouped by the status the card itself declares. Regenerate,
+never hand-edit: a hand-edited row drifts from the branch it describes.
+Regenerated 2026-09-16 09:26Z, 24 cards.
 
 ## POSITIVELY MEASURED
 
-Most of these deltas sit inside their session noise floor, so read this group
-as a DIRECTION and not as a proven win. The cards were measured in DIFFERENT
-sessions whose floors differ, so the order is indicative rather than a strict
-ranking.
-
 ### triple-hitsfirst
-
-*+8.3 % - resident experts served first, misses deferred*
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-hitsfirst
+  │  BRANCH     triple-hitsfirst                                    POSITIVE
   │
-  │  WHAT           serves the experts already resident first and defers
-  │                 the misses, so the token does not stall on the slowest
-  │                 read in the batch
+  │  WHAT       launches gate/up/down for the experts already resident
+  │             before the miss reads land, so a token does not stall on
+  │             the slowest read in the batch
   │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation            10.35       9.56      +8.3 %       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
+  │  RESULT     gen t/s   10.35  vs control 9.56   +8.3 %   floor 4.9 %   n=2
+  │             prefill   not measured
+  │             control = unpatched tip, interleaved, same native vintage
+  │             session  2026-09-15, DGX Spark GB10, native 23.1 MB .text, unstamped
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │             in the stack (2026-09-16, hits-first ON vs clean tip @e6d9d3b8):
+  │             -4.23 % at 4096 (0/6, clears the 2.89 % floor)
+  │             -0.57 / -0.76 / -0.95 % at 6144 / 8192 / min - INSIDE the floor
+  │             min-vs-min 9.55 vs 9.55 = +0.00 %, paired n=6
   │
-  │  VERDICT        OUTSIDE the floor: a real improvement at this
-  │                 measurement
+  │  VERDICT    MEASURED WIN solo, INSIDE THE FLOOR in the stack
+  │             +8.3 % clears the 4.9 % floor at n=2; in the stack it ties the
+  │             tip at three of four readings and loses -4.23 % at 4096
   │
-  │  SWITCH         DS4_CUDA_HITS_FIRST=1 (default OFF in the stack)
-  │  HEADLINE       +8.3% control vs patch, native build, 2 repeats
-  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │  SWITCH     DS4_CUDA_HITS_FIRST=1 (default OFF in the stack; =0 is wait-then-launch)
+  │             DS4_CUDA_HITS_FIRST_STAGED=0 keeps hits-first, single-stage read order
+  │  OUTPUT     greedy-identical sha256 bb06e711bc498bb9
   │
   └──────────────────────────────────────────────────────────────────────
 ```
+
+## NEGATIVELY MEASURED OR KILLED
 
 ### triple-all-fastest
 
-*+7.1 % - the stacked tree, every lever in one binary*
-
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-all-fastest
+  │  BRANCH     triple-all-fastest                                NEGATIVE
   │
-  │  WHAT           the stacked tree: every lever compiled into one
-  │                 binary, nine on by default and hits-first off, so one
-  │                 build exposes many arms
+  │  WHAT       the stacked tree: ten levers compiled into one binary, nine
+  │             on by default and hits-first off, so one build exposes many
+  │             arms through environment switches
   │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             9.18       8.57      +7.1 %      7.29 %
-  │    prefill                ____       ____        ____      15.8 %
+  │  RESULT     gen t/s   as shipped vs clean tip  -4.51 % min-across   floor 1.0-1.5 % med
+  │                       (-8.63 / -3.75 / -5.38 at ctx 4096/6144/8192)   sign 0/7
+  │                       all seven switches OFF vs tip  -12.13 %  sign 0/8
+  │                       L = all-off minus as-shipped = -7.62 pp, 3.5x the floor
+  │                       + DS4_CUDA_HITS_FIRST=1 vs tip  -0.95 % min-across, sign 1/6
+  │                       (-4.23 / -0.57 / -0.76; only 4096 clears the floor)
+  │             prefill   as shipped vs tip +6.41 % min-across (5/7); +2.66 / +16.82 /
+  │                       +1.33 at 4096/6144/8192; secondary, does not offset gen
+  │             control = clean tip triple-antirez-tip-latest @e6d9d3b8, 9.70 gen t/s
+  │                       median, bracketing every arm repeat on both sides
+  │             session  2026-09-16 06:41-09:08Z, DGX Spark GB10, native .text
+  │                      23,148,652 B (tip 23,118,434 B), load 0.13-1.85, gpu 0-16 %,
+  │                      memavail 117 GB, 50 runs all rc=0, ctx 2048 discarded
+  │             earlier  +7.1 % over all-off (9.18 vs 8.57), floor 7.29 %: the noisy-box
+  │                      series before the 2026-09-16 runs, its own off state as control
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │  VERDICT    MEASURED LOSS to the tip
+  │             -4.51 %, 0 of 7 repeats at every frontier, 2.1x the in-run floor; the
+  │             seven switchable levers are EXONERATED (all-off loses -12.13 %, so they
+  │             are worth about +7.6 pp); the cause sits in the non-switchable diff
+  │             over the tip (ds4_cuda.cu +1256, ds4.c +174, ds4_engram.c +29,
+  │             ds4_gpu.h +9 lines) - the bisect is OWED and not run
   │
-  │  VERDICT        MEASURED, SIGN-CONSISTENT, NOT FLOOR-CLEARING
-  │
-  │  REFERENCE      the tip column is ALL-OFF (every kill-switch off), not
-  │                 the
-  │                 plain tip: for the stack the meaningful control is its
-  │                 own off state
-  │  FLOOR          this session's floor was 7.29 % gen, twice the 3.3-4.9
-  │                 % of the
-  │                 solo native run - the edge is the SAME ORDER as the
-  │                 floor
-  │  LEVERS         10 compiled in, 9 on by default, hits-first 1 of 10
-  │                 OFF
-  │  EXCLUDED       0 - nothing is left out of this tree
-  │  SWITCHES       10 - one binary, many arms
-  │  BUILD          clean: make cuda-spark -j12, 0 errors
-  │  STACK NUMBER   MEASURED - +7.1 % over all-off, sign-consistent
-  │                 under all three references and NOT floor-clearing
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
-### triple-pagecache
-
-*+0.6 % - pages dropped so the working set stays resident*
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH    triple-pagecache
-  │
-  │  WHAT           drops staged pages in an order that keeps the working
-  │                 set resident, instead of dropping them in arrival
-  │                 order
-  │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             9.62       9.56      +0.6 %       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
-  │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
-  │
-  │  VERDICT        inside the floor: this measurement does not resolve it
-  │
-  │  SWITCH         the drop order is staged; the arms are in the section
-  │                 below
-  │  HEADLINE       measured: awaiting the clean sweep
-  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
----
-
-## NEGATIVELY MEASURED
-
-A null is a result. A closed branch is kept here on purpose, so nobody
-rebuilds it.
-
-### triple-draincut
-
-*-0.9 % - selected reads evented, 40 device drains per token*
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH    triple-draincut
-  │
-  │  WHAT           reads selected experts back on an event instead of
-  │                 blocking, removing 40 device drains per token from the
-  │                 host's wait
-  │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             9.09       9.17      -0.9 %       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
-  │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
-  │
-  │  VERDICT        inside the floor: this measurement does not resolve it
-  │
-  │  POLARITY       the lever is ON by default;
-  │                 DS4_CUDA_SELECTED_DRAIN_SYNC=1
-  │                 restores the blocking read, which is the OFF arm
-  │  HEADLINE       40 device drains per token removed from the host's
-  │                 wait
-  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
-### triple-hotlist
-
-*-1.9 % - the seeding arm measured small; the re-scope is owed*
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH    triple-hotlist
-  │
-  │  WHAT           seeds the next session's SSD expert cache from the
-  │                 previous run's demand, so the opening tokens start
-  │                 WARM instead of cold.  A WARM-UP device, not a
-  │                 selection device.
-  │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____        ____        ____       4.9 %
-  │    prefill                ____        ____        ____      15.8 %
-  │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
-  │
-  │  VERDICT        OWED.  The seeding arm this branch shipped measured
-  │                 -1.9 %, which is INSIDE the floor.  The re-scoped
-  │                 lever, a warm cache, is not measured yet.
-  │
-  │  SWITCH         DS4_CUDA_EXPERT_HOTLIST_WRITE=<file>, 0 disables
-  │                 DS4_CUDA_EXPERT_HOTLIST_DECAY=none|halve|quarter|
-  │                 eighth|shift:<n>, DEFAULT halve, UNCHANGED
-  │                 DS4_CUDA_EXPERT_HOTLIST_ROLLING=1 turns the
-  │                 retention rule into a measurement
-  │                 DS4_METAL_DISABLE_STREAMING_EXPERT_HOTLIST=1
-  │                 disables seeding
-  │  HEADLINE       presence 27x to 45x the content effect
-  │                 (WIKI/theory/167, lines 57 and 68-70); warm resident
-  │                 35.14 vs cold 15.87 tokens/s, 2.2x
-  │                 (WIKI/theory/48, section 4, lines 148-152)
-  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
-### triple-iq2-lut-fix
-
-*CLOSED, no patch - the IQ2 LUT check; our tree is clean*
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH    triple-iq2-lut-fix
-  │
-  │  WHAT           a CHECK first: does our tree carry upstream's IQ2
-  │                 dequant-LUT defect, where the codebook staged in
-  │                 shared memory for n_embd <= 4096 was consumed
-  │                 unconditionally? VERDICT: no, we are clean
-  │
-  │  RESULTS        (none - see below)
-  │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
-  │
-  │  VERDICT        OUR TREE IS NOT AFFECTED. The defect was present in
-  │                 our lineage and was already removed by upstream's own
-  │                 correction, commit a04f46fa42. No patch is owed
-  │
-  │  FINDING        1 of 1 checked site set: CLEAN
-  │  FILE           ds4_cuda.cu, IQ2 LUT shared-memory staging
-  │  LINES          20611-20623, 20679-20689, 21194-21219, 21284-21309,
-  │                 21378-21403 (5 kernels, 5 loads, 10 consumers)
-  │  BUG SHAPE      xq_blocks <= 16 (n_embd 4096) guarded the LOAD while
-  │                 the dot products read the tables UNCONDITIONALLY
-  │  WOULD HAVE BEEN  fluent garbage at full speed, on a MULTI-TOKEN
-  │                 batch of any n_embd > 4096 model, no crash
-  │  AT RISK        DeepSeek V4.1 Flash (5120) and V4 Pro (7168), on the
-  │                 CUDA IQ2 routed-MoE expert-tile batch path
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
-### triple-engram-4bit
-
-*CLOSED, no lever - the 4-bit re-encode; its arithmetic says no*
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH    triple-engram-4bit
-  │
-  │  WHAT           a DESIGN RECORD, not a lever: what re-encoding ONLY
-  │                 the two Engram hash tables from FP8 at 264 bytes a
-  │                 row to 4-bit at 132 bytes a row would save US, and
-  │                 why that work is tooling rather than an engine branch
-  │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____        ____        ____       4.9 %
-  │    prefill                ____        ____        ____      15.8 %
-  │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
-  │
-  │  VERDICT        NOT AN ENGINE BRANCH, and there is no lever here to
-  │                 measure: the re-encode changes the ARTIFACT. This
-  │                 branch ships the arithmetic, the four costs and the
-  │                 plan, and ZERO engine code, because there is nothing
-  │                 to switch
-  │
-  │  SWITCH         none, deliberately. No switch for a plan
-  │
-  │  HEADLINE       94.417 GiB off the file (202.758 GB to 101.379 GB),
-  │                 and 6,336 BYTES a token, which is 0.0000655 percent
-  │                 of the 9.670 GB/token census floor. The table is
-  │                 55.4 percent of the FILE and 27.5 NANOSECONDS of a
-  │                 token
-  │  RECORD         gguf-tools/engram-4bit/PLAN.md
-  │  OUTPUT         nothing runs. The quantizer skeleton encodes zero
-  │                 rows by design, and the build gate is OWED
+  │  SWITCH     ten levers, see the table; six real off switches, two knobs, two none
+  │  OUTPUT     not re-run
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
 ### triple-granule
 
-*CLOSED - the sparse expansion lost to the plain hash, 10 of 10*
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-granule                                     NEGATIVE
+  │
+  │  WHAT       offline, CPU only: does a sparse-distributed (SDR) expansion make a
+  │             cheap front-cache lookup more discriminative than a plain hash at the
+  │             same address budget? Run on the committed track-3 token streams
+  │
+  │  RESULT     gen t/s   not measured - no engine code, no switch, not applicable
+  │             prefill   not measured
+  │             dDISCR, SDR minus plain hash, same readout:
+  │               matched entropy  -0.0414 .. -0.2629   plain hash wins 10 of 10
+  │               matched bytes    -0.0294 .. -1.6357   plain hash wins 16 of 16
+  │             control = the plain multiplicative-XOR hash, same readout, same corpus
+  │             session  2026-09-16, laptop CPU, 10.0 s wall, run of record @466ad0ed8
+  │
+  │  VERDICT    KILLED
+  │             the plain hash wins every one of 26 contrasts by more than the sealed
+  │             SESOI 0.010; the expansion's address space plateaus near 2^15
+  │
+  │  SWITCH     NONE - an offline experiment under experiments/granule/, no DS4_* knob
+  │  OUTPUT     not re-run - engine files byte-identical to the control
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-iq2-lut-fix
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-granule
+  │  BRANCH     triple-iq2-lut-fix                                  NEGATIVE
   │
-  │  WHAT           asks GRANULE, offline and CPU only: does a
-  │                 sparse-distributed expansion make a cheap front-cache
-  │                 lookup MORE DISCRIMINATIVE than a plain hash, at the
-  │                 same address budget? Run on the committed track-3
-  │                 token streams, no GPU and no model
+  │  WHAT       a source check, no lever: does our tree carry upstream's
+  │             IQ2 dequant-LUT defect, where the codebook was staged in
+  │             shared memory only for n_embd <= 4096 and read unconditionally
   │
-  │  RESULTS        discrimination, SDR minus plain hash, same readout
-  │                   matched entropy     -0.0414 .. -0.2629
-  │                   hash 10 of 10
-  │                   matched bytes       -0.0294 .. -1.6357
-  │                   hash 16 of 16
+  │  RESULT     gen t/s   not measured - the branch changes no executable byte
+  │             prefill   not measured
+  │             control = none; a throughput row would describe a change that
+  │                       does not exist
+  │             session  none. Read on 2026-09-16, not run; no Spark build
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │  VERDICT    KILLED - our tree is NOT AFFECTED and no patch is owed
+  │             upstream's own fix, a04f46fa42 (2026-09-13), already lifts the
+  │             5 staging loops out of the guard; the check found 5 of 5 clean
   │
-  │  VERDICT        THE PLAIN HASH WINS, in both readings
-  │                 of "same budget", on both corpora, at every budget.
-  │                 The expansion's
-  │                 effective address space PLATEAUS near 2^15 while the
-  │                 hash's tracks its width
-  │
-  │  PREDICTION     sealed before the run and WRONG: P1 predicted a NULL
-  │                 (within +/-0.010) and measured a hash win at 10 of 10.
-  │                 P2 HELD, P3 HELD, P4 FAILED in both directions
-  │  PRIOR          against this family, and it was right: presence
-  │                 is 27-45x content (WIKI/theory/167), the encoder
-  │                 was never the axis (T3-69), a counted shortlist
-  │                 held while a cost claim did not (T3-58)
-  │  THE ONE WIN    the expansion's false routings are STRUCTURED: 1-4%
-  │                 land on the perturbed-from entry against the hash's
-  │                 0-0.1%
-  │  SPACE REALISED 14.96 effective bits against a nominal 144.23 at 1024
-  │                 bits, where the hash still reads zero collisions
-  │  DUPLICATE KEYS 61 of 2048 keys share an address at EVERY width tried,
-  │                 m of 467 and m of 1174 alike
-  │  OWED           nothing: the run happened, 10.0 s wall, selftest 21/21
-  │  SWITCH         none - an offline experiment, no engine code, no knob
+  │  SWITCH     NONE - no code changed, no knob added
+  │  OUTPUT     not re-run
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
 ### triple-word-finisher
 
-*CLOSED, no patch - the lookup drafter, tested and killed*
-
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-word-finisher
+  │  BRANCH     triple-word-finisher                                NEGATIVE
   │
-  │  WHAT           the lookup drafter, tested and CLOSED on measurement:
-  │                 a k-token verify pass reads the SAME NVMe bytes as k
-  │                 single passes, so it saves nothing
+  │  WHAT       a suffix-lookup drafter: draft k tokens from the continuation
+  │             stored against the last n tokens, verify in one batched pass,
+  │             commit the longest matching prefix
   │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    no patch   a measurement branch, see VERDICT
+  │  RESULT     gen t/s   not measured - there is no patch to run
+  │             prefill   not measured
+  │             acceptance 2.37x code / 1.17x prose (ceiling; 88 % of prose
+  │             passes commit one token); NVMe bytes saved 0.0000 at k of 2, 4, 8;
+  │             adjacent-token routing overlap 38.90 %; next-step misses already
+  │             selected by the previous token 0 of 1,219
+  │             session  offline, from a fixed token stream and a sibling lane's
+  │             probe dump; zero box time
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │  VERDICT    KILLED
+  │             a k-token verify pass reads the same NVMe bytes as k single
+  │             passes: the union of k steps' misses equals their sum (0 of 1,219)
   │
-  │  VERDICT        CLOSED: the measurement killed the idea, and that is a
-  │                 result
-  │
-  │  ACCEPTANCE     2.37x code / 1.17x prose: the speedup is real, and not
-  │                 the lever
-  │  BYTES SAVED    0.0000 at k of 2, 4 and 8
-  │  ROUTING OVERLAP 38.90% between adjacent decode tokens
-  │  MISS REUSE     0 of 1,219: no next miss was selected by the previous
-  │                 token
-  │  OUTPUT         not run - there is no patch; this branch is a
-  │                 measurement
+  │  SWITCH     NONE - a measurement branch, no code lever
+  │  OUTPUT     not re-run - no patch exists to gate
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
----
-
 ## NOT YET MEASURED
 
-Nothing here has a number yet. A blank cell awaits the measurement; it is
-not a zero.
-
-### triple-climbingfibre
-
-*not yet measured - a front cache learned from the drafter's rejects*
+### triple-all
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-climbingfibre
+  │  BRANCH     triple-all                                         NOT YET
   │
-  │  WHAT           a front cache in front of a FROZEN model that learns
-  │                 from the speculative decoder's own REJECTIONS, online,
-  │                 and never modifies the model. At a refusal the engine
-  │                 already holds (context, what was drafted, what the
-  │                 target actually produced) and throws it away
+  │  WHAT       six lever branches stacked in series on 9139e2ae5: the
+  │             pread pool, the event-gated selected-expert readback, the
+  │             cache reserve knob, the hot list seed, the staged page-drop
+  │             order and hits-first. A reference tree, never a submission.
   │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____       ____        ____       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
+  │  RESULT     gen t/s   not measured
+  │             prefill   not measured
+  │             control = none run on this tree
+  │             session  none
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │  VERDICT    OWED - SUPERSEDED by triple-all-fastest
+  │             that tree carries these six plus four more, on the rolled tip,
+  │             and it is the one measured (-4.51 % vs the tip, 0 of 7)
   │
-  │  VERDICT        AWAITING THE SWEEP
+  │  SWITCH     the six levers' own switches; see the triple-all-fastest table
+  │  OUTPUT     greedy-identical sha256 bb06e711bc498bb9 (prior card; no result file)
   │
-  │  SWITCH         DS4_CLIMBINGFIBRE=1|0, DEFAULT 0. With 0 the shortcut
-  │                 NEVER LEARNS and NEVER PROPOSES, and it allocates
-  │                 nothing at all
-  │  RETENTION      DS4_CLIMBINGFIBRE_HORIZON=
-  │                 session|day|week|forever|<steps>
-  │                 DS4_CLIMBINGFIBRE_DECAY=hard|half|none
-  │                 the horizon is a PARAMETER, not a constant
-  │  CACHE LAWS     never modify the deep path, only skip it / a miss is
-  │                 free / correctness never depends on the cache / learn
-  │                 from the misses. All four are enforced in code, and
-  │                 the first is enforced by the module having no handle
-  │                 on the model at all
-  │  PRIOR ART      retrieval drafting is OCCUPIED (REST n-gram,
-  │                 DReSD hidden-state, RASD, ReSpec) and the
-  │                 drafting SUBSTRATE is
-  │                 NOT the novel part. What is claimed here is narrower
-  │  OUTPUT         unchanged by construction. NOT YET RUN ON THE BOX
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-climbingfibre
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-climbingfibre                                NOT YET
+  │
+  │  WHAT       a front cache in front of the frozen model that learns from the
+  │             speculative verifier's own REJECTIONS, online, with a retention
+  │             horizon. It proposes one draft token; it never injects anything
+  │
+  │  RESULT     gen t/s   not measured
+  │             prefill   not measured
+  │             control = none run; no CUDA build of this branch exists
+  │             session  none - host-only self test, no box, unstamped
+  │
+  │  VERDICT    OWED
+  │             the CUDA build gate is owed; the only acceptance numbers are from
+  │             a scripted 61-token target (+139 tokens cold, +0 poisoned)
+  │
+  │  SWITCH     DS4_CLIMBINGFIBRE=1, default 0 (off allocates nothing, never
+  │             learns, never proposes). DS4_CLIMBINGFIBRE_HORIZON=session|day|
+  │             week|forever|<steps>, _DECAY=hard|half|none, _NGRAM 4, _CAP 16384
+  │  OUTPUT     not re-run
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
 ### triple-draft-gamma
 
-*not yet measured - an adaptive draft length that can choose zero*
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-draft-gamma                                  NOT YET
+  │
+  │  WHAT       an adaptive draft-length (gamma) controller for DSpark: one EMA
+  │             slot per active-lane bucket, choosing gamma from {0..16}. Zero is
+  │             a candidate, so drafting switches itself off where it is not paying
+  │
+  │  RESULT     gen t/s   not measured
+  │             prefill   not measured
+  │             control = none run; no CUDA build of this branch exists
+  │             session  none - host-only state-machine test, unstamped
+  │
+  │  VERDICT    OWED
+  │             the CUDA build gate is owed; the only run is `make test-draft-gamma`,
+  │             a state trace with 0 failures and no t/s in it
+  │
+  │  SWITCH     DS4_DRAFT_GAMMA_MODE=fixed|adaptive, default fixed (no controller is
+  │             allocated; today's constant is returned). Knobs: _ALPHA 0.2,
+  │             _UPDATE_INTERVAL 5, _WARMUP 10, _DOWN_HYST -0.25, _UP_HYST 0.0,
+  │             _CEILING 1.5, _MAX_STEPS 16, _LOG=1
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-draincut
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-draft-gamma
+  │  BRANCH     triple-draincut                                     NOT YET
   │
-  │  WHAT           an adaptive draft-length (gamma) controller for DSpark
-  │                 speculative decoding: one EMA slot per active-lane
-  │                 bucket, each choosing gamma from a candidate set that
-  │                 INCLUDES ZERO, so the machine stops drafting when a
-  │                 draft is not paying for the verify bandwidth it costs
+  │  WHAT       reads the router's selected expert ids back on an event
+  │             instead of a blocking cudaMemcpy, so the host no longer
+  │             waits on the shared expert - 40 device drains per token
   │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____       ____        ____       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
+  │  RESULT     gen t/s   9.09  vs control 9.17   -0.9 %   floor 4.9 %   n=2
+  │             prefill   not measured
+  │             control = unpatched tip, interleaved, same native vintage
+  │             lever OFF arm (DS4_CUDA_SELECTED_DRAIN_SYNC=1) read 9.71, above control
+  │             session  2026-09-15, DGX Spark GB10, native 23.1 MB .text, unstamped
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │  VERDICT    INSIDE THE FLOOR
+  │             -0.9 % engaged, 9.71 vs 9.17 dormant, both inside a 4.9 % floor;
+  │             the two arms point opposite ways and neither resolves it
   │
-  │  VERDICT        AWAITING THE SWEEP: no CUDA build and no measurement
-  │                 yet, so this branch claims no number. The build gate
-  │                 is OWED
-  │
-  │  SWITCH         DS4_DRAFT_GAMMA_MODE=fixed|adaptive. Default `fixed`,
-  │                 and `fixed` is today's behaviour exactly
-  │  KNOBS          DS4_DRAFT_GAMMA_ALPHA 0.2 · UPDATE_INTERVAL 5 ·
-  │                 WARMUP 10 · DOWN_HYST -0.25 · UP_HYST 0.0 ·
-  │                 CEILING 1.5 · MAX_STEPS 16
-  │  GAMMA TODAY    the support model's GGUF `dspark.block_size`, a
-  │                 hand-chosen constant (ds4.c:76368), clamped at 16 by
-  │                 DS4_DSPARK_MAX_BLOCK_SIZE (ds4.c:2907) and only
-  │                 overridable by the static DS4_DSPARK_VERIFY_CAP
-  │  GAMMA 0        a first-class candidate: drafting is DISABLED for that
-  │                 lane bucket, rested, then re-probed at gamma 1
-  │  FED BY         the accept length the DSpark loop already computes
-  │                 (ds4.c:60251), not a new measurement path
-  │  TEST           `make test-draft-gamma`: standalone, no GPU, no model,
-  │                 no Spark, and it passes
-  │  OUTPUT         not run. There is no build on this branch yet
+  │  SWITCH     ON by default. DS4_CUDA_SELECTED_DRAIN_SYNC=1 restores the
+  │             blocking read - that is the OFF arm
+  │  OUTPUT     greedy-identical sha256 bb06e711bc498bb9
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
 ### triple-engram-lead
 
-*not yet measured - the Engram read started a token ahead of use*
-
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-engram-lead
+  │  BRANCH     triple-engram-lead                                   NOT YET
   │
-  │  WHAT           starts the Engram table read a token of lead ahead of
-  │                 first use, so the read overlaps the step instead of
-  │                 landing exposed inside it
+  │  WHAT       starts the Engram table read one token ahead of first use,
+  │             speculating on the current step's own argmax, so the read
+  │             overlaps the step instead of landing exposed inside it
   │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____       ____        ____       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
+  │  RESULT     gen t/s   not measured (this lever alone)
+  │             prefill   not measured
+  │             control = none run for this lever alone. This switch is one
+  │             of the SEVEN in the 2026-09-16 all-off block: stack as
+  │             shipped -4.51 % vs tip (0/7), all seven off -12.13 % (0/8),
+  │             L = -7.62 pp joint, 3.5x the floor. Not attributable.
+  │             session  unstamped
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │  VERDICT    OWED - the lead-on vs lead-off A/B has never been run with a
+  │             sound control; the seven levers together are net +7.6 pp
   │
-  │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
-  │
-  │  HEADLINE       the read is 23.9 ms of a 198.6 ms step, 12.04%, fully
-  │                 exposed
-  │  RECORD         speed-bench/v41_engram_lead_gb10.md
-  │  OUTPUT         ____  gates and the end-to-end A/B are OWED here
+  │  SWITCH     DS4_V41_ENGRAM_LEAD_OFF - on by default; set to anything to
+  │             turn the lead off (read once per process, all-or-nothing)
+  │  OUTPUT     not re-run
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
 ### triple-engram-prestage
 
-*not yet measured - the Engram row lookup moved out of the forward*
-
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-engram-prestage
+  │  BRANCH     triple-engram-prestage                               NOT YET
   │
-  │  WHAT           moves the host-side Engram row lookup out of the
-  │                 forward pass into a prepare phase that runs before it,
-  │                 so the decode step stops waiting on the disk and the
-  │                 forward is left with no host I/O of its own
+  │  WHAT       moves the host-side Engram row lookup out of the forward
+  │             pass into a prepare phase that runs before it, so the
+  │             forward carries no disk read and no hash of its own
   │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____       ____        ____       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
+  │  RESULT     gen t/s   not measured
+  │             prefill   not measured
+  │             control = none run. This switch is NOT in the stack and was
+  │             in no 2026-09-16 series.
+  │             session  unstamped - never built against CUDA
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │  VERDICT    OWED - a precondition, not a payoff: the prepare removes host
+  │             I/O from the forward but does not yet hide it behind anything
   │
-  │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
-  │
-  │  SWITCH         DS4_ENGRAM_PRESTAGE=1 enables the prepare phase;
-  │                 unset or 0 keeps the lookup inline in the forward,
-  │                 which is the shipped path
-  │                 DS4_ENGRAM_PRESTAGE_DEBUG=1 names every
-  │                 demand-read miss
-  │  HEADLINE       the read is 23.9 ms of a 198.6 ms step, 12.04%, fully
-  │                 exposed
-  │  RECORD         speed-bench/v41_engram_lead_gb10.md
-  │  CONFLICT       collides with triple-engram-lead and
-  │                 triple-engram-read-threads: they touch the same read
-  │                 path, and the lead read lives in ds4.c, where we have
-  │                 hand-resolved a merge before
-  │  OUTPUT         ____  the build gate, the A/B and a full-step capture
-  │                 are OWED
+  │  SWITCH     DS4_ENGRAM_PRESTAGE=1 enables the prepare; unset or 0 is the
+  │             shipped inline path. DS4_ENGRAM_PRESTAGE_DEBUG=1 names every
+  │             demand-read miss. Read per call, not latched.
+  │  OUTPUT     not re-run
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
 ### triple-engram-read-threads
 
-*not yet measured - one wave of readers, not two serial rounds*
-
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-engram-read-threads
+  │  BRANCH     triple-engram-read-threads                           NOT YET
   │
-  │  WHAT           issues a decode step's Engram read as ONE WAVE: one
-  │                 row per reader on a single persistent pool shared by
-  │                 both tables, instead of two serial rounds of twelve
-  │                 readers
+  │  WHAT       issues a decode step's Engram read as ONE WAVE, one row per
+  │             reader on a single persistent pool shared by both tables,
+  │             instead of two serial rounds of twelve readers
   │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____       ____        ____       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
+  │  RESULT     gen t/s   not measured (this lever alone)
+  │             prefill   not measured
+  │             control = none run for this lever alone. Its serial form
+  │             (DS4_ENGRAM_READ_THREADS=1) is one of the SEVEN in the
+  │             2026-09-16 all-off block: stack as shipped -4.51 % vs tip
+  │             (0/7), all seven off -12.13 % (0/8), L = -7.62 pp joint,
+  │             3.5x the floor. Not attributable.
+  │             session  unstamped - this revision never built against CUDA
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │  VERDICT    OWED - the one-wave change has not been run at all; the
+  │             invariant that holds is that the reader count moves no byte
   │
-  │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
-  │
-  │  SWITCH         DS4_ENGRAM_ROWS_PER_READER=1|2, default 1
-  │                 2 restores the old two-round divisor as the control
-  │                 arm
-  │                 DS4_ENGRAM_READ_THREADS=<n> still overrides the count
-  │  HEADLINE       48 serial 264-byte preads, 12,672 bytes, 12.04% of the
-  │                 step; the one-wave fix itself is OWED
-  │  RECORD         speed-bench/v41_engram_read_threads_gb10.md
-  │  OUTPUT         the reader count is proven not to change a byte
-  │                 (tests/test_engram.c); the release gates and the
-  │                 end-to-end A/B are OWED
+  │  SWITCH     DS4_ENGRAM_ROWS_PER_READER=1|2, default 1 (one wave); 2 is
+  │             the old two-round divisor, the control arm in the same
+  │             binary. DS4_ENGRAM_READ_THREADS=<n> still overrides the
+  │             count; 0 clamps to one reader, the serial path.
+  │  OUTPUT     not re-run (the previous revision's gates bb06e711bc498bb9 /
+  │             2f2dd7f89d107bbc / 652dcda32c176cab belong to that revision)
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
 ### triple-hippocampal-warmset
 
-*not yet measured - a longer horizon for the learned expert set*
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-hippocampal-warmset                          NOT YET
+  │
+  │  WHAT       gives the persisted expert hot list a longer horizon: carried free
+  │             inside a day, halved once per day boundary, promoted to a durable set
+  │             when a (layer, expert) pair is demanded on three distinct days
+  │
+  │  RESULT     gen t/s   not measured
+  │             prefill   not measured
+  │             control = none run; no CUDA build of this branch exists
+  │             session  none - host-only tests, no box, unstamped
+  │
+  │  VERDICT    OWED
+  │             the CUDA build gate is owed; the only runs are `make test-warmset`
+  │             (92 checks, 0 failures) and an uncommitted persistence harness (14, 0)
+  │
+  │  SWITCH     DS4_WARMSET_TIER=session|day, default session = today's behaviour
+  │             (one file, halved at every load). DS4_WARMSET_DAYS 3, _MAX <n>,
+  │             _DIR <dir>, _PROFILE=1
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-hotlist
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-hippocampal-warmset
+  │  BRANCH     triple-hotlist                                        NOT YET
   │
-  │  WHAT           takes the learned expert set the hot list already
-  │                 persists and gives it a longer horizon: held FREE
-  │                 inside a day, halved once per day boundary, and
-  │                 promoted to a durable set when a pair is demanded
-  │                 on three distinct days
+  │  WHAT       seeds the next session's SSD expert cache from the previous
+  │             run's demand, so the opening tokens start WARM. A warm-up
+  │             device, not a selection device.
   │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____       ____        ____        ____
-  │    prefill                ____       ____        ____        ____
+  │  RESULT     gen t/s   9.38  vs control 9.56   -1.9 %   floor 3.3-4.9 %   n=2
+  │             prefill   not measured (floor on that set 9.7-15.8 %)
+  │             control = this branch's writer off, interleaved, same native build
+  │             session  2026-09-16, DGX Spark, native 23.1 MB .text, load/gpu unstamped
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │  VERDICT    OWED - the seeding arm's -1.9 % is INSIDE THE FLOOR (3.3-4.9 %);
+  │             the re-scoped lever, a warm cache at the first 64 tokens, is not measured
   │
-  │  VERDICT        AWAITING THE SWEEP
-  │
-  │  SWITCH         DS4_WARMSET_TIER=session|day   default session =
-  │                 today's behaviour, one file halved at every load
-  │                 DS4_WARMSET_DAYS=<n>   consolidation threshold (3)
-  │                 DS4_WARMSET_MAX=<n>    cap on carried entries
-  │                 DS4_WARMSET_DIR=<dir>   where the tier lives
-  │                 DS4_WARMSET_PROFILE=1   trace what the tier did
-  │
-  │  RETENTION      session  one run, halved at every load
-  │                 day      free inside the day, halved once per day
-  │                          boundary
-  │                 durable  demanded on three or more distinct days
-  │                 FORGOTTEN  seen on one day only, decayed to zero,
-  │                          recorded against another model size, and
-  │                          every seeded slot
-  │
-  │  SAFETY         a warm-set entry is (layer, expert) plus three
-  │                 integer evidence counts.  No value, weight, scale
-  │                 or gate exists in its vocabulary, so it cannot be
-  │                 injected into anything.  A wrong entry costs one
-  │                 wasted slot and nothing else
+  │  SWITCH     DS4_CUDA_EXPERT_HOTLIST_WRITE=<file> (0 disables the writer)
+  │             DS4_CUDA_EXPERT_HOTLIST_DECAY=none|halve|quarter|eighth|shift:<n>, default halve
+  │             DS4_CUDA_EXPERT_HOTLIST_ROLLING=1 runs the mine/score measurement
+  │             DS4_METAL_DISABLE_STREAMING_EXPERT_HOTLIST=1 disables seeding
+  │  OUTPUT     greedy-identical sha256 bb06e711bc498bb9 (three gate runs, one sha)
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
 ### triple-lfu-offsetkey
 
-*not yet measured - upstream's offset-keyed LFU host cache*
-
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-lfu-offsetkey
+  │  BRANCH     triple-lfu-offsetkey                                 NOT YET
   │
-  │  WHAT           adds upstream NeutronStar's host expert cache: byte
-  │                 ranges keyed by FILE OFFSET in a 16-way table whose
-  │                 per-slot uses counter halves every 4096 inserts, so
-  │                 ONE eviction POLICY can be measured against our
-  │                 expert-ID hot list from ONE binary
+  │  WHAT       ports upstream NeutronStar's host expert cache: byte ranges
+  │             keyed by FILE OFFSET, 16-way table, per-slot uses counter
+  │             halved every 4096 inserts. Three arms from one binary isolate
+  │             the eviction POLICY on one structure
   │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____       ____        ____       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
+  │  RESULT     gen t/s   not measured
+  │             prefill   not measured
+  │             control = none run yet; the plan is three arms interleaved
+  │                       against the unpatched tip on one vintage
+  │             session  none. No Spark build, no run
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │  VERDICT    OWED - a CUDA build and a three-arm sweep on the Spark
+  │             the only numbers held are host-side: a 17-check harness of the
+  │             eviction block, all passing, on which LFU and LRU disagree
   │
-  │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
-  │
-  │  SWITCH         DS4_EXPERT_CACHE_MODE=hotlist|offsetkey|
-  │                 offsetkey-lru, DEFAULT hotlist (this branch inert)
-  │                 DS4_CUDA_HOST_EXPERT_CACHE_GB=<GiB> sizes the host
-  │                 cache; unset, it takes the configured expert-cache
-  │                 byte size so the arms are size-matched
-  │  HEADLINE       the argument is about POLICY, not SIZE: upstream says
-  │                 LFU beats LRU, we measured hotness-with-decay LOSING
-  │                 to plain LRU, and our own roadmap already has a knee
-  │                 that says cache SIZE is not the lever
-  │  OUTPUT         not claimed: residency changes WHEN a byte arrives,
-  │                 never which byte, and no arithmetic is touched
+  │  SWITCH     DS4_EXPERT_CACHE_MODE=hotlist|offsetkey|offsetkey-lru
+  │             default hotlist, in which the cache is inert (never allocates,
+  │             probes or inserts). DS4_CUDA_HOST_EXPERT_CACHE_GB=<GiB> sizes
+  │             it; unset, it takes the configured expert-cache byte size
+  │  OUTPUT     not re-run; residency changes when a byte arrives, never which
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
-### triple-margin
-
-*not yet measured - the reserve made live; its old number is withdrawn*
+### triple-pagecache
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-margin
+  │  BRANCH     triple-pagecache                                    NOT YET
   │
-  │  WHAT           turns the memory reserve into a LIVE, CHECKED,
-  │                 RECORDED value, and expresses the cache budget as a
-  │                 SPLIT of one pool of RAM across three consumers.  An
-  │                 INSTRUMENT and a bound, not a speed lever.
+  │  WHAT       releases staged model pages madvise-then-fadvise so the
+  │             drop lands, and hints WILLNEED over a layer's miss ranges
+  │             on the buffered read path
   │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____        ____        ____       4.9 %
-  │    prefill                ____        ____        ____      15.8 %
+  │  RESULT     gen t/s   9.62  vs control 9.56   +0.6 %   floor 4.9 %   n=2
+  │             prefill   not measured
+  │             control = unpatched tip, interleaved, same native vintage
+  │             session  2026-09-15, DGX Spark GB10, native 23.1 MB .text, unstamped
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │  VERDICT    INSIDE THE FLOOR
+  │             +0.6 % against a 4.9 % floor; the ordering fix rests on a
+  │             reading of the Linux semantics, not on a measurement of its own
   │
-  │  VERDICT        OWED.  Neither change has been measured.  The cells
-  │                 above are blank on purpose.  The numbers this file
-  │                 used to carry (8.68 against 9.56, -9.2 %) belong to
-  │                 the OLD lever, the expert-cache margin knob, which
-  │                 this branch no longer claims.  A blank cell is
-  │                 AWAITING THE MEASUREMENT, not a zero.
-  │
-  │  SWITCH         DS4_MEM_RESERVE_MIB=N        default 512 (the
-  │                                              per-device safety margin,
-  │                                              now named)
-  │                 DS4_MEM_RESERVE_ENFORCE=1|0  default 1 (a breach
-  │                 stops)
-  │                 DS4_SSD_PAGECACHE_FLOOR_PCT  default 10
-  │                 DS4_SSD_AUTO_CACHE_PCT       default 80, UNCHANGED in
-  │                                              value, changed in MEANING
-  │                                              (a share, not a maximum)
-  │  HEADLINE       no headline number, and that is deliberate.  The claim
-  │                 SHRANK: WIKI/theory/48-decode-speedup-levers.md
-  │                 section 8 (lines 368-372) says that on the Spark the
-  │                 lever is hot-expert prediction, "NOT BIGGER CACHE (THE
-  │                 KNEE PROVED SIZE ISN'T IT)".  This branch says STOP
-  │                 OVER-ALLOCATING, not allocate more.
-  │  OUTPUT         ____ (OWED: not run.  The default path is arithmetic-
-  │                 identical, but that is an argument, not a measurement)
-  │  BUILD          OWED.  A CUDA build needs the Spark and the Spark is
-  │                 running an unrelated series, so nothing here was built
-  │                 or benchmarked.  The code is committed unbuilt.
+  │  SWITCH     DS4_CUDA_KEEP_MODEL_PAGES=1 disables both drops
+  │             DS4_CUDA_NO_EXPERT_READAHEAD=1 disables the hint
+  │  OUTPUT     greedy-identical sha256 bb06e711bc498bb9 (long d3355c94c70a4bb1)
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
 ### triple-pool
 
-*not yet measured - the io_uring read ring; its old number is withdrawn*
-
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-pool
+  │  BRANCH     triple-pool                                           NOT YET
   │
-  │  WHAT           serves expert reads from a shared parallel SSD pool
-  │                 instead of one serial reader, and now puts an io_uring
-  │                 O_DIRECT ring in front of that pool so queue depth
-  │                 is a switch rather than the worker count
+  │  WHAT       serves expert reads from a parallel SSD pool instead of one
+  │             serial reader, with an io_uring O_DIRECT ring in front of the
+  │             pool so queue depth is a switch, not the worker count.
   │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____       ____        ____        ____
-  │    prefill                ____       ____        ____        ____
+  │  RESULT     gen t/s   not measured on this engine
+  │             prefill   not measured
+  │             control = none run since the io_uring port; the last A/B (9.94 vs
+  │                       9.56, +4.0 %; device probe 7.6 -> 10.1 GB/s single vs 8
+  │                       readers) was the pthread-only pool and is superseded
+  │             session  none - no CUDA build since the port (the Spark was busy)
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │  VERDICT    OWED - the fetch engine changed after the last +4.0 %, so that
+  │             number no longer describes the tree; nothing re-measured since
   │
-  │  VERDICT        OWED: the fetch engine changed after the last
-  │                 measurement, so the old +4.0 % no longer describes it
-  │
-  │  SWITCH         DS4_CUDA_FETCH_QD=<n>; io_uring queue depth,
-  │                 default 64, clamped 8-512
-  │                 DS4_CUDA_FETCH_URING=0 falls back to the pread pool;
-  │                 DS4_CUDA_FETCH_BUFFERED=1 forces buffered reads
-  │                 DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS=<n>; pool
-  │                 workers when the ring is off, default 8, cap 16
-  │  HEADLINE       the ring is ported; device concurrency is now a
-  │                 knob, and no number here has been re-measured since
-  │  OUTPUT         not re-run on this engine: sha256 ____
-  │  BUILD          OWED: a CUDA build needs the DGX Spark, which is busy
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
-### triple-prefill-readahead-order
-
-*not yet measured - eviction reordered, the earliest layers held*
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH    triple-prefill-readahead-order
-  │
-  │  WHAT           reorders prefill victim eviction and holds the
-  │                 earliest layers of the scan, so the experts decode
-  │                 will need are not the ones dropped: the prefill hit
-  │                 list survives into decode
-  │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____       ____        ____       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
-  │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
-  │
-  │  VERDICT        OWED: no clean interleaved A/B exists yet, so a
-  │                 blank cell is not a zero. The CUDA build gate is
-  │                 OWED as well.
-  │
-  │  SWITCH         DS4_PREFILL_READAHEAD_HOLD=0 restores upstream
-  │                 exactly: the plain used-ascending victim order, no
-  │                 held set. Unset or 1 keeps the reorder plus the held
-  │                 band. This is the A/B switch the branch did not have
-  │                 before.
-  │  STATS          DS4_CUDA_SSD_PREFETCH_STATS=1 counts only, it does not
-  │                 gate
-  │  GATE           expected output-invariant: residency changes WHEN a
-  │                 byte arrives, never which byte
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
-### triple-prefix-cache
-
-*not yet measured - the shipped prefix cache, given an off arm*
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH    triple-prefix-cache
-  │
-  │  WHAT           the prefix cache our engine already ships, checked
-  │                 against the code rather than assumed, plus the one
-  │                 thing it did not have: an off path. --prefix-cache
-  │                 off rewinds the live session at every request, so the
-  │                 cache can be measured against its own control
-  │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____       ____        ____       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
-  │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
-  │
-  │  VERDICT        AWAITING THE SWEEP
-  │
-  │  SWITCH         --prefix-cache on|off   (default: on)
-  │                 off = control arm: rewind to token zero, nothing read
-  │                 from disk, no checkpoint written
-  │  REFERENCE      prefix cache 1.86x on repeated context, against
-  │                 prefill work 1.25x and DSpark 0.93x: the largest
-  │                 measured win in our record
-  │                 source: experiments/track3-semiotic-codebook/
-  │                 NEW_IDEA_THE_CEREBELLAR_FRONT_CACHE_2026-09-01.md
-  │                 section 4, line 106 (tracked at 408695d0b; this
-  │                 branch does not carry the experiments/ tree)
-  │  BUILD GATE     OWED. No CUDA build and no run. The Spark is busy with
-  │                 an unrelated series. The only thing executed here is a
-  │                 local clang -fsyntax-only parse of the two touched
-  │                 files, and it is clean
+  │  SWITCH     DS4_CUDA_FETCH_QD=<n> ring queue depth, default 64, clamped 8-512
+  │             DS4_CUDA_FETCH_URING=0 falls back to the pread pool
+  │             DS4_CUDA_FETCH_BUFFERED=1 forces buffered reads
+  │             DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS=<n> pool workers, default 8, cap 16
+  │             DS4_CUDA_STREAMING_EXPERT_PREAD_POOL=0 restores the serial path
+  │  OUTPUT     not re-run
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
 ### triple-prefetch-pool
 
-*not yet measured - parallel chunked prefill read-ahead*
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-prefetch-pool                                NOT YET
+  │
+  │  WHAT       cuts the prefill read-ahead into chunked tasks for a pool of
+  │             readers with their own pinned buffers and upload streams;
+  │             the single reader stays as the fallback when the pool declines
+  │
+  │  RESULT     gen t/s   not measured
+  │             prefill   not measured
+  │             control = none with a sound control; the 2026-09-15 pass is withheld
+  │             session  2026-09-15, DGX Spark GB10, native 23.1 MB .text, unstamped
+  │
+  │  VERDICT    OWED
+  │             in the 2026-09-15 pass every arm, including the OFF arms, read
+  │             above its control (9.17-9.46) - a bad control, not a lever
+  │
+  │  SWITCH     DS4_CUDA_SSD_PREFETCH_CHUNK_MB, default 8, cap 64; 0 is ignored,
+  │             so the chunking has no off arm. DS4_CUDA_SSD_PREFETCH_POOL=0 or
+  │             DS4_CUDA_SSD_PREFETCH_THREADS=1 reverts the whole pool
+  │  OUTPUT     greedy-identical sha256 2f2dd7f89d107bbc (33,527 bytes, 12 runs)
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-prefill-readahead-order
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-prefetch-pool
+  │  BRANCH     triple-prefill-readahead-order                        NOT YET
   │
-  │  WHAT           a parallel chunked read-ahead for prefill, with the
-  │                 single reader kept as the fallback whenever the pool
-  │                 declines the work
+  │  WHAT       reorders the prefill read-ahead's victim choice and holds the
+  │             earliest layers of the scan, so the experts decode needs first
+  │             are the last ones evicted: the prefill hit list survives into
+  │             decode. Residency policy only, no byte of cache added
   │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____       ____        ____       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
+  │  RESULT     gen t/s   not measured - a 2026-09-15 native pass exists on the
+  │                       Spark and is WITHHELD: its off arms beat their own
+  │                       control, and an off arm is the control
+  │             prefill   not measured
+  │             control = none sound yet; the 2026-09-15 control read 9.17 to
+  │                       9.46 tokens/s against 9.56 in a later mixed pass
+  │             session  2026-09-15, GB10, native, load/gpu unstamped here
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │  VERDICT    OWED - a clean interleaved A/B of both arms from a Spark build
+  │             the number it has to move: the first 32 decode tokens miss
+  │             32.22 experts/token at hit rate 0.8658 on the unpatched tip
   │
-  │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
-  │
-  │  SWITCH         DS4_CUDA_SSD_PREFETCH_CHUNK_MB, default 8 MiB, cap 64;
-  │                 a
-  │                 value of 0 is IGNORED, so there is no clean off arm
-  │  FALLBACK       pool declines -> the single reader, unchanged
-  │  GATE           expected output-invariant: WHEN bytes arrive changes,
-  │                 never
-  │                 how many
+  │  SWITCH     DS4_PREFILL_READAHEAD_HOLD, default on; =0 (off/no/false)
+  │             restores upstream exactly. DS4_CUDA_SSD_PREFETCH_STATS=1 counts
+  │             only. The off switch is new: the previous revision reordered
+  │             unconditionally and could not be measured against itself
+  │  OUTPUT     not re-run; expected output-invariant, residency changes when a
+  │             byte arrives and never which byte
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
 ### triple-spec-under-offload
 
-*not yet measured - prepared arms only, every cell blank*
-
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-spec-under-offload
+  │  BRANCH     triple-spec-under-offload                             NOT YET
   │
-  │  WHAT           ____
-  │                 ____
+  │  WHAT       does DSpark speculative decoding PAY on a box whose weights
+  │             stream from disk? Two arms crossed with a spec axis: RAW (cold,
+  │             page cache evicted) and WARM WORKING SET (resident before the
+  │             measured block). Four legs, one binary, no engine code added
   │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____       ____        ____        ____
-  │    prefill                ____       ____        ____        ____
+  │  RESULT     gen t/s   not measured, all four legs
+  │             prefill   not measured
+  │             control = per arm, the same argv with DS4_MTP_SPEC_DISABLE=1,
+  │                       drafter loaded on both legs, interleaved on one vintage
+  │             session  none. No Spark build, no run, no lock taken
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │  VERDICT    OWED - the CUDA build and all four legs need the Spark
+  │             the warm arm is the one nobody has run: every DSpark A/B we hold
+  │             ran WITHOUT residency, because the F16 drafter at 117.73 GiB
+  │             does not fit beside the 115 GiB the GB10 offers
   │
-  │  VERDICT        AWAITING THE SWEEP
-  │
-  │  ARM 1          RAW (cold): streaming box, page cache evicted, the
-  │                 DSpark pair run against its own interleaved control
-  │  ARM 2          WARM WORKING SET: the same pair again with the working
-  │                 set ALREADY resident at a fixed context. This is the
-  │                 arm nobody has run, ours or anyone else's
-  │  SWITCH         --dspark --mtp-model <file>   (ds4_help.c:190)
-  │                 DS4_MTP_SPEC_DISABLE=1        (ds4_server.c:13794)
-  │                 --ssd-streaming-cold          (ds4_help.c:174)
-  │  STATUS         OWED: the CUDA build gate and all four legs need the
-  │                 Spark, and the Spark is serialized to an unrelated
-  │                 series. No number in this file has been run
-  │  OUTPUT         ____
+  │  SWITCH     --dspark --mtp-model <file>; off leg DS4_MTP_SPEC_DISABLE=1;
+  │             --ssd-streaming, --ssd-streaming-cold, --ssd-streaming-cache-
+  │             experts N|NGB (all pre-existing, ds4_help.c / ds4_server.c)
+  │  OUTPUT     not re-run
   │
   └──────────────────────────────────────────────────────────────────────
 ```
-
----
 
 ## THE CONTROL
 
-Not a lever. The rolled tip carries no result of its own: it is the zero
-point the other branches are measured against.
-
 ### triple-antirez-tip-latest
-
-*reference, no delta - the rolled tip every branch is cut from*
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-antirez-tip-latest
+  │  BRANCH     triple-antirez-tip-latest                          CONTROL
   │
-  │  WHAT           the rolled tip: upstream main left untouched with PRs
-  │                 1034 and 1035 folded in. This is the CONTROL every
-  │                 other branch is cut from
+  │  WHAT       upstream main 9139e2ae5 with PRs 1034 and 1035 folded in,
+  │             squashed to one commit. No lever. Every other branch is
+  │             measured against this one.
   │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             9.56       9.56   reference       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
+  │  RESULT     gen t/s   9.70 median (min 9.44, max 9.92, MAD 0.11)   n=16 of 18
+  │             prefill   84.06 median (79.13 - 87.19)                  n=16 of 18
+  │             control = this branch IS the control; nothing to compare against
+  │             session  2026-09-16 04:27-05:38Z, DGX Spark GB10, native .text
+  │                      23,118,434 B, box quiet by the harness gate (load < 2.0,
+  │                      memavail 117 GB, gpu < 50 %), ctx 2048 discarded
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │  VERDICT    CONTROL
+  │             the zero point: 9.70 gen t/s, in-run floor median 1.0-1.5 %
   │
-  │  VERDICT        THIS IS THE TIP: it carries no lever and is the zero
-  │                 point
-  │
-  │  UPSTREAM       9139e2ae5 untouched
-  │  + PR 1034      folded: Metal decode-queue sync, with its test and
-  │                 bench
-  │  + PR 1035      folded: macOS Engram parallel reads, +5.2% by its
-  │                 author
-  │  = BRANCH       8ee53cb8b, tree-identical to 84ba6ef1b
-  │  PR 1031 / 1030 not taken: superseded by evolution / moot
+  │  SWITCH     NONE - no lever in this tree
+  │  OUTPUT     not re-run
   │
   └──────────────────────────────────────────────────────────────────────
 ```
+
+### triple-prefix-cache
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-prefix-cache                                   CONTROL
+  │
+  │  WHAT       the prefix cache the engine already ships (ds4_kvstore.c), read
+  │             out of the code, plus the one thing it lacked: an off path.
+  │             --prefix-cache off rewinds the live session at every request.
+  │
+  │  RESULT     gen t/s   not measured
+  │             prefill   not measured
+  │             control = this branch off (--prefix-cache off), same binary; not run
+  │             session  none - no CUDA build, no run (the Spark was busy)
+  │
+  │  VERDICT    CONTROL - a duplicate of the shipped prefix cache re-scoped as its
+  │             control arm; the sweep against --prefix-cache off is owed
+  │
+  │  SWITCH     --prefix-cache on|off, default on; off = rewind to token zero,
+  │             nothing read from disk, no checkpoint written
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+## TOOLING, NOT A LEVER
+
+### triple-engram-4bit
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-engram-4bit                                   TOOLING
+  │
+  │  WHAT       a design record for re-encoding ONLY the two Engram hash
+  │             tables from FP8 at 264 B a row to 4-bit at 132 B a row.
+  │             Ships the arithmetic, the four costs, the plan, and ZERO
+  │             engine code.
+  │
+  │  RESULT     gen t/s   not measured - there is no arm: no quantizer, no
+  │                       re-encoded artifact, no 132-byte dequant path
+  │             prefill   not measured
+  │             control = none. Bytes are arithmetic on our own record:
+  │             94.417 GiB off the file (202.758 GB to 101.379 GB), and
+  │             6,336 B a token = 0.0000655 % of the 9.670 GB/token floor,
+  │             27.5 ns at 230.5 GB/s.
+  │             session  n/a
+  │
+  │  VERDICT    TOOLING, NOT A LEVER - halving a row cannot halve a round
+  │             trip: the measured 23.9 ms Engram read moves 0.53 MB/s, so
+  │             the axis is IOPS (triple-engram-read-threads), not bytes
+  │
+  │  SWITCH     NONE - nothing to switch; the re-encode changes the artifact
+  │  OUTPUT     not re-run - nothing runs; the quantizer skeleton encodes
+  │             zero rows by design
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-margin
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-margin                                        TOOLING
+  │
+  │  WHAT       makes the memory reserve a live, checked, recorded value, and
+  │             expresses the cache budget as a split of one RAM pool across
+  │             three consumers. An instrument and a bound, not a speed lever.
+  │
+  │  RESULT     gen t/s   not measured (the branch withdrew its number)
+  │             prefill   not measured
+  │             control = none run; the old 8.68 vs 9.56 (-9.2 %) belonged to the
+  │                       retired expert-cache-margin knob on a different tree
+  │             session  none - no CUDA build (the Spark was busy); macOS host
+  │                       binary and two CPU-only test binaries built and pass
+  │
+  │  VERDICT    OWED - nothing run; the default path is arithmetic-identical to
+  │             before, which is an argument and not a measurement
+  │
+  │  SWITCH     DS4_MEM_RESERVE_MIB=N default 512 · DS4_MEM_RESERVE_ENFORCE=1|0
+  │             default 1 (a breach stops) · DS4_MEM_RESERVE_RECORD=FILE (JSON line
+  │             per run) · DS4_MEM_RESERVE_FLOOR_HISTORY_MIB (ladder, record only)
+  │             DS4_SSD_PAGECACHE_FLOOR_PCT default 10 (range 1-40)
+  │             DS4_SSD_AUTO_CACHE_PCT default 80, now a SHARE, not a maximum
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
