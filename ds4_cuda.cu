@@ -20,6 +20,7 @@
 #include <pthread.h>
 #include <atomic>
 #include "ds4_linux_memory.h"
+#include "ds4_hotcache.h"
 #include <unordered_map>
 #include <vector>
 #include <algorithm>
@@ -184,6 +185,9 @@ static std::vector<int32_t> g_stream_prefill_ids, g_stream_prefill_slots;
 extern "C" void ds4_gpu_stream_expert_cache_prefetch_finish(bool cancel);
 static void cuda_stream_prefetch_before_load(const ds4_gpu_stream_expert_table *table);
 static bool cuda_stream_prefetch_protects(const cuda_stream_expert_slot &slot);
+/* Is a look-ahead reader holding slots right now?  When it is not, no slot
+ * is protected and the victim pass needs no protection mask at all. */
+static bool cuda_stream_prefetch_active(void);
 static int cuda_stream_compact_prefill(const char **gate, const char **up,
                                       const char **down, const int32_t **ids,
                                       uint32_t *experts, uint32_t in_dim = 0,
@@ -27238,37 +27242,26 @@ static bool cuda_expert_hotlist_hotter(const cuda_expert_hotlist_entry &a,
 static unsigned cuda_expert_hotlist_decay_shift(void) {
     static int shift = -1;
     if (shift >= 0) return (unsigned)shift;
-    shift = 1;
     const char *env = getenv("DS4_CUDA_EXPERT_HOTLIST_DECAY");
-    if (env && env[0]) {
-        if (!strcmp(env, "none")) shift = 0;
-        else if (!strcmp(env, "halve")) shift = 1;
-        else if (!strcmp(env, "quarter")) shift = 2;
-        else if (!strcmp(env, "eighth")) shift = 3;
-        else if (!strncmp(env, "shift:", 6) && env[6]) {
-            const long v = strtol(env + 6, NULL, 10);
-            if (v >= 0 && v <= 32) shift = (int)v;
-            else {
-                fprintf(stderr, "ds4: DS4_CUDA_EXPERT_HOTLIST_DECAY=%s: shift must be 0..32, using halve\n", env);
-                shift = 1;
-            }
-        } else {
-            fprintf(stderr, "ds4: DS4_CUDA_EXPERT_HOTLIST_DECAY=%s is not a rule "
-                            "(none|halve|quarter|eighth|shift:<n>), using halve\n", env);
-            shift = 1;
-        }
-    }
+    unsigned parsed = DS4_HOTLIST_DECAY_DEFAULT_SHIFT;
+    /* The rule is read whole or it is refused: strtol with no end pointer read
+     * "shift:x" as 0, and 0 is the valid shift "none" - carry the entire
+     * history - so a typo silently selected the other end of the axis and the
+     * run looked fine.  ds4_hotcache.h holds the parse; tests/test_hotcache.c
+     * holds the proof.  The rolling-rules parser below reads the same syntax
+     * the same way. */
+    if (!ds4_hotlist_decay_shift_from_env(env, &parsed))
+        fprintf(stderr, "ds4: DS4_CUDA_EXPERT_HOTLIST_DECAY=%s is not a rule "
+                        "(none|halve|quarter|eighth|shift:<n>, n 0..32), using halve\n",
+                env ? env : "");
+    shift = (int)parsed;
     return (unsigned)shift;
 }
 
+/* The rule's name lives with the rule, in ds4_hotcache.h, so the two cannot
+ * drift apart. */
 static const char *cuda_expert_hotlist_decay_name(unsigned shift) {
-    switch (shift) {
-    case 0: return "none";
-    case 1: return "halve";
-    case 2: return "quarter";
-    case 3: return "eighth";
-    default: return "shift";
-    }
+    return ds4_hotlist_decay_name(shift);
 }
 
 /* Reads the "# model_size" header of a hotlist file.  0 when the file is
@@ -27738,8 +27731,16 @@ static void cuda_expert_rolling_close(void) {
                 (unsigned long long)r.mined, (unsigned long long)r.kept,
                 (unsigned long long)r.scored, (unsigned long long)r.hits, coverage);
     }
-    if (fclose(fp) != 0 || rename(tmp, path) != 0) {
-        fprintf(stderr, "ds4: failed to write rolling report %s\n", path);
+    /* ferror BEFORE fclose: fclose reports only the LAST flush, so a write
+     * error on an earlier buffer flush - a disk that filled mid-list - can be
+     * followed by a successful empty flush and a rename that puts a TRUNCATED
+     * list over the previous good one.  On any write error the temp file goes
+     * and the old list stays where it is: an old list is a worse seed, a
+     * truncated one is a lie about what the run demanded. */
+    const int write_failed = ferror(fp) != 0;
+    const int close_failed = fclose(fp) != 0;
+    if (write_failed || close_failed || rename(tmp, path) != 0) {
+        fprintf(stderr, "ds4: failed to write rolling report %s, keeping the previous one\n", path);
         (void)unlink(tmp);
         return;
     }
@@ -27830,8 +27831,16 @@ static void cuda_expert_hotlist_close(void) {
     for (size_t i = 0; i < entries.size(); i++)
         fprintf(fp, "%u %u %llu 0\n", entries[i].layer, entries[i].expert,
                 (unsigned long long)entries[i].hits);
-    if (fclose(fp) != 0 || rename(tmp, path) != 0) {
-        fprintf(stderr, "ds4: failed to write expert hotlist %s\n", path);
+    /* ferror BEFORE fclose: fclose reports only the LAST flush, so a write
+     * error on an earlier buffer flush - a disk that filled mid-list - can be
+     * followed by a successful empty flush and a rename that puts a TRUNCATED
+     * list over the previous good one.  On any write error the temp file goes
+     * and the old list stays where it is: an old list is a worse seed, a
+     * truncated one is a lie about what the run demanded. */
+    const int write_failed = ferror(fp) != 0;
+    const int close_failed = fclose(fp) != 0;
+    if (write_failed || close_failed || rename(tmp, path) != 0) {
+        fprintf(stderr, "ds4: failed to write expert hotlist %s, keeping the previous one\n", path);
         (void)unlink(tmp);
         return;
     }
@@ -27858,6 +27867,12 @@ static void cuda_expert_hotlist_record(const ds4_gpu_stream_expert_table *table,
         } catch (...) {
             g_expert_hotlist.counts.clear();
         }
+        /* Read the rolling switch ONCE, here, where every other one-time read
+         * of the environment happens.  It used to be read on the guard below,
+         * and g_rolling.initialized is only ever set inside the call that
+         * guard protects, so with rolling off the flag never became set and
+         * the environ was scanned again on every routed layer of every token. */
+        cuda_expert_rolling_init();
         /* Registered first so the list is written before the curve is flushed. */
         atexit(cuda_expert_rolling_close);
         atexit(cuda_expert_hotlist_close);
@@ -27873,7 +27888,7 @@ static void cuda_expert_hotlist_record(const ds4_gpu_stream_expert_table *table,
         g_expert_hotlist.disabled = 1;
         return;
     }
-    if (g_rolling.initialized || getenv("DS4_CUDA_EXPERT_HOTLIST_ROLLING")) {
+    if (g_rolling.enabled && !g_rolling.disabled) {
         try {
             std::vector<uint64_t> window;
             window.reserve(unique.size());
@@ -27995,19 +28010,46 @@ static int cuda_stream_selected_cache_begin_load(
             slot.used = stamp;
         }
         cuda_stream_upload_batch uploads;
+        /* ONE VICTIM PASS FOR THE WHOLE BATCH.
+         *
+         * The policy is unchanged - least-recently-used first, ties to the
+         * lowest slot index, never a prefetch-held slot, never a slot this
+         * batch has stamped - and ds4_expert_victim_scan is proved against a
+         * transcription of the per-miss loop in tests/test_hotcache.c.
+         *
+         * What changed is the COST.  The per-miss loop's only early exit fired
+         * on an EMPTY slot, and seeding the cache at startup fills every free
+         * slot, so from the first token there are no empty slots and every
+         * missed expert walked the whole slot vector, on every routed layer,
+         * on every token.  The seed stays (the presence of an entry is the
+         * large axis, WIKI/theory/167); the walk becomes one pass per batch.
+         *
+         * The protection mask is built only while a prefetch is in flight.
+         * The reader's active flag cannot change inside this function -
+         * cuda_stream_prefetch_before_load ran at the top and nothing below
+         * starts a reader - so one read of it is sound for the whole batch. */
+        uint32_t n_misses = 0;
+        for (size_t i = 0; i < unique.size(); i++) if (slots[i] < 0) n_misses++;
+        std::vector<uint32_t> victims(n_misses);
+        std::vector<unsigned char> protect_mask;
+        if (n_misses && cuda_stream_prefetch_active()) {
+            protect_mask.assign(g_stream_expert_slots.size(), 0);
+            for (size_t j = 0; j < g_stream_expert_slots.size(); j++)
+                protect_mask[j] = cuda_stream_prefetch_protects(g_stream_expert_slots[j]) ? 1 : 0;
+        }
+        const uint32_t n_victims = n_misses
+            ? ds4_expert_victim_scan(g_stream_expert_slots.data(),
+                                     sizeof(cuda_stream_expert_slot),
+                                     offsetof(cuda_stream_expert_slot, used),
+                                     (uint32_t)g_stream_expert_slots.size(),
+                                     protect_mask.empty() ? NULL : protect_mask.data(),
+                                     n_misses, stamp, victims.data(), NULL)
+            : 0;
+        uint32_t next_victim = 0;
         for (size_t i = 0; i < unique.size(); i++) {
             if (slots[i] >= 0) continue;
-            uint32_t victim = UINT32_MAX;
-            uint64_t oldest = stamp;
-            for (uint32_t j = 0; j < g_stream_expert_slots.size(); j++) {
-                if (!cuda_stream_prefetch_protects(g_stream_expert_slots[j]) &&
-                    g_stream_expert_slots[j].used < oldest) {
-                    oldest = g_stream_expert_slots[j].used;
-                    victim = j;
-                    if (!oldest) break;
-                }
-            }
-            if (victim == UINT32_MAX) return 0;
+            if (next_victim >= n_victims) return 0;
+            const uint32_t victim = victims[next_victim++];
             auto &slot = g_stream_expert_slots[victim];
             if (slot.used) g_stream_expert_by_gate.erase(slot.gate);
             slot.used = 0;
@@ -28095,6 +28137,8 @@ static bool cuda_stream_slot_in_table(const cuda_stream_expert_slot &slot,
 static bool cuda_stream_prefetch_protects(const cuda_stream_expert_slot &slot) {
     return g_stream_prefetch.active && cuda_stream_slot_in_table(slot, g_stream_prefetch.table);
 }
+
+static bool cuda_stream_prefetch_active(void) { return g_stream_prefetch.active; }
 
 static void cuda_stream_prefetch_before_load(const ds4_gpu_stream_expert_table *table) {
     auto &p = g_stream_prefetch;
