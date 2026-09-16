@@ -276,26 +276,36 @@ it rock.
 
 **✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
 
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
 **✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
 
 **✦ above: the README, unchanged**
 
 **✦ below: our modifications and numbers for this branch**
 
-## parallel SSD reads for the expert cache
-
-One MoE layer of a V4.1 decode step that misses the resident expert cache needs up to 6 experts x 3 tensors of separate few-MiB reads. The CUDA port used to issue those reads one at a time through a single staging ring, so the layer paid the sum of their latencies while the drive sat at queue depth one. This branch builds the whole miss list first and hands it to a bounded worker pool.
-
 ```
-✦  parallel SSD reads for the expert cache
-
-      baseline        9.56               tokens/s
-      this branch     9.94               tokens/s
-      improvement     +4.0%               %   (noise floor 3.3-4.9 %)
-
-      ----------------------------------------------------------------------
-      headline        device probe 7.6 -> 10.1 GB/s at 8 readers  ·  indicative pairs ~+12%
-      output          greedy-identical · sha256 bb06e711bc498bb9
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-pool
+  │
+  │  WHAT           serves expert reads from a shared parallel SSD pool
+  │                 instead of one serial reader, so prefill expert loads
+  │                 overlap instead of queueing
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             9.94       9.56      +4.0 %       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        inside the floor: this measurement does not resolve it
+  │
+  │  SWITCH         DS4_SSD_READERS=<n>; the serial reader stays as the
+  │                 fallback
+  │  HEADLINE       device probe 7.6 -> 10.1 GB/s at 8 readers
+  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │
+  └──────────────────────────────────────────────────────────────────────
 ```
 
 **Standard results table**
