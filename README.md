@@ -276,28 +276,38 @@ it rock.
 
 **✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
 
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
 **✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
 
 **✦ above: the README, unchanged**
 
 **✦ below: our modifications and numbers for this branch**
 
-## event-gate the selected-expert readback
-
-Read the router's picked experts off the GPU with an event-gated readback instead of a blocking copy, queued before the shared expert so the drain overlaps instead of blocking.
-
 ```
-✦  event-gated selected-expert readback
-
-      baseline        9.17               tokens/s
-      this branch     9.09               tokens/s
-      improvement     -0.9%               %   (noise floor 3.3-4.9 %)
-
-      ----------------------------------------------------------------------
-      headline        40 device drains per token removed from the host's wait (A/B owed)
-      output          greedy-identical · sha256 bb06e711bc498bb9
-
-   ◦ a blank cell is AWAITING THE SWEEP, not a zero.
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-draincut
+  │
+  │  WHAT           reads selected experts back on an event instead of
+  │                 blocking, removing 40 device drains per token from the
+  │                 host's wait
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             9.09       9.17      -0.9 %       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        inside the floor: this measurement does not resolve it
+  │
+  │  POLARITY       the lever is ON by default;
+  │                 DS4_CUDA_SELECTED_DRAIN_SYNC=1
+  │                 restores the blocking read, which is the OFF arm
+  │  HEADLINE       40 device drains per token removed from the host's
+  │                 wait
+  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │
+  └──────────────────────────────────────────────────────────────────────
 ```
 
 **Standard results table**
