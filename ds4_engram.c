@@ -7,15 +7,11 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <math.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#ifdef __APPLE__
-#include <dispatch/dispatch.h>
-#else
-#include <pthread.h>
-#endif
 
 bool ds4_engram_layout_valid(const ds4_engram_layout *l) {
     if (!l || !l->token_map || !l->vocab_size ||
@@ -144,6 +140,112 @@ static float e4m3(uint8_t byte) {
     return byte & 128 ? -value : value;
 }
 
+/* One process-wide pool for the Engram tables, created on first use and shared
+ * by every table and every caller. The previous shape built and joined its own
+ * threads (or ran dispatch_apply_f) once per call, so a decode step paid thread
+ * churn on the very path it was trying to shorten. The caller is a worker too,
+ * so the usable concurrency is ENGRAM_POOL_THREADS parked threads plus one. No
+ * CUDA and no backend-specific symbol is used, so the same pool serves the
+ * Metal, ROCm and CPU builds. A worker that cannot be created lowers the
+ * concurrency, never the correctness. */
+enum { ENGRAM_POOL_THREADS = 32 };
+
+typedef struct {
+    pthread_mutex_t lock;
+    pthread_cond_t work, idle;
+    pthread_t *workers;
+    size_t nworkers;
+    bool unavailable;
+    void (*fn)(void *, size_t);
+    void *context;
+    size_t parts, next, active;
+} engram_pool;
+
+static engram_pool g_engram_pool = {
+    .lock = PTHREAD_MUTEX_INITIALIZER,
+    .work = PTHREAD_COND_INITIALIZER,
+    .idle = PTHREAD_COND_INITIALIZER,
+};
+static pthread_mutex_t g_engram_pool_create = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t g_engram_pool_run = PTHREAD_MUTEX_INITIALIZER;
+
+static void *engram_pool_worker(void *context) {
+    engram_pool *pool = context;
+    pthread_mutex_lock(&pool->lock);
+    for (;;) {
+        while (pool->next >= pool->parts) pthread_cond_wait(&pool->work, &pool->lock);
+        const size_t part = pool->next++;
+        pool->active++;
+        void (*const fn)(void *, size_t) = pool->fn;
+        void *const job = pool->context;
+        pthread_mutex_unlock(&pool->lock);
+        fn(job, part);
+        pthread_mutex_lock(&pool->lock);
+        if (--pool->active == 0) pthread_cond_broadcast(&pool->idle);
+    }
+}
+
+/* Returns the worker count, zero if none could be created. */
+static size_t engram_pool_create(void) {
+    engram_pool *pool = &g_engram_pool;
+    if (pool->workers || pool->unavailable) return pool->nworkers;
+    pthread_mutex_lock(&g_engram_pool_create);
+    if (!pool->workers && !pool->unavailable) {
+        pthread_t *workers = calloc(ENGRAM_POOL_THREADS, sizeof(*workers));
+        size_t started = 0;
+        if (!workers) pool->unavailable = true;
+        else {
+            for (; started < ENGRAM_POOL_THREADS; started++)
+                if (pthread_create(&workers[started], NULL, engram_pool_worker, pool)) break;
+            pool->workers = workers;
+            pool->nworkers = started;
+            if (!started) pool->unavailable = true;
+        }
+    }
+    pthread_mutex_unlock(&g_engram_pool_create);
+    return pool->nworkers;
+}
+
+/* The concurrency cap: every parked worker plus the caller, which drains parts
+ * itself so progress never depends on a wakeup. */
+static size_t engram_pool_size(void) {
+    return 1 + engram_pool_create();
+}
+
+/* Run parts [0, parts) across the pool. One caller at a time; the parts write
+ * disjoint output, so completion order does not matter. A single part runs
+ * inline and never starts a thread. */
+static void engram_pool_run(void (*fn)(void *, size_t), void *context, size_t parts) {
+    if (parts == 0) return;
+    if (parts == 1) {
+        fn(context, 0);
+        return;
+    }
+    engram_pool *pool = &g_engram_pool;
+    pthread_mutex_lock(&g_engram_pool_run);
+    engram_pool_create();
+    pthread_mutex_lock(&pool->lock);
+    pool->fn = fn;
+    pool->context = context;
+    pool->parts = parts;
+    pool->next = 0;
+    pthread_cond_broadcast(&pool->work);
+    while (pool->next < pool->parts) {
+        const size_t part = pool->next++;
+        pool->active++;
+        pthread_mutex_unlock(&pool->lock);
+        fn(context, part);
+        pthread_mutex_lock(&pool->lock);
+        if (--pool->active == 0) pthread_cond_broadcast(&pool->idle);
+    }
+    while (pool->active) pthread_cond_wait(&pool->idle, &pool->lock);
+    pool->fn = NULL;
+    pool->context = NULL;
+    pool->parts = 0;
+    pthread_mutex_unlock(&pool->lock);
+    pthread_mutex_unlock(&g_engram_pool_run);
+}
+
 #ifdef __APPLE__
 enum { ENGRAM_DECODE_READERS = 4 };
 
@@ -181,11 +283,10 @@ bool ds4_engram_read(const ds4_engram_table *t, const uint32_t *rows,
 #ifdef __APPLE__
     if (count == DS4_ENGRAM_COLS && getenv("DS4_ENGRAM_PARALLEL_DECODE")) {
         /* Decode reads 24 uncached rows. Partition the original order without
-         * sorting or allocating; each reader owns disjoint output rows and
-         * dispatch_apply joins all readers before returning to the caller. */
+         * sorting or allocating; each reader owns disjoint output rows and the
+         * shared pool joins all readers before returning to the caller. */
         engram_decode_read read = {.table = t, .rows = rows, .out = out};
-        dispatch_apply_f(ENGRAM_DECODE_READERS,
-            dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), &read, read_decode_part);
+        engram_pool_run(read_decode_part, &read, ENGRAM_DECODE_READERS);
         for (size_t i = 0; i < ENGRAM_DECODE_READERS; i++) {
             if (read.error[i]) {
                 errno = read.error[i];
@@ -228,24 +329,38 @@ static int request_order(const void *a, const void *b) {
     return (x->row > y->row) - (x->row < y->row);
 }
 
-enum { ENGRAM_READERS = 16, ENGRAM_ROWS_PER_READER = 2 };
+enum { ENGRAM_ROWS_PER_READER = 1, ENGRAM_MAX_READERS = ENGRAM_POOL_THREADS + 1 };
 
-/* Readers scale with the request count so a small read is not left serial.
- * A whole-prefix read keeps every reader, as before; a single token's
- * DS4_ENGRAM_COLS rows per table now get one reader per couple of rows
- * instead of none. The override is read per call rather than cached: this
- * runs once per token per table, immediately before dozens of disk reads,
- * so the lookup is free and no first-caller wins the setting for the
- * lifetime of the process. */
-static size_t engram_reader_count(size_t count) {
+/* The reader divisor. The default is one row per reader, so a decode token's
+ * DS4_ENGRAM_COLS rows per table are issued in ONE wave instead of two serial
+ * rounds. */
+static size_t engram_rows_per_reader(void) {
+    const char *env = getenv("DS4_ENGRAM_ROWS_PER_READER");
+    if (env) {
+        char *end = NULL;
+        const long configured = strtol(env, &end, 10);
+        if (end != env && !*end && configured >= 1) return (size_t)configured;
+    }
+    return ENGRAM_ROWS_PER_READER;
+}
+
+/* Readers scale with the request count and are capped by the REAL pool size,
+ * not by a constant: the cap is the number of contexts that can actually run a
+ * part, so widening the pool widens the read. DS4_ENGRAM_ROWS_PER_READER=2
+ * restores the old divisor and is the control arm in the same binary; a 24-row
+ * read then gets 12 readers and two serial rounds, as it did before. The
+ * override is read per call rather than cached: this runs once per token per
+ * table, immediately before dozens of disk reads, so the lookup is free and no
+ * first caller wins the setting for the lifetime of the process. */
+static size_t engram_reader_count(size_t count, size_t pool) {
     const char *env = getenv("DS4_ENGRAM_READ_THREADS");
-    size_t readers = count / ENGRAM_ROWS_PER_READER;
+    size_t readers = count / engram_rows_per_reader();
     if (env) {
         char *end = NULL;
         const long configured = strtol(env, &end, 10);
         if (end != env && !*end && configured >= 0) readers = (size_t)configured;
     }
-    if (readers > ENGRAM_READERS) readers = ENGRAM_READERS;
+    if (readers > pool) readers = pool;
     if (readers > count) readers = count;
     return readers < 1 ? 1 : readers;
 }
@@ -255,7 +370,7 @@ typedef struct {
     const engram_request *request;
     float *out;
     size_t count, readers;
-    int error[ENGRAM_READERS];
+    int error[ENGRAM_MAX_READERS];
 } engram_batch;
 
 static void read_batch_part(void *context, size_t part) {
@@ -277,19 +392,6 @@ static void read_batch_part(void *context, size_t part) {
         }
     }
 }
-
-#ifndef __APPLE__
-typedef struct {
-    engram_batch *batch;
-    size_t part;
-} engram_reader;
-
-static void *read_batch_thread(void *context) {
-    engram_reader *reader = context;
-    read_batch_part(reader->batch, reader->part);
-    return NULL;
-}
-#endif
 
 bool ds4_engram_read_batch(const ds4_engram_table *t, const uint32_t *rows,
                            size_t tokens, size_t stride, float *out) {
@@ -326,32 +428,10 @@ bool ds4_engram_read_batch(const ds4_engram_table *t, const uint32_t *rows,
         engram_batch batch = {.table = t, .request = request, .count = count,
             .out = out + start * DS4_ENGRAM_COLS * DS4_ENGRAM_DIM, .readers = 1};
         /* Concurrency hides random-read latency without caching the table.
-         * Each worker owns disjoint output rows; all finish before GPU use. */
-        const size_t readers = engram_reader_count(count);
-        if (readers > 1) {
-            batch.readers = readers;
-#ifdef __APPLE__
-            dispatch_apply_f(batch.readers,
-                dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), &batch, read_batch_part);
-#else
-            pthread_t threads[ENGRAM_READERS - 1];
-            engram_reader readers[ENGRAM_READERS - 1];
-            size_t started = 0;
-            for (size_t part = 1; part < batch.readers; part++) {
-                readers[started] = (engram_reader){&batch, part};
-                if (pthread_create(&threads[started], NULL, read_batch_thread,
-                                   &readers[started])) break;
-                started++;
-            }
-            read_batch_part(&batch, 0);
-            /* Thread exhaustion only reduces concurrency, not correctness. */
-            for (size_t part = started + 1; part < batch.readers; part++)
-                read_batch_part(&batch, part);
-            for (size_t part = 0; part < started; part++)
-                if (pthread_join(threads[part], NULL)) abort();
-#endif
-        } else
-        read_batch_part(&batch, 0);
+         * Each part owns disjoint output rows; all finish before GPU use. The
+         * pool is process-wide and already running, so this starts no thread. */
+        batch.readers = engram_reader_count(count, engram_pool_size());
+        engram_pool_run(read_batch_part, &batch, batch.readers);
         for (size_t i = 0; i < batch.readers; i++) {
             if (batch.error[i]) {
                 errno = batch.error[i];

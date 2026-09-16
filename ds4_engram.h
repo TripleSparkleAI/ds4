@@ -56,8 +56,10 @@ bool ds4_engram_read(const ds4_engram_table *table, const uint32_t *rows,
 /* Read COLS rows per token, restoring token order after deduplicated disk reads.
  * Input stride is in row IDs; output is packed [token][COLS][DIM]. Temporary
  * storage is bounded to 384 KiB, independent of the table and prefix size.
- * Bounded concurrent pread readers scale with the request count, so a single
- * token's rows are read together rather than one at a time. */
+ * Disk reads run on one process-wide pool, created on first use and shared by
+ * both tables; the number of parts scales with the request count and is capped
+ * by that pool, so a single token's rows are read in one wave rather than one
+ * at a time. DS4_ENGRAM_ROWS_PER_READER=2 restores the old two-round divisor. */
 bool ds4_engram_read_batch(const ds4_engram_table *table, const uint32_t *rows,
                            size_t tokens, size_t stride, float *out);
 

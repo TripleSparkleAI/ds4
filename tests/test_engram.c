@@ -257,7 +257,8 @@ static void test_all_scaled_values(void) {
 /* The reader count must never change a byte. A single token's worth of rows
  * is the size the batch reader used to leave serial, so it is swept here
  * alongside a multi-token read. The serial per-row reader is the reference
- * because it takes no reader count at all. */
+ * because it takes no reader count at all. Both knobs are swept: the reader
+ * override and the row divisor that picks one wave against two rounds. */
 static void test_reader_counts(void) {
     char path[] = "/tmp/ds4-engram-readers-XXXXXX";
     const int fd = mkstemp(path);
@@ -301,6 +302,19 @@ static void test_reader_counts(void) {
         }
     }
     assert(unsetenv("DS4_ENGRAM_READ_THREADS") == 0);
+    /* Same invariant for the divisor: 1 is one wave, 2 is the old control arm.
+     * A bogus or empty value falls back to the default. */
+    const char *divisors[] = {"1", "2", "3", "bogus", ""};
+    for (size_t c = 0; c < sizeof(divisors) / sizeof(*divisors); c++) {
+        assert(setenv("DS4_ENGRAM_ROWS_PER_READER", divisors[c], 1) == 0);
+        for (size_t n = 0; n < sizeof(token_counts) / sizeof(*token_counts); n++) {
+            const size_t tokens = token_counts[n];
+            memset(actual, 0, (size_t)TOKENS * WIDTH * sizeof(*actual));
+            assert(ds4_engram_read_batch(&t, ids, tokens, STRIDE, actual));
+            assert(memcmp(actual, reference, tokens * WIDTH * sizeof(*actual)) == 0);
+        }
+    }
+    assert(unsetenv("DS4_ENGRAM_ROWS_PER_READER") == 0);
     for (size_t n = 0; n < sizeof(token_counts) / sizeof(*token_counts); n++) {
         const size_t tokens = token_counts[n];
         memset(actual, 0, (size_t)TOKENS * WIDTH * sizeof(*actual));
