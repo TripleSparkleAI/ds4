@@ -276,31 +276,38 @@ it rock.
 
 **✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
 
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
 **✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
 
 **✦ above: the README, unchanged**
 
 **✦ below: our modifications and numbers for this branch**
 
-## seed the expert cache from a learned hot list
-
-The branch teaches the SSD expert cache what the *last* run asked for: every
-unique `(layer, expert)` a CUDA session touches is counted, the counts are
-written at exit, and the next session re-loads them before the first prefill.
-Flash41 is the variant that otherwise owns neither a built-in list nor a writer.
-
 ```
-✦  learned hot-list seed
-
-      baseline        9.56               tokens/s
-      this branch     9.38               tokens/s
-      improvement     -1.9%               %   (noise floor 3.3-4.9 %)
-
-      ----------------------------------------------------------------------
-      headline        5,177 experts written after a short run · 8,679 after a long one
-      output          greedy-identical · sha256 bb06e711bc498bb9
-
-   ◦ a blank cell is AWAITING THE SWEEP, not a zero.
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-hotlist
+  │
+  │  WHAT           counts every (layer, expert) a CUDA session asks for
+  │                 and seeds the next session's SSD expert cache from it,
+  │                 so the opening tokens start warm instead of cold
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             9.38       9.56      -1.9 %       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        inside the floor: this measurement does not resolve it
+  │
+  │  SWITCH         DS4_CUDA_EXPERT_HOTLIST_WRITE=<file>, 0 disables
+  │                 DS4_METAL_DISABLE_STREAMING_EXPERT_HOTLIST=1
+  │                 disables seeding
+  │  HEADLINE       5,177 experts written after a short run, 8,679 after a
+  │                 long one
+  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │
+  └──────────────────────────────────────────────────────────────────────
 ```
 
 **Standard results table**
