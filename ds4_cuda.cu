@@ -27149,14 +27149,38 @@ struct cuda_stream_upload_batch {
  * next run ds4.c seeds the cache from that file before the first prefill,
  * through ds4_gpu_stream_expert_cache_seed_experts, which does not count.
  *
+ * The claim this list serves is WARMTH, not selection.  On our own text
+ * evidence a slot-occupancy cache is paid for by the PRESENCE of entries and
+ * not by their content: WIKI/theory/167 measured the presence effect at
+ * z = +7.14 with sd 0 across seeds while the content effect's sign flipped
+ * between seeds and its seed-to-seed sd exceeded its own mean, 27x to 45x
+ * smaller.  A wrong seed here wastes a slot; it cannot corrupt a token.
+ *
  * DS4_CUDA_EXPERT_HOTLIST_WRITE names the output file; "0" disables the
  * writer.  Unset means ~/.cache/ds4/cuda_expert_hotlist.txt, which is also
  * the file ds4.c reads for DeepSeek V4.1 Flash when
- * DS4_METAL_STREAMING_EXPERT_HOTLIST is not set.  History is halved on load
- * so hotness decays run over run.  A "# model_size" header keeps one model's
- * list from seeding another: a mismatch starts the counts cold and is
- * refused as a seed.  Seeding never fails a load: offsets always come from
- * the live table, a stale file can only waste slots.
+ * DS4_METAL_STREAMING_EXPERT_HOTLIST is not set.
+ *
+ * How much history survives the load is a RULE, not a constant:
+ * DS4_CUDA_EXPERT_HOTLIST_DECAY=none|halve|quarter|eighth|shift:<n>.
+ * "halve" (every loaded count >>= 1) is this branch's invented rule and is
+ * STILL THE DEFAULT.  It may not be changed until the rolling measurement
+ * below reports which rule the coverage curve actually prefers.
+ *
+ * ROLLINGSPLIT (DS4_CUDA_EXPERT_HOTLIST_ROLLING=1) is that measurement.  The
+ * demand stream is held as a ring of windows; at every stride-th window it
+ * mines [t-k-gap, t-gap), scores window t against the mined top slots, and
+ * reports coverage as a curve over k (how much history the list uses) and
+ * gap (how stale the list is when it is used), once per decay rule.  Both
+ * parameters are runtime ladders, so the hard-coded halve becomes a number
+ * we can defend.  The mode REPORTS by default (_ROLLING_MODE=report) and
+ * leaves the write path alone; in ACT mode the mined window, not the whole
+ * run, is what gets written, so the retention rule is the measured one.
+ *
+ * A "# model_size" header keeps one model's list from seeding another: a
+ * mismatch starts the counts cold and is refused as a seed.  Seeding never
+ * fails a load: offsets always come from the live table, a stale file can
+ * only waste slots.
  * ------------------------------------------------------------------------ */
 struct cuda_expert_hotlist_entry {
     uint32_t layer;
@@ -27203,6 +27227,50 @@ static bool cuda_expert_hotlist_hotter(const cuda_expert_hotlist_entry &a,
     return a.expert < b.expert;
 }
 
+/* ---------------------------------------------------------------------------
+ * The retention rule, as a runtime switch.
+ *
+ * Until a measurement says otherwise the DEFAULT stays "halve", the rule this
+ * branch shipped: every loaded count >>= 1.  The switch exists so that rule
+ * can be measured against "none" (carry history whole) and the other powers
+ * of two, in the curve ROLLINGSPLIT reports, instead of being an assumption.
+ * ------------------------------------------------------------------------ */
+static unsigned cuda_expert_hotlist_decay_shift(void) {
+    static int shift = -1;
+    if (shift >= 0) return (unsigned)shift;
+    shift = 1;
+    const char *env = getenv("DS4_CUDA_EXPERT_HOTLIST_DECAY");
+    if (env && env[0]) {
+        if (!strcmp(env, "none")) shift = 0;
+        else if (!strcmp(env, "halve")) shift = 1;
+        else if (!strcmp(env, "quarter")) shift = 2;
+        else if (!strcmp(env, "eighth")) shift = 3;
+        else if (!strncmp(env, "shift:", 6) && env[6]) {
+            const long v = strtol(env + 6, NULL, 10);
+            if (v >= 0 && v <= 32) shift = (int)v;
+            else {
+                fprintf(stderr, "ds4: DS4_CUDA_EXPERT_HOTLIST_DECAY=%s: shift must be 0..32, using halve\n", env);
+                shift = 1;
+            }
+        } else {
+            fprintf(stderr, "ds4: DS4_CUDA_EXPERT_HOTLIST_DECAY=%s is not a rule "
+                            "(none|halve|quarter|eighth|shift:<n>), using halve\n", env);
+            shift = 1;
+        }
+    }
+    return (unsigned)shift;
+}
+
+static const char *cuda_expert_hotlist_decay_name(unsigned shift) {
+    switch (shift) {
+    case 0: return "none";
+    case 1: return "halve";
+    case 2: return "quarter";
+    case 3: return "eighth";
+    default: return "shift";
+    }
+}
+
 /* Reads the "# model_size" header of a hotlist file.  0 when the file is
  * missing, unreadable or has no such header. */
 static uint64_t cuda_expert_hotlist_file_model_size(const char *path) {
@@ -27230,66 +27298,513 @@ extern "C" const char *ds4_gpu_cuda_expert_hotlist_default_path(uint64_t model_s
     return path;
 }
 
-/* Load the previous run's counts, halved, so the list learns without the
- * first runs pinning it forever.  A list for another model is ignored. */
+/* Load the previous run's counts, aged by the decay rule in force (default
+ * "halve"), so the list learns without the first runs pinning it forever.  A
+ * list for another model is ignored. */
 static void cuda_expert_hotlist_load_history(const char *path, uint64_t model_size) {
     if (cuda_expert_hotlist_file_model_size(path) != model_size) return;
+    const unsigned shift = cuda_expert_hotlist_decay_shift();
+    if (getenv("DS4_CUDA_EXPERT_CACHE_STATS"))
+        fprintf(stderr, "ds4: [expert-cache] load history with decay rule %s (shift %u)\n",
+                cuda_expert_hotlist_decay_name(shift), shift);
     FILE *fp = fopen(path, "rb");
     if (!fp) return;
     char line[256];
     while (fgets(line, sizeof line, fp)) {
         unsigned long long a = 0;
         if (line[0] == '#') {
-            if (sscanf(line, "# layer_records %llu", &a) == 1) g_expert_hotlist.records = a >> 1;
-            else if (sscanf(line, "# selections %llu", &a) == 1) g_expert_hotlist.selections = a >> 1;
+            if (sscanf(line, "# layer_records %llu", &a) == 1) g_expert_hotlist.records = a >> shift;
+            else if (sscanf(line, "# selections %llu", &a) == 1) g_expert_hotlist.selections = a >> shift;
             continue;
         }
         unsigned long layer = 0, expert = 0;
         unsigned long long hits = 0;
         if (sscanf(line, "%lu %lu %llu", &layer, &expert, &hits) != 3) continue;
         if (layer > 0xFFFFu || expert > 0xFFFFu) continue;
-        const uint64_t decayed = hits >> 1;
+        const uint64_t decayed = hits >> shift;
         if (decayed) g_expert_hotlist.counts[cuda_expert_hotlist_key((uint32_t)layer, (uint32_t)expert)] += decayed;
     }
     fclose(fp);
 }
 
+/* --- ROLLINGSPLIT BEGIN ---------------------------------------------------
+ * The measured retention rule.  The demand stream is held as a ring of
+ * windows; every stride-th window the mode mines the window [t-k-gap, t-gap),
+ * scores window t against the mined top slots, and reports COVERAGE as a
+ * curve over k (how much history the list uses) and gap (how stale the list
+ * is when it is used), once per decay rule.  k and gap are runtime ladders,
+ * so the curve is asked for, not assumed, and the invented halve-on-load
+ * constant becomes a number we can defend: k says how much history to trust,
+ * gap says how stale a list may be before it stops paying.
+ *
+ * Reporting is the default; ACT mode writes the mined window instead of the
+ * whole run.  Host code only, no CUDA calls and no timing, so the policy can
+ * be exercised off the Spark.
+ *
+ *   DS4_CUDA_EXPERT_HOTLIST_ROLLING=1          enable the measurement
+ *   DS4_CUDA_EXPERT_HOTLIST_ROLLING_MODE=report|act      (default report)
+ *   DS4_CUDA_EXPERT_HOTLIST_ROLLING_K=0,8,32,128,512,all (history, windows)
+ *   DS4_CUDA_EXPERT_HOTLIST_ROLLING_GAP=0,16,64,256      (staleness, windows)
+ *   DS4_CUDA_EXPERT_HOTLIST_ROLLING_RULES=none,halve     (decay axis)
+ *   DS4_CUDA_EXPERT_HOTLIST_ROLLING_STRIDE=32            (windows per score)
+ *   DS4_CUDA_EXPERT_HOTLIST_ROLLING_WINDOWS=4096         (ring depth)
+ *   DS4_CUDA_EXPERT_HOTLIST_ROLLING_ACT_K=8              (act: history)
+ *   DS4_CUDA_EXPERT_HOTLIST_ROLLING_ACT_GAP=0            (act: staleness)
+ *   DS4_CUDA_EXPERT_HOTLIST_ROLLING_REPORT=<file>|0      (default
+ *                                        ~/.cache/ds4/cuda_expert_hotlist_rolling.csv)
+ *
+ * The measurement rides the same gate as the writer: a disabled writer means
+ * no windows are recorded and no curve is reported.
+ * ------------------------------------------------------------------------ */
+#define CUDA_EXPERT_ROLLING_K_ALL 0xFFFFFFFFu
+
+struct cuda_expert_rolling_entry {
+    uint64_t key;                                  /* (layer<<32 | expert) */
+    uint64_t hits;
+};
+
+struct cuda_expert_rolling_row {
+    uint64_t window;
+    uint32_t k;
+    uint32_t gap;
+    unsigned shift;
+    uint64_t mined;                                 /* entries in the mined window */
+    uint64_t kept;                                  /* entries that fit the slots */
+    uint64_t scored;                                /* unique demands in window t */
+    uint64_t hits;                                  /* of those, already resident */
+};
+
+struct cuda_expert_rolling {
+    int                    initialized;
+    int                    enabled;
+    int                    act;
+    int                    disabled;
+    int                    rows_capped;
+    unsigned               stride;
+    unsigned               ring_cap;
+    uint32_t               act_k;
+    uint32_t               act_gap;
+    uint64_t               windows;                 /* windows pushed so far */
+    uint64_t               stored_keys;
+    uint64_t               key_limit;
+    uint64_t               scored_windows;
+    std::vector<unsigned>  shifts;
+    std::vector<uint32_t>  ladder_k;
+    std::vector<uint32_t>  ladder_gap;
+    std::vector<std::vector<uint64_t> > ring;       /* one key set per window */
+    std::vector<cuda_expert_rolling_row> rows;
+    std::vector<uint64_t>  pair_scored, pair_keys, pair_hits;   /* per (rule,k,gap) */
+};
+static cuda_expert_rolling g_rolling;
+
+/* The parent of a report or list file may not exist yet; mkdir may fail
+ * because it is already there, which is fine. */
+static void cuda_expert_hotlist_ensure_parent_dir(const char *path) {
+    char dir[PATH_MAX];
+    if (snprintf(dir, sizeof dir, "%s", path) >= (int)sizeof dir) return;
+    char *slash = strrchr(dir, '/');
+    if (!slash || slash == dir) return;
+    *slash = '\0';
+    char *parent = strrchr(dir, '/');
+    if (parent && parent != dir) {
+        *parent = '\0';
+        (void)mkdir(dir, 0755);
+        *parent = '/';
+    }
+    (void)mkdir(dir, 0755);
+}
+
+static unsigned cuda_expert_rolling_uint(const char *env, unsigned fallback) {
+    if (!env || !env[0]) return fallback;
+    const unsigned long v = strtoul(env, NULL, 10);
+    return v > 0 ? (unsigned)v : fallback;
+}
+
+/* "0,8,32,128" or "all", comma separated, at most 16 entries. */
+static size_t cuda_expert_rolling_ladder(const char *env, const char *fallback,
+                                         std::vector<uint32_t> &out, int allow_all) {
+    out.clear();
+    char buf[256];
+    snprintf(buf, sizeof buf, "%s", env && env[0] ? env : fallback);
+    char *p = buf;
+    while (p && *p && out.size() < 16) {
+        char *comma = strchr(p, ',');
+        if (comma) *comma = '\0';
+        if (*p == ' ' || *p == '\t') p++;
+        if (*p) {
+            if (allow_all && !strcmp(p, "all")) {
+                out.push_back(CUDA_EXPERT_ROLLING_K_ALL);
+            } else {
+                char *end = NULL;
+                const unsigned long v = strtoul(p, &end, 10);
+                if (end && end != p && *end == '\0' && v <= 1000000ul) out.push_back((uint32_t)v);
+                else fprintf(stderr, "ds4: [rolling] ignoring \"%s\" in %s\n", p, env ? env : fallback);
+            }
+        }
+        p = comma ? comma + 1 : NULL;
+    }
+    return out.size();
+}
+
+/* The decay axis of the curve: "none,halve,quarter,eighth,shift:<n>". */
+static size_t cuda_expert_rolling_rules(const char *env, const char *fallback,
+                                       std::vector<unsigned> &out) {
+    out.clear();
+    char buf[256];
+    snprintf(buf, sizeof buf, "%s", env && env[0] ? env : fallback);
+    char *p = buf;
+    while (p && *p && out.size() < 8) {
+        char *comma = strchr(p, ',');
+        if (comma) *comma = '\0';
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '\0') {
+            /* empty entry, skip */
+        } else if (!strcmp(p, "none")) out.push_back(0);
+        else if (!strcmp(p, "halve")) out.push_back(1);
+        else if (!strcmp(p, "quarter")) out.push_back(2);
+        else if (!strcmp(p, "eighth")) out.push_back(3);
+        else if (!strncmp(p, "shift:", 6) && p[6]) {
+            char *end = NULL;
+            const unsigned long v = strtoul(p + 6, &end, 10);
+            if (end && end != p + 6 && *end == '\0' && v <= 32) out.push_back((unsigned)v);
+            else fprintf(stderr, "ds4: [rolling] ignoring rule \"%s\"\n", p);
+        } else {
+            fprintf(stderr, "ds4: [rolling] ignoring rule \"%s\"\n", p);
+        }
+        p = comma ? comma + 1 : NULL;
+    }
+    return out.size();
+}
+
+static void cuda_expert_rolling_init(void) {
+    g_rolling.initialized = 1;
+    const char *env = getenv("DS4_CUDA_EXPERT_HOTLIST_ROLLING");
+    g_rolling.enabled = env && env[0] && strcmp(env, "0") != 0;
+    if (!g_rolling.enabled) return;
+    const char *mode = getenv("DS4_CUDA_EXPERT_HOTLIST_ROLLING_MODE");
+    g_rolling.act = mode && mode[0] && !strcmp(mode, "act");
+    g_rolling.stride = cuda_expert_rolling_uint(getenv("DS4_CUDA_EXPERT_HOTLIST_ROLLING_STRIDE"), 32);
+    g_rolling.ring_cap = cuda_expert_rolling_uint(getenv("DS4_CUDA_EXPERT_HOTLIST_ROLLING_WINDOWS"), 4096);
+    if (g_rolling.ring_cap < 16) g_rolling.ring_cap = 16;
+    if (g_rolling.ring_cap > 65536) g_rolling.ring_cap = 65536;
+    g_rolling.key_limit = (uint64_t)g_rolling.ring_cap * 4096u;
+    if (cuda_expert_rolling_ladder(getenv("DS4_CUDA_EXPERT_HOTLIST_ROLLING_K"),
+                                   "0,8,32,128,512", g_rolling.ladder_k, 1) == 0)
+        g_rolling.ladder_k.push_back(0);
+    if (cuda_expert_rolling_ladder(getenv("DS4_CUDA_EXPERT_HOTLIST_ROLLING_GAP"),
+                                   "0,16,64,256", g_rolling.ladder_gap, 0) == 0)
+        g_rolling.ladder_gap.push_back(0);
+    {
+        /* The decay axis of the curve.  The default compares our invented
+         * "halve" against carrying counts whole, and "halve" here is the
+         * same default the load path uses, which is the control arm. */
+        std::vector<unsigned> rules;
+        if (cuda_expert_rolling_rules(getenv("DS4_CUDA_EXPERT_HOTLIST_ROLLING_RULES"),
+                                      "none,halve", rules) == 0)
+            rules.push_back(cuda_expert_hotlist_decay_shift());
+        for (size_t i = 0; i < rules.size(); i++)
+            g_rolling.shifts.push_back(rules[i] > 32 ? 32u : (unsigned)rules[i]);
+    }
+    g_rolling.act_k = cuda_expert_rolling_uint(getenv("DS4_CUDA_EXPERT_HOTLIST_ROLLING_ACT_K"), 8);
+    {
+        const char *gap = getenv("DS4_CUDA_EXPERT_HOTLIST_ROLLING_ACT_GAP");
+        g_rolling.act_gap = gap && gap[0] ? (uint32_t)strtoul(gap, NULL, 10) : 0;
+    }
+    const size_t pairs = g_rolling.shifts.size() * g_rolling.ladder_k.size() * g_rolling.ladder_gap.size();
+    try {
+        g_rolling.pair_scored.assign(pairs, 0);
+        g_rolling.pair_keys.assign(pairs, 0);
+        g_rolling.pair_hits.assign(pairs, 0);
+        g_rolling.ring.resize(g_rolling.ring_cap);
+    } catch (...) {
+        g_rolling.disabled = 1;
+        fprintf(stderr, "ds4: [rolling] out of host memory, measurement off\n");
+        return;
+    }
+    fprintf(stderr, "ds4: [rolling] measurement ON: %zu k x %zu gap x %zu rule, stride %u, ring %u windows\n",
+            g_rolling.ladder_k.size(), g_rolling.ladder_gap.size(), g_rolling.shifts.size(),
+            g_rolling.stride, g_rolling.ring_cap);
+    if (g_rolling.act)
+        fprintf(stderr, "ds4: [rolling] ACT: the written list is mined from k=%u gap=%u windows, not the whole run\n",
+                g_rolling.act_k, g_rolling.act_gap);
+}
+
+static const std::vector<uint64_t> *cuda_expert_rolling_window(uint64_t index) {
+    if (index >= g_rolling.windows) return NULL;
+    if (g_rolling.windows - index > g_rolling.ring_cap) return NULL;   /* out of the ring */
+    return &g_rolling.ring[(size_t)(index % g_rolling.ring_cap)];
+}
+
+/* Mine [t-k-gap, t-gap) where t is the window being scored (the ring's most
+ * recent one).  k == ALL means every window the ring still holds. */
+static void cuda_expert_rolling_mine(uint32_t k, uint32_t gap,
+                                     std::unordered_map<uint64_t, uint64_t> &counts) {
+    counts.clear();
+    if (k == 0 || !g_rolling.windows) return;
+    const uint64_t t = g_rolling.windows - 1;
+    if ((uint64_t)gap > t) return;
+    const uint64_t end = t - gap;                       /* exclusive */
+    uint64_t start = 0;
+    if (k != CUDA_EXPERT_ROLLING_K_ALL) start = (uint64_t)k < end ? end - k : 0;
+    const uint64_t oldest = g_rolling.windows > g_rolling.ring_cap ?
+                            g_rolling.windows - g_rolling.ring_cap : 0;
+    if (start < oldest) start = oldest;
+    for (uint64_t w = start; w < end; w++) {
+        const std::vector<uint64_t> *keys = cuda_expert_rolling_window(w);
+        if (!keys) continue;
+        for (size_t i = 0; i < keys->size(); i++) counts[(*keys)[i]]++;
+    }
+}
+
+static bool cuda_expert_rolling_hotter(const cuda_expert_rolling_entry &a,
+                                       const cuda_expert_rolling_entry &b) {
+    if (a.hits != b.hits) return a.hits > b.hits;
+    return a.key < b.key;
+}
+
+/* Age the mined counts by the decay rule, then keep what the cache can hold.
+ * slots == 0 means the cache is not sized yet, and nothing is cut. */
+static void cuda_expert_rolling_top(std::unordered_map<uint64_t, uint64_t> &counts,
+                                    unsigned shift, uint64_t slots,
+                                    std::vector<cuda_expert_rolling_entry> &kept) {
+    kept.clear();
+    try {
+        kept.reserve(counts.size());
+        for (std::unordered_map<uint64_t, uint64_t>::iterator it = counts.begin(); it != counts.end(); ++it) {
+            const uint64_t hits = shift >= 64 ? 0 : (it->second >> shift);
+            if (!hits) continue;
+            cuda_expert_rolling_entry e;
+            e.key = it->first;
+            e.hits = hits;
+            kept.push_back(e);
+        }
+        std::sort(kept.begin(), kept.end(), cuda_expert_rolling_hotter);
+        if (slots && kept.size() > slots) kept.resize((size_t)slots);
+    } catch (...) {
+        kept.clear();
+    }
+}
+
+static void cuda_expert_rolling_score(const std::vector<uint64_t> &demand, uint64_t slots) {
+    const size_t nk = g_rolling.ladder_k.size(), ng = g_rolling.ladder_gap.size();
+    std::unordered_map<uint64_t, uint64_t> counts;
+    std::vector<cuda_expert_rolling_entry> kept;
+    std::vector<uint64_t> keys;
+    for (size_t s = 0; s < g_rolling.shifts.size(); s++) {
+        for (size_t ki = 0; ki < nk; ki++) {
+            for (size_t gi = 0; gi < ng; gi++) {
+                const uint32_t k = g_rolling.ladder_k[ki];
+                const uint32_t gap = g_rolling.ladder_gap[gi];
+                if ((uint64_t)gap >= g_rolling.windows) continue;
+                if (k != CUDA_EXPERT_ROLLING_K_ALL && (uint64_t)k + gap + 1 > g_rolling.ring_cap)
+                    continue;                       /* the ring cannot hold that much history */
+                cuda_expert_rolling_mine(k, gap, counts);
+                cuda_expert_rolling_top(counts, g_rolling.shifts[s],
+                                        slots ? slots : (uint64_t)counts.size(), kept);
+                keys.clear();
+                keys.reserve(kept.size());
+                for (size_t i = 0; i < kept.size(); i++) keys.push_back(kept[i].key);
+                std::sort(keys.begin(), keys.end());
+                uint64_t hits = 0;
+                for (size_t i = 0; i < demand.size(); i++)
+                    if (std::binary_search(keys.begin(), keys.end(), demand[i])) hits++;
+                const uint64_t idx = (uint64_t)s * (nk * ng) + ki * ng + gi;
+                g_rolling.pair_scored[idx]++;
+                g_rolling.pair_keys[idx] += demand.size();
+                g_rolling.pair_hits[idx] += hits;
+                if (g_rolling.rows.size() < 2000000u) {
+                    cuda_expert_rolling_row row;
+                    row.window = g_rolling.windows - 1;
+                    row.k = k;
+                    row.gap = gap;
+                    row.shift = g_rolling.shifts[s];
+                    row.mined = counts.size();
+                    row.kept = kept.size();
+                    row.scored = demand.size();
+                    row.hits = hits;
+                    g_rolling.rows.push_back(row);
+                } else {
+                    g_rolling.rows_capped = 1;
+                }
+            }
+        }
+    }
+    g_rolling.scored_windows++;
+}
+
+/* One window of demand, pushed and (on the stride) scored.  slots is the live
+ * slot count of the cache the window was taken from, 0 when not sized yet. */
+static void cuda_expert_rolling_record(const std::vector<uint64_t> &keys, uint64_t slots) {
+    if (!g_rolling.initialized) cuda_expert_rolling_init();
+    if (!g_rolling.enabled || g_rolling.disabled) return;
+    try {
+        const size_t slot = (size_t)(g_rolling.windows % g_rolling.ring_cap);
+        if (g_rolling.windows >= g_rolling.ring_cap)
+            g_rolling.stored_keys -= g_rolling.ring[slot].size();
+        if (g_rolling.stored_keys + keys.size() > g_rolling.key_limit) {
+            g_rolling.disabled = 1;
+            fprintf(stderr, "ds4: [rolling] window ring over %llu keys, measurement off\n",
+                    (unsigned long long)g_rolling.key_limit);
+            return;
+        }
+        g_rolling.ring[slot] = keys;
+        g_rolling.stored_keys += keys.size();
+    } catch (...) {
+        g_rolling.disabled = 1;
+        return;
+    }
+    g_rolling.windows++;
+    if (!keys.empty() && (g_rolling.windows - 1) % g_rolling.stride == 0)
+        cuda_expert_rolling_score(keys, slots);
+}
+
+static const char *cuda_expert_rolling_k_name(uint32_t k, char *buf, size_t n) {
+    if (k == CUDA_EXPERT_ROLLING_K_ALL) snprintf(buf, n, "all");
+    else snprintf(buf, n, "%u", k);
+    return buf;
+}
+
+/* The curve, on stderr, one grid per decay rule: rows are gap (staleness),
+ * columns are k (history), each cell is the fraction of window t's unique
+ * (layer, expert) demands the mined list would have had resident. */
+static void cuda_expert_rolling_report(FILE *out) {
+    const size_t nk = g_rolling.ladder_k.size(), ng = g_rolling.ladder_gap.size();
+    fprintf(out, "ds4: [rolling] coverage of window t by a list mined from [t-k-gap, t-gap), "
+                 "windows scored %llu of %llu\n",
+            (unsigned long long)g_rolling.scored_windows, (unsigned long long)g_rolling.windows);
+    if (g_rolling.rows_capped)
+        fprintf(out, "ds4: [rolling] per-window rows capped, the grids below are over the whole run\n");
+    for (size_t s = 0; s < g_rolling.shifts.size(); s++) {
+        fprintf(out, "ds4: [rolling] rule=%s  gap \\ k", cuda_expert_hotlist_decay_name(g_rolling.shifts[s]));
+        for (size_t ki = 0; ki < nk; ki++) {
+            char buf[16];
+            fprintf(out, " %8s", cuda_expert_rolling_k_name(g_rolling.ladder_k[ki], buf, sizeof buf));
+        }
+        fprintf(out, "\n");
+        for (size_t gi = 0; gi < ng; gi++) {
+            fprintf(out, "ds4: [rolling]          %7u", (unsigned)g_rolling.ladder_gap[gi]);
+            for (size_t ki = 0; ki < nk; ki++) {
+                const uint64_t idx = (uint64_t)s * (nk * ng) + ki * ng + gi;
+                if (!g_rolling.pair_keys[idx]) fprintf(out, " %8s", "-");
+                else fprintf(out, " %7.2f%%", 100.0 * (double)g_rolling.pair_hits[idx] /
+                                               (double)g_rolling.pair_keys[idx]);
+            }
+            fprintf(out, "\n");
+        }
+    }
+}
+
+/* Flush the curve: grids on stderr, one CSV row per scored (window, k, gap,
+ * rule) on disk.  Nothing here changes what the cache does. */
+static void cuda_expert_rolling_close(void) {
+    if (!g_rolling.initialized || !g_rolling.enabled || g_rolling.disabled) return;
+    if (!g_rolling.scored_windows) {
+        fprintf(stderr, "ds4: [rolling] no window scored: the run was shorter than the k+gap ladder\n");
+        return;
+    }
+    cuda_expert_rolling_report(stderr);
+    const char *env = getenv("DS4_CUDA_EXPERT_HOTLIST_ROLLING_REPORT");
+    char path[PATH_MAX];
+    if (env && env[0]) {
+        if (!strcmp(env, "0")) return;
+        snprintf(path, sizeof path, "%s", env);
+    } else {
+        const char *home = getenv("HOME");
+        if (!home || !home[0]) return;
+        snprintf(path, sizeof path, "%s/.cache/ds4/cuda_expert_hotlist_rolling.csv", home);
+    }
+    cuda_expert_hotlist_ensure_parent_dir(path);
+    char tmp[PATH_MAX];
+    if (snprintf(tmp, sizeof tmp, "%s.tmp.%ld", path, (long)getpid()) >= (int)sizeof tmp) return;
+    FILE *fp = fopen(tmp, "wb");
+    if (!fp) {
+        fprintf(stderr, "ds4: failed to open rolling report %s for writing\n", tmp);
+        return;
+    }
+    fprintf(fp, "# ds4 expert hotlist rolling split v1\n"
+                "# windows %llu\n# stride %u\n# ring %u\n# scored_windows %llu\n"
+                "# coverage = hits / scored, a fraction\n"
+                "window,k,gap,rule,mined,kept,scored,hits,coverage\n",
+            (unsigned long long)g_rolling.windows, g_rolling.stride, g_rolling.ring_cap,
+            (unsigned long long)g_rolling.scored_windows);
+    for (size_t i = 0; i < g_rolling.rows.size(); i++) {
+        const cuda_expert_rolling_row &r = g_rolling.rows[i];
+        char buf[16];
+        const double coverage = r.scored ? (double)r.hits / (double)r.scored : 0.0;
+        fprintf(fp, "%llu,%s,%u,%s,%llu,%llu,%llu,%llu,%.6f\n",
+                (unsigned long long)r.window,
+                cuda_expert_rolling_k_name(r.k, buf, sizeof buf), r.gap,
+                cuda_expert_hotlist_decay_name(r.shift),
+                (unsigned long long)r.mined, (unsigned long long)r.kept,
+                (unsigned long long)r.scored, (unsigned long long)r.hits, coverage);
+    }
+    if (fclose(fp) != 0 || rename(tmp, path) != 0) {
+        fprintf(stderr, "ds4: failed to write rolling report %s\n", path);
+        (void)unlink(tmp);
+        return;
+    }
+    fprintf(stderr, "ds4: [rolling] wrote %s (%zu rows)\n", path, g_rolling.rows.size());
+}
+
+/* ACT mode: the list to write is the one mined from the act window, with the
+ * counts left whole, so the load-side decay rule stays the one place history
+ * is aged.  slots == 0 keeps the whole mined set. */
+static size_t cuda_expert_rolling_act_entries(uint64_t slots,
+                                             std::vector<cuda_expert_rolling_entry> &out) {
+    out.clear();
+    if (!g_rolling.initialized || !g_rolling.enabled || g_rolling.disabled || !g_rolling.act) return 0;
+    std::unordered_map<uint64_t, uint64_t> counts;
+    cuda_expert_rolling_mine(g_rolling.act_k, g_rolling.act_gap, counts);
+    cuda_expert_rolling_top(counts, 0, slots, out);
+    return out.size();
+}
+/* --- ROLLINGSPLIT END ----------------------------------------------------- */
+
 /* Written to a sibling temp file and renamed in, so a crash mid-write never
- * leaves a half list. */
+ * leaves a half list.  In ROLLINGSPLIT ACT mode the entries are the mined
+ * window instead of the whole run. */
 static void cuda_expert_hotlist_close(void) {
     const char *path = cuda_expert_hotlist_path();
     if (!path || g_expert_hotlist.counts.empty()) return;
     std::vector<cuda_expert_hotlist_entry> entries;
-    try {
-        entries.reserve(g_expert_hotlist.counts.size());
-        for (auto &kv : g_expert_hotlist.counts) {
-            cuda_expert_hotlist_entry e;
-            e.layer = (uint32_t)(kv.first >> 32);
-            e.expert = (uint32_t)kv.first;
-            e.hits = kv.second;
-            entries.push_back(e);
+    int from_rolling = 0;
+    if (g_rolling.act) {
+        std::vector<cuda_expert_rolling_entry> mined;
+        try {
+            cuda_expert_rolling_act_entries((uint64_t)g_stream_expert_slots.size(), mined);
+        } catch (...) {
+            mined.clear();
         }
-        std::sort(entries.begin(), entries.end(), cuda_expert_hotlist_hotter);
-    } catch (...) {
-        return;
-    }
-    {
-        /* ~/.cache/ds4 may not exist yet; both mkdirs may fail because the
-         * directory is already there, which is fine. */
-        char dir[PATH_MAX];
-        snprintf(dir, sizeof dir, "%s", path);
-        char *slash = strrchr(dir, '/');
-        if (slash && slash != dir) {
-            *slash = '\0';
-            char *parent = strrchr(dir, '/');
-            if (parent && parent != dir) {
-                *parent = '\0';
-                (void)mkdir(dir, 0755);
-                *parent = '/';
+        if (!mined.empty()) {
+            entries.reserve(mined.size());
+            for (size_t i = 0; i < mined.size(); i++) {
+                cuda_expert_hotlist_entry e;
+                e.layer = (uint32_t)(mined[i].key >> 32);
+                e.expert = (uint32_t)mined[i].key;
+                e.hits = mined[i].hits;
+                entries.push_back(e);
             }
-            (void)mkdir(dir, 0755);
+            from_rolling = 1;
+        } else {
+            fprintf(stderr, "ds4: [rolling] ACT mined nothing, writing the whole run instead\n");
         }
     }
+    if (!from_rolling) {
+        try {
+            entries.reserve(g_expert_hotlist.counts.size());
+            for (auto &kv : g_expert_hotlist.counts) {
+                cuda_expert_hotlist_entry e;
+                e.layer = (uint32_t)(kv.first >> 32);
+                e.expert = (uint32_t)kv.first;
+                e.hits = kv.second;
+                entries.push_back(e);
+            }
+            std::sort(entries.begin(), entries.end(), cuda_expert_hotlist_hotter);
+        } catch (...) {
+            return;
+        }
+    }
+    cuda_expert_hotlist_ensure_parent_dir(path);
     char tmp[PATH_MAX];
     if (snprintf(tmp, sizeof tmp, "%s.tmp.%ld", path, (long)getpid()) >= (int)sizeof tmp) return;
     FILE *fp = fopen(tmp, "wb");
@@ -27302,12 +27817,16 @@ static void cuda_expert_hotlist_close(void) {
             "# model_size %llu\n"
             "# experts %u\n"
             "# layer_records %llu\n"
-            "# selections %llu\n"
-            "# columns: layer expert hits weight\n",
+            "# selections %llu\n",
             (unsigned long long)g_expert_hotlist.model_size,
             g_expert_hotlist.n_total_expert,
             (unsigned long long)g_expert_hotlist.records,
             (unsigned long long)g_expert_hotlist.selections);
+    if (from_rolling)
+        fprintf(fp, "# rolling act k %u gap %u windows %llu\n",
+                g_rolling.act_k, g_rolling.act_gap, (unsigned long long)g_rolling.windows);
+    fprintf(fp, "# decay %s\n", cuda_expert_hotlist_decay_name(cuda_expert_hotlist_decay_shift()));
+    fprintf(fp, "# columns: layer expert hits weight\n");
     for (size_t i = 0; i < entries.size(); i++)
         fprintf(fp, "%u %u %llu 0\n", entries[i].layer, entries[i].expert,
                 (unsigned long long)entries[i].hits);
@@ -27316,13 +27835,15 @@ static void cuda_expert_hotlist_close(void) {
         (void)unlink(tmp);
         return;
     }
-    fprintf(stderr, "ds4: wrote expert hotlist %s (%zu experts)\n", path, entries.size());
+    fprintf(stderr, "ds4: wrote expert hotlist %s (%zu experts%s)\n", path, entries.size(),
+            from_rolling ? ", mined by rolling split" : "");
 }
 
 /* One count per unique (layer, expert) per batch, taken where the cache is
  * asked for bytes, so the list is exactly the demand the cache saw.  Seeds
  * are guesses and are not counted: counting them would let one run's guesses
- * steer the next run's list. */
+ * steer the next run's list.  The same window is handed to the rolling
+ * measurement, which is host-only and never touches the cache. */
 static void cuda_expert_hotlist_record(const ds4_gpu_stream_expert_table *table,
                                        const std::vector<int32_t> &unique) {
     if (g_stream_expert_seeding || g_expert_hotlist.disabled) return;
@@ -27337,6 +27858,8 @@ static void cuda_expert_hotlist_record(const ds4_gpu_stream_expert_table *table,
         } catch (...) {
             g_expert_hotlist.counts.clear();
         }
+        /* Registered first so the list is written before the curve is flushed. */
+        atexit(cuda_expert_rolling_close);
         atexit(cuda_expert_hotlist_close);
     }
     g_expert_hotlist.records++;
@@ -27348,6 +27871,18 @@ static void cuda_expert_hotlist_record(const ds4_gpu_stream_expert_table *table,
     } catch (...) {
         /* Out of host memory for the counts: keep serving, stop learning. */
         g_expert_hotlist.disabled = 1;
+        return;
+    }
+    if (g_rolling.initialized || getenv("DS4_CUDA_EXPERT_HOTLIST_ROLLING")) {
+        try {
+            std::vector<uint64_t> window;
+            window.reserve(unique.size());
+            for (size_t i = 0; i < unique.size(); i++)
+                window.push_back(cuda_expert_hotlist_key(table->layer, (uint32_t)unique[i]));
+            cuda_expert_rolling_record(window, (uint64_t)g_stream_expert_slots.size());
+        } catch (...) {
+            g_rolling.disabled = 1;
+        }
     }
 }
 
