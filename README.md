@@ -272,29 +272,40 @@ it rock.
 
 **✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
 
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
 **✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
 
 **✦ above: the README, unchanged**
 
 **✦ below: our modifications and numbers for this branch**
 
-## the base: upstream main plus two folded pull requests
-
-The reference tip every other branch in this series is cut from: upstream's main with two upstream pull requests folded in, squashed to one commit so each lever is measured against one control.
-
 ```
-✦  the rolled tip - the control, not a lever
-
-      upstream main        9139e2ae5     untouched
-      + PR 1034            folded        Metal decode-queue sync, with its test and bench
-      + PR 1035            folded        macOS Engram parallel reads, +5.2% by its author
-      = this branch        8ee53cb8b     the one base every triple-* branch is cut from
-                                        (tree-identical to 84ba6ef1b, a sibling commit)
-
-      ----------------------------------------------------------------------
-      tokens/s         9.56               our own measured control, native build
-      improvement      reference          this IS the control; it carries no lever
-      PR 1031 / 1030   not taken          superseded by evolution / moot
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-antirez-tip-latest
+  │
+  │  WHAT           the rolled tip: upstream main left untouched with PRs
+  │                 1034 and 1035 folded in. This is the CONTROL every
+  │                 other branch is cut from
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             9.56       9.56   reference       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        THIS IS THE TIP: it carries no lever and is the zero
+  │                 point
+  │
+  │  UPSTREAM       9139e2ae5 untouched
+  │  + PR 1034      folded: Metal decode-queue sync, with its test and
+  │                 bench
+  │  + PR 1035      folded: macOS Engram parallel reads, +5.2% by its
+  │                 author
+  │  = BRANCH       8ee53cb8b, tree-identical to 84ba6ef1b
+  │  PR 1031 / 1030 not taken: superseded by evolution / moot
+  │
+  └──────────────────────────────────────────────────────────────────────
 ```
 
 | arm / measurement | value | change |
