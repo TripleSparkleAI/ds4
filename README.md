@@ -290,22 +290,26 @@ it rock.
   │
   │  BRANCH    triple-prefill-readahead-order
   │
-  │  WHAT           reorders prefill victim eviction and holds the earliest
-  │                 layers of the scan, so the experts decode will need are
-  │                 not the ones dropped: the prefill hit list survives into
-  │                 decode
+  │  WHAT           reorders prefill victim eviction and holds the
+  │                 earliest layers of the scan, so the experts decode
+  │                 will need are not the ones dropped: the prefill hit
+  │                 list survives into decode
   │
   │  RESULTS              tokens/s        tip      change       floor
   │    generation             ____       ____        ____       4.9 %
   │    prefill                ____       ____        ____      15.8 %
   │
-  │  VERDICT        OWED: no clean interleaved A/B exists yet, so a blank
-  │                 cell is not a zero. The CUDA build gate is OWED as well.
+  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
   │
-  │  SWITCH         DS4_PREFILL_READAHEAD_HOLD=0 restores upstream exactly:
-  │                 the plain used-ascending victim order, no held set.
-  │                 Unset or 1 keeps the reorder plus the held band. This is
-  │                 the A/B switch the branch did not have before.
+  │  VERDICT        OWED: no clean interleaved A/B exists yet, so a
+  │                 blank cell is not a zero. The CUDA build gate is
+  │                 OWED as well.
+  │
+  │  SWITCH         DS4_PREFILL_READAHEAD_HOLD=0 restores upstream
+  │                 exactly: the plain used-ascending victim order, no
+  │                 held set. Unset or 1 keeps the reorder plus the held
+  │                 band. This is the A/B switch the branch did not have
+  │                 before.
   │  STATS          DS4_CUDA_SSD_PREFETCH_STATS=1 counts only, it does not
   │                 gate
   │  GATE           expected output-invariant: residency changes WHEN a
