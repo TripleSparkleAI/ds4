@@ -290,22 +290,26 @@ it rock.
   │
   │  BRANCH    triple-prefill-readahead-order
   │
-  │  WHAT           reorders prefill victim eviction so the experts decode
-  │                 will need are not the ones dropped: the prefill hit
-  │                 list survives into decode
+  │  WHAT           reorders prefill victim eviction and holds the earliest
+  │                 layers of the scan, so the experts decode will need are
+  │                 not the ones dropped: the prefill hit list survives into
+  │                 decode
   │
   │  RESULTS              tokens/s        tip      change       floor
   │    generation             ____       ____        ____       4.9 %
   │    prefill                ____       ____        ____      15.8 %
   │
-  │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
+  │  VERDICT        OWED: no clean interleaved A/B exists yet, so a blank
+  │                 cell is not a zero. The CUDA build gate is OWED as well.
   │
-  │  SWITCH         NONE: the reorder is unconditional in this branch
+  │  SWITCH         DS4_PREFILL_READAHEAD_HOLD=0 restores upstream exactly:
+  │                 the plain used-ascending victim order, no held set.
+  │                 Unset or 1 keeps the reorder plus the held band. This is
+  │                 the A/B switch the branch did not have before.
   │  STATS          DS4_CUDA_SSD_PREFETCH_STATS=1 counts only, it does not
   │                 gate
   │  GATE           expected output-invariant: residency changes WHEN a
-  │                 byte
-  │                 arrives, never which byte
+  │                 byte arrives, never which byte
   │
   └──────────────────────────────────────────────────────────────────────
 ```
@@ -320,8 +324,9 @@ it rock.
 
 *Cells left blank are AWAITING THE SWEEP, not zero. Nothing here is estimated.*
 
-- Changes one `stable_sort` comparator in `ds4_gpu_stream_expert_cache_prefetch`. The victim SET is identical before and after, so the starvation path (`if (p.slots.size() >= victims.size()) throw 0;`) is reached exactly as often as today: the hazard that silently switches the read-ahead off is structurally unreachable by this change.
-- **No real off switch.** The only environment variable this diff ships is `DS4_CUDA_SSD_PREFETCH_STATS`, which counts and prints and changes no decision; the reorder itself is unconditional. Upstream's `DS4_CUDA_DISABLE_SSD_PREFETCH` kills the whole read-ahead, not this lever in isolation. A true A/B of the reorder needs its own binary.
+- Changes one `stable_sort` comparator in `ds4_gpu_stream_expert_cache_prefetch`, adds a held subset in front of it, and makes both conditional on one switch. The victim SET is identical before and after, so the starvation path (`if (p.slots.size() >= victims.size()) throw 0;`) is reached exactly as often as upstream: the hazard that silently switches the read-ahead off is structurally unreachable by this change. That equality is not asserted, it is exercised: a host-side harness splices the patched code out of `ds4_cuda.cu` and replays 20,000 randomized cache states against upstream's own comparator and victim choice, checking the order with the switch off, the set with it on, held-last placement, and identical starvation counts in all three arms.
+- **The off switch exists now, and it was the blocking defect.** `DS4_PREFILL_READAHEAD_HOLD=0` restores the tip exactly: upstream's plain `used`-ascending victim sort, no held set, and the demand path's original single-pass victim choice. Unset or `1` keeps the reorder and the held band, so a default run is unchanged from the previous revision of this branch. `off`, `no` and `false` (any case) are accepted as well, and `00` reads as zero, because a control arm that silently lands in the arm it was meant to control is the failure this switch exists to remove. The variable is read once, on first use, so it must be set before the process starts. Before this, the only variable the diff shipped was `DS4_CUDA_SSD_PREFETCH_STATS`, which counts and prints and changes no decision, and the reorder was unconditional, so the branch could not be measured against its own control at all.
+- **What "held" means here.** A slot holding an expert from the earliest layers of the scan is a victim only after every unheld candidate: the read-ahead appends the held slots behind the sorted victims, and the reserve loop takes from the front, so a held slot is touched only once nothing else is left. The demand path does the same with a two-pass choice. Held is a preference and never a guarantee, and the candidate SET is unchanged, so nothing starves here that does not starve upstream. One honest consequence: when the cache sits at its minimum, the choice inside that set does differ from upstream, because an older held slot is kept in place of a newer unheld one. That is the trade this change makes and the thing the owed sweep has to price. The band is anchored on the lowest layer the read-ahead is shown (layer 0 for a prefill that starts at the top of the model) and sized to a quarter of the cache, at least one layer: that is a chosen constant, not a tuned one, and its size is part of what the sweep should attack.
 - The figures this patch has to beat, measured on the unpatched tip and recorded in `plans/prs/PR_PREFILLHANDOFF.md` on branch `lane-pr-docs` at `cc9bcac8f`: the first 32 decode tokens miss **32.22 experts per token at a 0.8658 hit rate** against a steady state of **9.16 at 0.9618**; a second run reproduced it at 33.09 / 0.8621 against 9.19 / 0.9617.
 - The same record shows the prefill takes 36,022 expert lookups, hits 35,377 and evicts **zero** through the demand path, with the arena full at 8,548 of 8,548. The eviction that matters is the read-ahead's own reservation loop, which a demand-only counter cannot see: `res=` climbing 384 a layer to the cap and then sitting flat is eviction running at exactly the rate of admission.
 - The probe lane's independent measurement, recorded in `plans/prs/MEASURED_PREFETCH_PROBE.md` on the same branch: **93.8 percent of the first decode step's misses were experts the prefill had selected and the cache no longer holds**, and 65.9 percent of the last prefill batch's experts are still resident at that layer's first decode step.
@@ -358,9 +363,26 @@ it rock.
         layers are the last thing worth surrendering
      3. used stays the tie-break within one layer, so the least
         recently routed expert in a layer still goes first
+     4. and the HELD band (the earliest layers of the scan, a quarter
+        of the cache, anchored on the lowest layer the read-ahead is
+        shown) is appended AFTER all of that: the reserve loop takes
+        from the front, so a held slot is only ever released when no
+        unheld candidate is left
      evict layer 39 first .................... layer 0 last
      decode restarts at layer 0  ==>  still resident
 ```
+
+**Two independent lines of support, and why this branch moves policy rather than capacity.**
+
+- **(a) The traversal order, from the source.** A decode token walks all layers in the same order every token, so under LRU each admission is followed by an eviction of exactly the entry the next token will want, because the reuse distance equals the whole scan. Their reader states the response in one line: "Stable admission avoids thrashing during the full layer scan each token" (`research/v41-flash-landscape/09-macs-and-dwarfstar/sources/atbender-mac-mini/deepseek_v41_mlx/native_stream.py:107`), and it never evicts (`:108-110`). The reading of that comment with our own numbers attached is in the same folder, `research/v41-flash-landscape/09-macs-and-dwarfstar/HOW-WE-USE-IT.md:21-41`, which is where the 93.8 percent figure above is tied to their sentence.
+- **(b) A measured knee of our own, recorded independently of this branch.** Our roadmap's one-line recommendation says the Spark lever is prediction/prefetch of hot experts "**not** bigger cache (the knee proved size isn't it)" (`WIKI/theory/48-decode-speedup-levers.md:369-370`). The knee is a measured thing, not a hypothesis: `ds4-why --sweep-cache` sweeps the streaming expert-cache size and locates the point beyond which each extra GiB buys less than half the steepest t/s-per-GiB gain, and the roadmap reads that as "raw cache *size* is not the lever ... the remaining lever is therefore prediction/prefetch quality, not more cache" (`WIKI/theory/48-decode-speedup-levers.md:267-271`; the sweep and the half-gain criterion are defined in `WIKI/theory/47-profiling-methodology.md:118-120`).
+- Together those two say the same thing from opposite ends: capacity is not where the win is on this host, and the reason is the scan order rather than the size of the arena. Both point at ADMISSION and VICTIM policy, which is exactly what this branch changes. The reorder and the held band are residency policy; neither adds a byte of cache, and neither changes which byte the model reads or what it computes.
+
+**The currency lesson, recorded rather than fixed.**
+
+- Their cache budget is denominated in the wrong unit and under-delivers by the dequantization ratio. `cached_bytes` sums `w.nbytes` of the **dequantized** tensor (`research/v41-flash-landscape/09-macs-and-dwarfstar/sources/atbender-mac-mini/deepseek_v41_mlx/native_stream.py:108-110`), and FP8 dequantizes to bf16, so a 4 GiB budget holds about 2 GiB of on-disk FP8 bytes. Recomputed from their own logs: the 4 GiB cache removes **2.035 GiB** of disk reads per token and the 6 GiB cache removes **3.051 GiB**, about half the declared budget each time (`research/v41-flash-landscape/09-macs-and-dwarfstar/CODE.md:150-158`). They measured it and did not assert it, and nobody corrected the accounting.
+- **Our arena is denominated in stored GGUF expert bytes on the device, which is the same currency as the disk read it removes, so this trap does not apply to us.** The byte budget is converted to slots by dividing by the stored per-expert size: `ds4_streaming_cache_experts_for_byte_budget` divides a byte figure by `per_expert_bytes` (`ds4.c:5205-5216`), and `per_expert_bytes` comes from `routed_expert_row_bytes`, which multiplies the quant block size and never a dequantized size (`ds4.c:5004-5009`, `ds4.c:5054-5082`). On the CUDA side the same unit is used to size and fill the arena: `bytes = 2 * gate_expert_bytes + down_expert_bytes` and the slot count is `budget / bytes` (`ds4_cuda.cu:33771-33780`), the three arena arrays are sized `capacity * gate_expert_bytes` / `capacity * down_expert_bytes` (`ds4_cuda.cu:27271-27277`), and each miss copies that many bytes out of the model mapping at the stored offset (`ds4_cuda.cu:27349-27361`). Since `--ssd-streaming-cache-experts NGB` is a byte target and one eviction removes exactly one stored expert, a nominal budget of N GiB buys N GiB of arena and removes that many bytes per token. The warning belongs to any future **dense** weight cache on this path, where GGUF bytes go in and dequantized bytes come out: such a budget must be divided by the dequantization ratio before anyone claims the disk saving, or it will under-deliver by exactly that factor and look like a wall it is not.
+- Both of this section's sources are workspace-local and **not tracked in this fork's tree**: `research/v41-flash-landscape/09-macs-and-dwarfstar/` (the Mac-mini study and its cloned reader) and `WIKI/theory/48-decode-speedup-levers.md` with `WIKI/theory/47-profiling-methodology.md` (our roadmap and the knee's method). They are cited by path and line so a reader with the workspaces can check them, and flagged so nobody hunts for them in a clone.
 
 **Why these cells are still blank.** A native pass was run on 2026-09-15 and its result files
 exist on the Spark, but its control is not sound, so the numbers are WITHHELD rather than
@@ -379,6 +401,18 @@ harness `try.sh` on branch `triple-all-fastest`. Its results land under `~/sweep
 markdown-table files matching `~/sweeps/2026-09-16-*.txt`, plus one MATRIX file beside them,
 and every file states what was ON, the build vintage, the interleaved control and the noise
 floor - so any figure there can be traced back to its run without trusting this README.
+
+**Build status of this revision.** The CUDA build gate is **OWED**: a CUDA build needs the DGX
+Spark, which is running an unrelated series, and there is no CUDA toolchain on this box. So the
+code in this branch has been **reviewed and logic-checked, not compiled**, and that is not a claim of
+working. What was actually run is the host-side harness described above (`/tmp/hold_harness.cpp`,
+generated by `/tmp/mk_harness.py`, both outside the repo and so not committed: this branch's commit
+shape is fixed at two commits). It splices the patched
+regions out of `ds4_cuda.cu` verbatim, compiles them with `clang++`, and replays 20,000 randomized
+cache states plus a tight-cache phase against upstream's own comparator and victim choice. That
+checks ordering, set membership, held-last placement and starvation parity. It does NOT check that
+the file compiles, that the held band behaves as intended under a real prefill, or anything about
+tokens/s. The first honest number for this branch requires a Spark build of both arms.
 
 Status: **OWED** - until a file in `~/sweeps/` carries this lever's clean interleaved A/B,
 the cells above stay blank.
