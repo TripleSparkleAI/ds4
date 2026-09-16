@@ -276,29 +276,40 @@ it rock.
 
 **✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
 
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
 **✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
 
 **✦ above: the README, unchanged**
 
 **✦ below: our modifications and numbers for this branch**
 
-## a lookup drafter for the streaming decode - closed on measurement
-
-A suffix-lookup drafter for the streaming decode, built to fold k decode tokens into one verify pass. It is CLOSED, because it was measured as a speed lever and came back negative. It is kept as a design record and as a different approach, not as a speedup.
-
 ```
-✦  the lookup drafter - CLOSED on measurement
-
-      verdict          CLOSED, no patch          kept as a design record
-      acceptance       2.37x code / 1.17x prose  real, and it is not the lever
-      NVMe bytes saved 0.0000                    at k of 2, 4 and 8
-      routing overlap  38.90%                    between adjacent decode tokens
-      miss reuse       0 of 1,219                next misses the previous token selected
-      box time spent   0                         scored offline from a sibling lane's dump
-
-      ----------------------------------------------------------------------
-      headline         a k-token verify pass reads the SAME NVMe bytes as k single passes
-      output           not run - there is no patch; this branch is a measurement
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-word-finisher
+  │
+  │  WHAT           the lookup drafter, tested and CLOSED on measurement:
+  │                 a k-token verify pass reads the SAME NVMe bytes as k
+  │                 single passes, so it saves nothing
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    no patch   a measurement branch, see VERDICT
+  │
+  │  VERDICT        CLOSED: the measurement killed the idea, and that is a
+  │                 result
+  │
+  │  ACCEPTANCE     2.37x code / 1.17x prose: the speedup is real, and not
+  │                 the lever
+  │  BYTES SAVED    0.0000 at k of 2, 4 and 8
+  │  ROUTING OVERLAP 38.90% between adjacent decode tokens
+  │  MISS REUSE     0 of 1,219: no next miss was selected by the previous
+  │                 token
+  │  OUTPUT         not run - there is no patch; this branch is a
+  │                 measurement
+  │
+  └──────────────────────────────────────────────────────────────────────
 ```
 
 | arm / measurement | value | change |
