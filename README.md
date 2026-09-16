@@ -274,149 +274,89 @@ it rock.
 
 
 
-**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
 
-
-**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
-
-**✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
-
-**✦ above: the README, unchanged**
-
-**✦ below: our modifications and numbers for this branch**
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH    triple-prefill-readahead-order
+  │  BRANCH     triple-prefill-readahead-order                        NOT YET
   │
-  │  WHAT           reorders prefill victim eviction and holds the
-  │                 earliest layers of the scan, so the experts decode
-  │                 will need are not the ones dropped: the prefill hit
-  │                 list survives into decode
+  │  WHAT       reorders the prefill read-ahead's victim choice and holds the
+  │             earliest layers of the scan, so the experts decode needs first
+  │             are the last ones evicted: the prefill hit list survives into
+  │             decode. Residency policy only, no byte of cache added
   │
-  │  RESULTS              tokens/s        tip      change       floor
-  │    generation             ____       ____        ____       4.9 %
-  │    prefill                ____       ____        ____      15.8 %
+  │  RESULT     gen t/s   not measured - a 2026-09-15 native pass exists on the
+  │                       Spark and is WITHHELD: its off arms beat their own
+  │                       control, and an off arm is the control
+  │             prefill   not measured
+  │             control = none sound yet; the 2026-09-15 control read 9.17 to
+  │                       9.46 tokens/s against 9.56 in a later mixed pass
+  │             session  2026-09-15, GB10, native, load/gpu unstamped here
   │
-  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │  VERDICT    OWED - a clean interleaved A/B of both arms from a Spark build
+  │             the number it has to move: the first 32 decode tokens miss
+  │             32.22 experts/token at hit rate 0.8658 on the unpatched tip
   │
-  │  VERDICT        OWED: no clean interleaved A/B exists yet, so a
-  │                 blank cell is not a zero. The CUDA build gate is
-  │                 OWED as well.
-  │
-  │  SWITCH         DS4_PREFILL_READAHEAD_HOLD=0 restores upstream
-  │                 exactly: the plain used-ascending victim order, no
-  │                 held set. Unset or 1 keeps the reorder plus the held
-  │                 band. This is the A/B switch the branch did not have
-  │                 before.
-  │  STATS          DS4_CUDA_SSD_PREFETCH_STATS=1 counts only, it does not
-  │                 gate
-  │  GATE           expected output-invariant: residency changes WHEN a
-  │                 byte arrives, never which byte
+  │  SWITCH     DS4_PREFILL_READAHEAD_HOLD, default on; =0 (off/no/false)
+  │             restores upstream exactly. DS4_CUDA_SSD_PREFETCH_STATS=1 counts
+  │             only. The off switch is new: the previous revision reordered
+  │             unconditionally and could not be measured against itself
+  │  OUTPUT     not re-run; expected output-invariant, residency changes when a
+  │             byte arrives and never which byte
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
-**Standard results table**
+**The problem, measured on the unpatched tip** (`plans/prs/PR_PREFILLHANDOFF.md` and
+`plans/prs/MEASURED_PREFETCH_PROBE.md`, branch `lane-pr-docs`, which is not published on this
+fork, so these figures are attributable but not checkable from a clone):
 
-| arm / measurement | value | change |
-| --- | ---: | ---: |
-| tokens/s - control (tip, unpatched) | ____ | - |
-| tokens/s - this branch | ____ | ____ % |
-| misses/token, first 32 decode tokens - this branch | ____ | ____ % |
+- the first 32 decode tokens miss **32.22 experts/token at hit rate 0.8658** against a steady
+  state of 9.16 at 0.9618; a second run read 33.09 / 0.8621 against 9.19 / 0.9617
+- the prefill takes 36,022 expert lookups, hits 35,377, evicts zero through the demand path with
+  the arena full at 8,548 of 8,548; the eviction that matters is the read-ahead's own
+  reservation loop, which a demand-only counter cannot see
+- **93.8 percent of the first decode step's misses are experts the prefill had selected** and
+  the cache no longer holds; 65.9 percent of the last prefill batch is still resident
+- 98.4 percent of the opening's misses live in layers 0-19; layers 20-39 miss 0.47 percent
+- an earlier pair, 4.7 percent surviving and 92.7 percent loaded-then-evicted, was WITHDRAWN:
+  the replay reconstructed residency from the demand path alone and read 645 where the engine
+  printed 8,548
 
-*Cells left blank are AWAITING THE SWEEP, not zero. Nothing here is estimated.*
+**The mechanism.** Upstream sorts victims by `used` ascending, and `used` rises with the layer
+during a prefill sweep, so the arena ends the prefill holding the LATE layers and decode restarts
+cold at layer 0. This branch changes one `stable_sort` comparator in
+`ds4_gpu_stream_expert_cache_prefetch` and adds a held subset: slots ahead of the sweep go first,
+then slots behind it closest to the sweep, `used` stays the tie-break within a layer, and a held
+band (the earliest layers, a quarter of the cache, anchored on the lowest layer the read-ahead is
+shown) is appended last so the reserve loop releases it only when nothing else is left. The
+demand path does the same with a two-pass choice. The victim SET is unchanged, so the starvation
+path `if (p.slots.size() >= victims.size()) throw 0;` fires exactly as often as upstream. The
+band size is a chosen constant, not a tuned one.
 
-- Changes one `stable_sort` comparator in `ds4_gpu_stream_expert_cache_prefetch`, adds a held subset in front of it, and makes both conditional on one switch. The victim SET is identical before and after, so the starvation path (`if (p.slots.size() >= victims.size()) throw 0;`) is reached exactly as often as upstream: the hazard that silently switches the read-ahead off is structurally unreachable by this change. That equality is not asserted, it is exercised: a host-side harness splices the patched code out of `ds4_cuda.cu` and replays 20,000 randomized cache states against upstream's own comparator and victim choice, checking the order with the switch off, the set with it on, held-last placement, and identical starvation counts in all three arms.
-- **The off switch exists now, and it was the blocking defect.** `DS4_PREFILL_READAHEAD_HOLD=0` restores the tip exactly: upstream's plain `used`-ascending victim sort, no held set, and the demand path's original single-pass victim choice. Unset or `1` keeps the reorder and the held band, so a default run is unchanged from the previous revision of this branch. `off`, `no` and `false` (any case) are accepted as well, and `00` reads as zero, because a control arm that silently lands in the arm it was meant to control is the failure this switch exists to remove. The variable is read once, on first use, so it must be set before the process starts. Before this, the only variable the diff shipped was `DS4_CUDA_SSD_PREFETCH_STATS`, which counts and prints and changes no decision, and the reorder was unconditional, so the branch could not be measured against its own control at all.
-- **What "held" means here.** A slot holding an expert from the earliest layers of the scan is a victim only after every unheld candidate: the read-ahead appends the held slots behind the sorted victims, and the reserve loop takes from the front, so a held slot is touched only once nothing else is left. The demand path does the same with a two-pass choice. Held is a preference and never a guarantee, and the candidate SET is unchanged, so nothing starves here that does not starve upstream. One honest consequence: when the cache sits at its minimum, the choice inside that set does differ from upstream, because an older held slot is kept in place of a newer unheld one. That is the trade this change makes and the thing the owed sweep has to price. The band is anchored on the lowest layer the read-ahead is shown (layer 0 for a prefill that starts at the top of the model) and sized to a quarter of the cache, at least one layer: that is a chosen constant, not a tuned one, and its size is part of what the sweep should attack.
-- The figures this patch has to beat, measured on the unpatched tip and recorded in `plans/prs/PR_PREFILLHANDOFF.md` on branch `lane-pr-docs` at `cc9bcac8f`: the first 32 decode tokens miss **32.22 experts per token at a 0.8658 hit rate** against a steady state of **9.16 at 0.9618**; a second run reproduced it at 33.09 / 0.8621 against 9.19 / 0.9617.
-- The same record shows the prefill takes 36,022 expert lookups, hits 35,377 and evicts **zero** through the demand path, with the arena full at 8,548 of 8,548. The eviction that matters is the read-ahead's own reservation loop, which a demand-only counter cannot see: `res=` climbing 384 a layer to the cap and then sitting flat is eviction running at exactly the rate of admission.
-- The probe lane's independent measurement, recorded in `plans/prs/MEASURED_PREFETCH_PROBE.md` on the same branch: **93.8 percent of the first decode step's misses were experts the prefill had selected and the cache no longer holds**, and 65.9 percent of the last prefill batch's experts are still resident at that layer's first decode step.
-- The opening is layer-shaped: **98.4 percent of the opening's misses live in layers 0-19**, while layers 20-39 miss 0.47 percent of their lookups (`plans/channel/CUDA_LANES_CHANNEL_snapshot.md`, `lane-pr-docs`).
-- **Caveat on the three citations above:** they name files on branch `lane-pr-docs`, which is
-  **not published on this fork** because it carries the internal coordination log. A reader
-  working from the fork alone cannot fetch them, so treat those three figures as attributable
-  but not independently checkable here.
-- An earlier pair of figures from this lane, 4.7 percent surviving and 92.7 percent loaded-then-evicted, was **withdrawn**: the offline replay reconstructed residency from the demand path alone and read 645 where the engine's own `res=` printed 8,548. They are not used here and are recorded so nobody re-derives them.
-- Counters ship separately so a silent self-disable cannot masquerade as a win: `DS4_CUDA_SSD_PREFETCH_STATS=1` prints asked / started / refused_early / no_victims / cancelled / published / dropped / slots.
+Two records point the same way: the Mac-mini reader's "Stable admission avoids thrashing during
+the full layer scan each token" (`research/v41-flash-landscape/09-macs-and-dwarfstar/`, workspace
+only), and the measured knee in `WIKI/theory/48-decode-speedup-levers.md` § 5 and § 8: cache size
+is not the lever, admission and victim policy are. Our arena is denominated in stored GGUF expert
+bytes (`ds4_streaming_cache_experts_for_byte_budget` divides by `per_expert_bytes`), the same
+currency as the disk read it removes, so the Mac-mini reader's dequantized-byte budget trap does
+not apply here.
 
-```
-   VICTIM ORDER ACROSS ONE PREFILL SWEEP
+**Held now.** A host-side harness (outside the repo, not committed) splices the patched regions
+out of `ds4_cuda.cu`, compiles them with `clang++`, and replays 20,000 randomized cache states
+plus a tight-cache phase against upstream's own comparator: the order with the switch off, the
+set with it on, held-last placement, and identical starvation counts in all three arms. It was
+this harness that showed the previous revision's switch-off still reordered.
 
-   layer       0    1    2   ...   20   ...   39
-               |    |    |          |          |
-   sweep  -->------------------------------------------->
-   used stamp   1    2    3   ...   21   ...   40
-                (rises with the layer: an expert tensor's offset rises
-                 with its layer, 40 of 40 strictly, so the gate offset
-                 orders layers without carrying a layer on the slot)
+**A related number, not this branch's.** The prefill read-ahead's foreground blocking wait fell
+from **398.0 to 196.5 ms per layer** (single reader to four, `wait MIN` of two interleaved
+passes, output `2f2dd7f89d107bbc` on every arm) on branch `triple-prefetch-pool`
+(`CUDA_LANES_CHANNEL.md`, PREFETCHPOOL 13:41 RESULT). That branch changes the reader pool; this
+one changes the victim order and carries no pool change, so the figure is context, not a result.
 
-   OLD - sort victims by used ASCENDING
-     evict layer 0 first .................... layer 39 last
-     the arena ends the prefill holding the LATE layers
-     decode restarts at layer 0  ==>  the opening is cold
-
-   NEW - this branch
-     1. slots AHEAD of the sweep go first: the sweep re-reads those
-        layers on the way past anyway, so losing one costs one
-        prefetch, not the opening
-     2. among slots BEHIND the sweep, the ones CLOSEST to the sweep
-        go first: decode reaches layer 0 first, so the earliest
-        layers are the last thing worth surrendering
-     3. used stays the tie-break within one layer, so the least
-        recently routed expert in a layer still goes first
-     4. and the HELD band (the earliest layers of the scan, a quarter
-        of the cache, anchored on the lowest layer the read-ahead is
-        shown) is appended AFTER all of that: the reserve loop takes
-        from the front, so a held slot is only ever released when no
-        unheld candidate is left
-     evict layer 39 first .................... layer 0 last
-     decode restarts at layer 0  ==>  still resident
-```
-
-**Two independent lines of support, and why this branch moves policy rather than capacity.**
-
-- **(a) The traversal order, from the source.** A decode token walks all layers in the same order every token, so under LRU each admission is followed by an eviction of exactly the entry the next token will want, because the reuse distance equals the whole scan. Their reader states the response in one line: "Stable admission avoids thrashing during the full layer scan each token" (`research/v41-flash-landscape/09-macs-and-dwarfstar/sources/atbender-mac-mini/deepseek_v41_mlx/native_stream.py:107`), and it never evicts (`:108-110`). The reading of that comment with our own numbers attached is in the same folder, `research/v41-flash-landscape/09-macs-and-dwarfstar/HOW-WE-USE-IT.md:21-41`, which is where the 93.8 percent figure above is tied to their sentence.
-- **(b) A measured knee of our own, recorded independently of this branch.** Our roadmap's one-line recommendation says the Spark lever is prediction/prefetch of hot experts "**not** bigger cache (the knee proved size isn't it)" (`WIKI/theory/48-decode-speedup-levers.md:369-370`). The knee is a measured thing, not a hypothesis: `ds4-why --sweep-cache` sweeps the streaming expert-cache size and locates the point beyond which each extra GiB buys less than half the steepest t/s-per-GiB gain, and the roadmap reads that as "raw cache *size* is not the lever ... the remaining lever is therefore prediction/prefetch quality, not more cache" (`WIKI/theory/48-decode-speedup-levers.md:267-271`; the sweep and the half-gain criterion are defined in `WIKI/theory/47-profiling-methodology.md:118-120`).
-- Together those two say the same thing from opposite ends: capacity is not where the win is on this host, and the reason is the scan order rather than the size of the arena. Both point at ADMISSION and VICTIM policy, which is exactly what this branch changes. The reorder and the held band are residency policy; neither adds a byte of cache, and neither changes which byte the model reads or what it computes.
-
-**The currency lesson, recorded rather than fixed.**
-
-- Their cache budget is denominated in the wrong unit and under-delivers by the dequantization ratio. `cached_bytes` sums `w.nbytes` of the **dequantized** tensor (`research/v41-flash-landscape/09-macs-and-dwarfstar/sources/atbender-mac-mini/deepseek_v41_mlx/native_stream.py:108-110`), and FP8 dequantizes to bf16, so a 4 GiB budget holds about 2 GiB of on-disk FP8 bytes. Recomputed from their own logs: the 4 GiB cache removes **2.035 GiB** of disk reads per token and the 6 GiB cache removes **3.051 GiB**, about half the declared budget each time (`research/v41-flash-landscape/09-macs-and-dwarfstar/CODE.md:150-158`). They measured it and did not assert it, and nobody corrected the accounting.
-- **Our arena is denominated in stored GGUF expert bytes on the device, which is the same currency as the disk read it removes, so this trap does not apply to us.** The byte budget is converted to slots by dividing by the stored per-expert size: `ds4_streaming_cache_experts_for_byte_budget` divides a byte figure by `per_expert_bytes` (`ds4.c:5205-5216`), and `per_expert_bytes` comes from `routed_expert_row_bytes`, which multiplies the quant block size and never a dequantized size (`ds4.c:5004-5009`, `ds4.c:5054-5082`). On the CUDA side the same unit is used to size and fill the arena: `bytes = 2 * gate_expert_bytes + down_expert_bytes` and the slot count is `budget / bytes` (`ds4_cuda.cu:33771-33780`), the three arena arrays are sized `capacity * gate_expert_bytes` / `capacity * down_expert_bytes` (`ds4_cuda.cu:27271-27277`), and each miss copies that many bytes out of the model mapping at the stored offset (`ds4_cuda.cu:27349-27361`). Since `--ssd-streaming-cache-experts NGB` is a byte target and one eviction removes exactly one stored expert, a nominal budget of N GiB buys N GiB of arena and removes that many bytes per token. The warning belongs to any future **dense** weight cache on this path, where GGUF bytes go in and dequantized bytes come out: such a budget must be divided by the dequantization ratio before anyone claims the disk saving, or it will under-deliver by exactly that factor and look like a wall it is not.
-- Both of this section's sources are workspace-local and **not tracked in this fork's tree**: `research/v41-flash-landscape/09-macs-and-dwarfstar/` (the Mac-mini study and its cloned reader) and `WIKI/theory/48-decode-speedup-levers.md` with `WIKI/theory/47-profiling-methodology.md` (our roadmap and the knee's method). They are cited by path and line so a reader with the workspaces can check them, and flagged so nobody hunts for them in a clone.
-
-**Why these cells are still blank.** A native pass was run on 2026-09-15 and its result files
-exist on the Spark, but its control is not sound, so the numbers are WITHHELD rather than
-published. In that pass every arm read above its control - including the arms that switch this
-lever **off**, and an off arm is the control by construction, so it cannot beat it by several
-percent. Two of the three levers measured better switched off than switched on. That is the
-signature of a bad control rather than of a lever, and the control in that pass read 9.17 to
-9.46 tokens/s against 9.56 in a later pass that produced mixed, believable results.
-
-So the honest statement is that this measurement is **owed** with a clean interleaved control,
-and these cells stay blank until it exists. Publishing the 2026-09-15 figures would put a
-number in a table that the run behind it does not support.
-
-**Where the clean numbers will arrive.** A clean series is being run on the Spark with the
-harness `try.sh` on branch `triple-all-fastest`. Its results land under `~/sweeps/` as dated
-markdown-table files matching `~/sweeps/2026-09-16-*.txt`, plus one MATRIX file beside them,
-and every file states what was ON, the build vintage, the interleaved control and the noise
-floor - so any figure there can be traced back to its run without trusting this README.
-
-**Build status of this revision.** The CUDA build gate is **OWED**: a CUDA build needs the DGX
-Spark, which is running an unrelated series, and there is no CUDA toolchain on this box. So the
-code in this branch has been **reviewed and logic-checked, not compiled**, and that is not a claim of
-working. What was actually run is the host-side harness described above (`/tmp/hold_harness.cpp`,
-generated by `/tmp/mk_harness.py`, both outside the repo and so not committed: this branch's commit
-shape is fixed at two commits). It splices the patched
-regions out of `ds4_cuda.cu` verbatim, compiles them with `clang++`, and replays 20,000 randomized
-cache states plus a tight-cache phase against upstream's own comparator and victim choice. That
-checks ordering, set membership, held-last placement and starvation parity. It does NOT check that
-the file compiles, that the held band behaves as intended under a real prefill, or anything about
-tokens/s. The first honest number for this branch requires a Spark build of both arms.
-
-Status: **OWED** - until a file in `~/sweeps/` carries this lever's clean interleaved A/B,
-the cells above stay blank.
+**Owed.** The CUDA build on the Spark, then both arms interleaved on one vintage, against the
+in-run tip floor. The clean series lands under `~/sweeps/2026-09-16-*.txt` with the build vintage,
+the control and the floor in each file.
