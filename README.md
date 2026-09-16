@@ -276,30 +276,36 @@ it rock.
 
 **✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
 
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
 **✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
 
 **✦ above: the README, unchanged**
 
 **✦ below: our modifications and numbers for this branch**
 
-## give the Engram table read a token of lead
-
-The decode step's blocking Engram table read is started a whole token early, on the step's own
-argmax, and published only when the token, the history and the position all still match.
-
 ```
-✦  Engram read, a token of lead
-
-      baseline        ____               tokens/s
-      this branch     ____               tokens/s
-      improvement     ____               %
-
-      ----------------------------------------------------------------------
-      headline        the read is 23.9 ms of a 198.6 ms step · 12.04% · fully exposed
-      record          speed-bench/v41_engram_lead_gb10.md
-      output          ____               gates and the end-to-end A/B are OWED here
-
-   ◦ a blank cell is AWAITING THE SWEEP, not a zero.
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-engram-lead
+  │
+  │  WHAT           starts the Engram table read a token of lead ahead of
+  │                 first use, so the read overlaps the step instead of
+  │                 landing exposed inside it
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             ____       ____        ____       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
+  │
+  │  HEADLINE       the read is 23.9 ms of a 198.6 ms step, 12.04%, fully
+  │                 exposed
+  │  RECORD         speed-bench/v41_engram_lead_gb10.md
+  │  OUTPUT         ____  gates and the end-to-end A/B are OWED here
+  │
+  └──────────────────────────────────────────────────────────────────────
 ```
 
 **Standard results table**
