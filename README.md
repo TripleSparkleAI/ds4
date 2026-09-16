@@ -295,7 +295,8 @@ it rock.
   │             control = unpatched tip, interleaved, same native vintage
   │             session  2026-09-15, DGX Spark GB10, native 23.1 MB .text, unstamped
   │
-  │             in the stack (2026-09-16, hits-first ON vs clean tip @e6d9d3b8):
+  │             in the stack (2026-09-16, hits-first ON vs clean tip @e6d9d3b8;
+  │             that stack is the NINE-lever binary at dd82361a, not this branch):
   │             -4.23 % at 4096 (0/6, clears the 2.89 % floor)
   │             -0.57 / -0.76 / -0.95 % at 6144 / 8192 / min - INSIDE the floor
   │             min-vs-min 9.55 vs 9.55 = +0.00 %, paired n=6
@@ -303,6 +304,7 @@ it rock.
   │  VERDICT    MEASURED WIN solo, INSIDE THE FLOOR in the stack
   │             +8.3 % clears the 4.9 % floor at n=2; in the stack it ties the
   │             tip at three of four readings and loses -4.23 % at 4096
+  │             the repair ca5232d40 has NOT been measured anywhere
   │
   │  SWITCH     DS4_CUDA_HITS_FIRST=1 (default OFF in the stack; =0 is wait-then-launch)
   │             DS4_CUDA_HITS_FIRST_STAGED=0 keeps hits-first, single-stage read order
@@ -311,44 +313,144 @@ it rock.
   └──────────────────────────────────────────────────────────────────────
 ```
 
-**Mechanism.** The LUT decode kernel gained a `pair_mask` argument and returns early for pairs
-the launch does not cover. Gate/up and a per-slot down partial run for the resident experts
-while the miss reads are in flight; after the wait the same kernels run for the miss slots, and
-the six partials are summed in slot order from `0.0f` - the float sequence
-`moe_down_sum_qwarp32_kernel<6>` already executes, which is why the output is bit-identical.
-A second stage reorders the pool's pick-up order: every miss's gate/up first, then the downs.
-The branch carries the parallel expert pread pool underneath because it calls the pool's own
-entry points; the pool is what makes the misses concurrent.
+## What the branch does
+
+- The LUT decode kernel takes a `pair_mask` and returns early for any pair the launch does not cover.
+- Gate/up, and a per-slot down partial, run for the experts already resident, while the miss reads are still in flight.
+- After the wait, the same kernels run again for the miss slots.
+- The six partials are summed in slot order, from `0.0f`. That is the float sequence
+  `moe_down_sum_qwarp32_kernel<6>` already ran, which is why the output is bit-identical.
+- A second stage reorders the pool's pick-up order: every miss's gate/up first, then the downs.
+- The branch carries the parallel expert pread pool underneath, because it calls the pool's own
+  entry points. The pool is what makes the misses concurrent.
 
 ```
-   AS SHIPPED                      THIS BRANCH
-   wait for EVERY miss read        dispatch miss reads, launch HIT mask now
-   launch all six together         wait_stage -> launch MISS mask
-   sum in slot order               sum_partials6: slots 0..5, from 0.0f (same sequence)
+   ONE TOKEN, hits-first ON: who drains, who launches, who waits
+
+   as shipped   wait for EVERY miss read · launch all six · sum slots 0..5
+
+   this branch
+     1  drain the batch still in flight?     ds4_hitsfirst_must_wait, asks the quant
+           Q4_K    YES    was NO DRAIN         launched gate/up over victim slots the
+           MXFP4   YES    was NEVER REACHED    pool was still uploading: a real race
+           IQ2     NO     unchanged, on purpose - the overlap IS the branch
+     2  dispatch the miss reads
+     3  launch the HIT mask now               pair_mask, resident experts only
+     4  wait_stage
+     5  launch the MISS mask
+     6  sum_partials6, slots 0..5, from 0.0f  the same float sequence as the fused
+                                              kernel, so the sha does not move
 ```
 
-**The two measurements, kept apart.**
+## The measurements, kept apart
 
-- Solo, 2026-09-15 native pass: **10.35 vs 9.56 gen t/s, +8.3 %**, two repeats, interleaved
-  control, minimum across the three stable frontiers (ctx 2048 discarded as warmup). The
-  control-to-control floor of that native set is 3.3-4.9 % gen and 9.7-15.8 % prefill. This is
-  the only generation delta in the five-branch series that cleared its floor.
-- In the stack, 2026-09-16 phase 2 (`2026-09-16-triple-all-fastest-attrib-hits-first-on.txt`):
-  `triple-all-fastest` @dd82361a with `DS4_CUDA_HITS_FIRST=1` against nine fresh clean-tip
-  brackets @e6d9d3b8, 17 runs, all rc=0, 0 contention drops, box load < 2.0 and gpu 0-21 % at
-  every stamp. Paired medians **-4.23 / -0.57 / -0.76 / -0.95 %** at 4096 / 6144 / 8192 / min,
-  sign 0/6, 1/6, 1/6, 1/6; the n=8 no-straggler-drop sensitivity gives the same medians. The
-  as-shipped stack (hits-first OFF) lost -8.63 / -3.75 / -5.38 / -4.51 % against the same tip
-  design in phase 1, so turning this one lever on closes most of the residual deficit at three
-  of four readings. The arm was sealed as exploratory (amendment A1) and is not part of the
-  sealed verdict on the seven kill switches. Prefill paired median, secondary: +1.60 / +15.29 /
-  +4.33 / +4.13 %.
-- An earlier on/off A/B on JIT-fallback binaries (29.6 MB .text, no `-gencode`) read 8.31 vs
-  8.61 t/s, a NULL. JIT and native vintages are not comparable (prefill about 37 vs 86 t/s),
-  so that null is superseded, not refuted. The structural explanation once given for it - that
-  the shared expert's gate/up/down already fill the interval - is unproven.
-- The same change measured about +5 % on our own CUDA backend, a different tree, cited only
-  to say where the idea pays.
+**Solo, 2026-09-15 native pass. The win.**
 
-**Open.** A native solo on/off repeat is owed; n=2 is the solo sample. The 4096 deficit that
-survives hits-first in the stack points at the non-switchable branch diff or an untested switch.
+- 10.35 vs 9.56 gen t/s, **+8.3 %**.
+- Two repeats per arm, interleaved control, minimum across the three stable frontiers.
+  ctx 2048 discarded as warmup.
+- The control-to-control floor of that native set is 3.3-4.9 % gen and 9.7-15.8 % prefill.
+- This is the only generation delta in the five-branch series that cleared its floor.
+
+**In the stack, 2026-09-16 phase 2. Inside the floor at three readings of four.**
+
+- File: `2026-09-16-triple-all-fastest-attrib-hits-first-on.txt`.
+- Arm: `triple-all-fastest` @dd82361a with `DS4_CUDA_HITS_FIRST=1`, against nine fresh
+  clean-tip brackets @e6d9d3b8.
+- 17 runs, all rc=0, 0 contention drops, box load under 2.0 and gpu 0-21 % at every stamp.
+- Paired medians **-4.23 / -0.57 / -0.76 / -0.95 %** at 4096 / 6144 / 8192 / min.
+  Signs 0/6, 1/6, 1/6, 1/6.
+- The n=8 no-straggler-drop sensitivity gives the same medians.
+- Prefill paired median, secondary: +1.60 / +15.29 / +4.33 / +4.13 %.
+- The as-shipped stack, hits-first OFF, lost -8.63 / -3.75 / -5.38 / -4.51 % against the same
+  tip design in phase 1. Turning this one lever on closes most of that deficit at three of
+  four readings.
+- The arm was sealed as exploratory (amendment A1). It is not part of the sealed verdict on
+  the seven kill switches.
+- ⚠ **The subject is narrower than the word "stack".** That binary carries NINE levers, sits at
+  `dd82361a`, and is not on `triple-all-fastest`'s line of history: the two are siblings off
+  `84ba6ef1b` (`2026-09-16-CORRECTION-the-measured-stack-is-nine-levers-and-has-diverged.md`).
+  The ten-lever tree has never been measured.
+
+**Superseded, not refuted.**
+
+- An earlier on/off A/B on JIT-fallback binaries (29.6 MB .text, no `-gencode`) read
+  8.31 vs 8.61 t/s, a null.
+- JIT and native vintages are not comparable: prefill is about 37 t/s against about 86 t/s.
+- The structural explanation once given for that null, that the shared expert's gate/up/down
+  already fill the interval, is unproven.
+
+**Elsewhere.** The same change measured about +5 % on our own CUDA backend, a different tree.
+Cited only to say where the idea pays.
+
+## The repair carried on this branch (`ca5232d40`)
+
+Four findings from R1 and from HUNTTHECOST C2, fixed on the branch that introduced them. The
+decision logic moved into `ds4_hitsfirst_logic.h` so a host with no CUDA toolkit can test it.
+
+- **A real race, on two paths.** `begin_load` leaves a hits-first batch in flight whenever
+  `slot_count <= 8`, and it does not know the expert quant. The only pre-launch wait asked
+  `g_hits_first.active && !(n_tokens == 1u && use_decode_lut_gate)`, which does not ask about
+  the quant either.
+  - Q4_K experts skipped the wait, then launched gate/up over victim slots the pool's workers
+    were still uploading on their own `cudaStreamNonBlocking` streams. Nothing ordered those
+    streams before the kernel.
+  - MXFP4 is worse in shape and easier to miss: it returns from `routed_moe_launch` well before
+    the wait line, so it never drained at all. It now drains at the top of its own block.
+  - The predicate is `ds4_hitsfirst_must_wait`, and it asks the quant.
+  - The IQ2 one-token decode-LUT path still does NOT drain. Keeping that overlap is the whole
+    point of the branch, and a test case is the control for it.
+  - Latent only because the IQ2 daily driver routes to the LUT branch.
+- **A leak.** `g_hf_partials` was never freed. `cuda_hf_partials_release()` now runs inside
+  `ds4_gpu_stream_expert_cache_release_resident`, after the hits-first wait that function
+  already does, so no kernel can be reading the partials.
+- **A latent correctness bug.** `moe_down_slot_partial_qwarp32_kernel` mapped a negative slot
+  onto expert 0 and relied on the LUT kernel having zeroed that pair's `mid_out`. The fused
+  kernel it claims bit-identity with, `moe_down_sum_qwarp32_kernel`, skips the slot instead.
+  Both now share one rule, `ds4_hitsfirst_slot_contributes`: the partial kernel writes `0.0f`
+  and returns, which is what makes `moe_down_sum_partials6_kernel`'s sum equal the fused skip.
+- **Host time spent in a GPU-idle window.** `begin_load` ran a `getenv`, a heap allocation and
+  a clock on every call, hit or miss, 40 layers per token. By HUNTTHECOST 0.1 that function
+  sits between a `cudaStreamSynchronize` of the decode stream and the routed launch, so host
+  time there is GPU idle time. Removed:
+  - the `getenv("DS4_CUDA_EXPERT_CACHE_STATS")` linear scan of environ, now read once via
+    `ds4_env_gate`;
+  - the `std::vector<char> was_miss(unique.size())` heap allocation, now a uint64 mask, which
+    the hits-first cap of `slot_count <= 8` makes exact;
+  - `cuda_wall_sec()`, now taken only when stats are on.
+  - ⚠ **No number is claimed for any of this.** What was removed is named; the number is the
+    bench's.
+- **Behaviour note.** `DS4_CUDA_EXPERT_CACHE_STATS` is now sampled once, at the first
+  `begin_load` of the process, and cannot be flipped mid-run. It is a diagnostic switch in a
+  per-layer hot path, and this is the shape `cuda_hits_first_enabled` already has.
+  `g_stream_expert_sec_read` likewise accumulates only when stats are on, and its only reader
+  is the stats line itself.
+- No default, no switch direction and no output byte changed.
+
+## The test for the repair
+
+`tests/test_hitsfirst_logic.c` is pure C99, with no CUDA and no model. 15 cases, one
+independent control each.
+
+- The drain predicate is swept over the whole (`n_tokens`, lut_gate, quant) space, so exactly
+  one path consumes its own batch and none reads without draining.
+- The negative-slot rule is EXERCISED, not asserted: host models of both reductions run over
+  the same selection and must agree.
+- The getenv saving is asserted on a read counter through a substituted reader, so it is a
+  counted fact.
+- RED, with all four pre-fix rules restored in the header: 13 of 142 checks fail, at
+  `paths: 3 consume their own batch` and `env reads: 4000 over 4000 calls`.
+- GREEN: `paths: 1 consume their own batch, 0 read without draining`,
+  `env reads: 1 over 4000 calls`, 142 checks, 0 failed.
+- Re-run on this Mac 2026-09-17 (`make tests/test_hitsfirst_logic && ./tests/test_hitsfirst_logic`):
+  **142 checks, 0 failed, exit 0.**
+- ⚠ NOT exercised: no Q4_K-expert model, no MXFP4 model, no GPU, and `ds4_cuda.cu` does not
+  compile on this macOS host. The race is asserted on the predicate, never observed.
+
+## Still open
+
+- A native solo on/off repeat. n=2 is the whole solo sample.
+- The 4096 deficit that survives hits-first in the stack. It points at the non-switchable
+  branch diff, or at an untested switch.
+- A CUDA build, and a measurement on the new tip `triple-tip-2026-09-16`. Nothing on this
+  branch has been measured since the repair landed, so the card's numbers all pre-date it.
