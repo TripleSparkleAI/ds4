@@ -290,9 +290,9 @@ it rock.
   │
   │  BRANCH    triple-engram-read-threads
   │
-  │  WHAT           scales the Engram table readers to the rows the batch
-  │                 actually needs, instead of a fixed 2 rows per reader
-  │                 capped at 16
+  │  WHAT           issues a decode step's Engram read as ONE WAVE: one row
+  │                 per reader on a single persistent pool shared by both
+  │                 tables, instead of two serial rounds of twelve readers
   │
   │  RESULTS              tokens/s        tip      change       floor
   │    generation             ____       ____        ____       4.9 %
@@ -300,12 +300,15 @@ it rock.
   │
   │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
   │
-  │  HEADLINE       48 serial 264-byte preads, 12,672 bytes, 12.04% of
-  │                 every step
+  │  SWITCH         DS4_ENGRAM_ROWS_PER_READER=1|2, default 1
+  │                 2 restores the old two-round divisor as the control arm
+  │                 DS4_ENGRAM_READ_THREADS=<n> still overrides the count
+  │  HEADLINE       48 serial 264-byte preads, 12,672 bytes, 12.04% of the
+  │                 step; the one-wave fix itself is OWED
   │  RECORD         speed-bench/v41_engram_read_threads_gb10.md
-  │  OUTPUT         gates match; short bb06e711bc498bb9, long
-  │                 2f2dd7f89d107bbc,
-  │                 generation 652dcda32c176cab; the end-to-end A/B is OWED
+  │  OUTPUT         the reader count is proven not to change a byte
+  │                 (tests/test_engram.c); the release gates and the
+  │                 end-to-end A/B are OWED
   │
   └──────────────────────────────────────────────────────────────────────
 ```
@@ -322,44 +325,52 @@ it rock.
 *Cells left blank are AWAITING THE SWEEP, not zero. Nothing here is estimated. The last two rows
 are recorded measurements quoted from the file named above, not taken on this branch.*
 
-- An Engram read at the head of a decode step is 48 serial 264-byte `pread` calls at queue depth one to move 12,672 bytes: two tables, 24 rows each, 264 bytes a row. It completes before the step issues its first GPU command, so every millisecond of it is exposed, 23.9 ms of a 198.6 ms step, or 12.04 percent.
-- Sixteen concurrent readers were already in the tree and DECODE COULD NOT REACH THEM. The old gate engaged them only at `count >= 256`, and a decode token asks for 24 requests per table. This is a latent defect rather than a new feature.
-- `engram_reader_count(count)` replaces the fixed gate: `count / ENGRAM_ROWS_PER_READER`, which is one reader per two rows, capped at `ENGRAM_READERS` (16) and at `count`, with a floor of 1. A single decode token's 24 requests now get 12 readers; a whole-prefix read still gets all 16, exactly as before.
-- `DS4_ENGRAM_READ_THREADS=<n>` overrides the count. It is read per call rather than cached, because this runs once per token per table immediately before dozens of disk reads, so no first caller wins the setting for the lifetime of the process. `0` clamps to one reader, which is the serial path; a non-numeric or empty value falls back to the request count.
-- The readers own disjoint slices of the sorted request array, and dedup of equal row ids stays inside each slice. The count changes how the rows are fetched, never which rows are fetched or where they land.
-- Both decode call sites move to the batch entry point: the single-sequence step and the batched multi-sequence decode, which previously called the plain per-token reader.
-- The defect is visible with no model and no GPU. Replaying the same 48-read pattern through the shipped reader gives serial p50 9.600 ms against the batch path's p50 10.054 ms, because at one token the batch reader took the serial path plus a sort.
-- Gates match the unpatched tree at every arm in the record: short `bb06e711bc498bb9` at 73146 bytes, long prompt 4,392 tokens `2f2dd7f89d107bbc` at 33527, and `-n 256` generation `652dcda32c176cab` at 383825. `tests/test_engram.c` sweeps `DS4_ENGRAM_READ_THREADS` over 0, 1, 2, 3, 5, 12, 16, 64, a bogus value and an empty one, at one, two and forty tokens, against the serial per-row reader as the reference.
+- An Engram read at the head of a decode step is 48 serial 264-byte `pread` calls at queue depth one to move 12,672 bytes: two tables, 24 rows each, 264 bytes a row. It completes before the step issues its first GPU command, so every millisecond of it is exposed, 23.9 ms of a 198.6 ms step, or 12.04 percent. That number is quoted from the record named above. It is what this branch attacks; it is not a measurement of this branch.
+- Sixteen concurrent readers were already in the tree and DECODE COULD NOT REACH THEM. The old rule engaged a reader per two rows and capped the readers at 16, and a decode token asks for 24 requests per table, so decode got 12 readers and therefore TWO SERIAL ROUNDS. The concurrency existed; the divisor and the fixed cap kept it from being one wave. That is a latent defect rather than a new feature.
+- `ENGRAM_ROWS_PER_READER` is now 1 (`ds4_engram.c:332`). `engram_reader_count(count, pool)` computes `count / rows_per_reader`, capped by the REAL pool size and by `count`, with a floor of 1 (`ds4_engram.c:355`). A decode token's 24 requests per table now get 24 parts, which is one wave; a whole-prefix read gets the whole pool rather than 16.
+- The cap is the pool, not a constant (`ds4_engram.c:211`). `engram_pool_size()` is one plus the number of parked workers, so widening the pool widens the read, with no second constant to keep in step. The pool holds 32 workers (`ENGRAM_POOL_THREADS`, `ds4_engram.c:151`) plus the caller, so the cap is 33.
+- The per-call dispatch is gone. `dispatch_apply_f` on Apple and a fresh `pthread_create`/`pthread_join` batch elsewhere are replaced by ONE process-wide pool, created on first use and shared by both tables (`ds4_engram.c:145-247`). The caller claims parts too, so progress never depends on a wakeup, and a worker that cannot be created only lowers the concurrency, never correctness. No CUDA and no backend symbol is used, so the Metal, ROCm and CPU builds get the same pool.
+- `DS4_ENGRAM_ROWS_PER_READER=1|2` is the switch; the DEFAULT IS 1, the one-wave path (`ds4_engram.c:337`). `2` restores the old divisor, so a 24-row read gets 12 readers and two serial rounds exactly as before: the control arm lives in the same binary and shares every other line of policy with the arm under test. `DS4_ENGRAM_READ_THREADS=<n>` is unchanged and still overrides the count: `0` clamps to one reader, which is the serial path, and a non-numeric or empty value falls back to the divisor.
+- `tests/test_engram.c` sweeps both knobs at one, two and forty tokens against the serial per-row reader as the reference: `DS4_ENGRAM_READ_THREADS` over 0, 1, 2, 3, 5, 12, 16, 64, a bogus value and an empty one, and `DS4_ENGRAM_ROWS_PER_READER` over 1, 2, 3, a bogus value and an empty one. The invariant under test is that the reader count changes how the rows are fetched, never which rows are fetched or where they land.
+- The readers own disjoint parts of the sorted request array, and dedup of equal row ids stays inside each part. The sort is kept deliberately: on a buffered fd adjacent rows land in the same 4 KiB page, which a prefill read benefits from; with 24 scattered ids over 384M rows it buys decode nothing.
+- Both decode call sites move to the batch entry point: the single-sequence step (`ds4.c:41256`) and the batched multi-sequence decode (`ds4.c:42056`), which previously called the plain per-token reader.
+- The defect is visible with no model and no GPU. Replaying the same 48-read pattern through the shipped reader gives serial p50 9.600 ms against the pre-fix batch path's p50 10.054 ms, because at one token that batch reader took the serial path plus a sort.
+- The one-wave change is NOT measured, and no build gate was run. The CUDA build needs the Spark and the Spark is running an unrelated series, so the build is OWED outright. The previous revision's release gates (short `bb06e711bc498bb9`, long prompt `2f2dd7f89d107bbc`, generation `652dcda32c176cab`) were recorded against that revision's code, not this one, so this revision's gates are OWED too. What is held here is the invariant: the reader count does not move a byte.
+- **A result from our own engine notes is about a DIFFERENT regime and must not be read against this one.** `WIKI/theory/177-...-2026-09-13.md` section 16 (lines 221-225) measures one 3 MiB expert tensor at 416 us, a whole miss as three tensors in parallel at 1.06 ms, and states that splitting a tensor into 2 to 24 chunks is SLOWER while 8/16/32 whole reads in flight give 10.1 / 9.9 / 9.7 GB/s: a miss is BANDWIDTH-bound per tensor, so chunking a big read has nothing to win. That is a few-MiB transfer. This branch's read is 264 bytes a row, the unit is a row, and the read is IOPS- and round-trip-bound: 48 rows in 9.6 ms on a quiet drive is 5.0k IOPS against a drive whose QD=1 figure is about 3.5k and whose QD=64 figure is about 112k. The two consumer-side notes state the same split in one line each: `research/v41-flash-landscape/02-dual-spark-exl3-dspark/HOW-WE-USE-IT.md:34` records that their 32x is an IOPS ratio on 264-byte rows while our 7.6 to 10.1 GB/s is a bandwidth ratio on few-MiB expert tensors, and `research/v41-flash-landscape/08-rtx-cards/HOW-WE-USE-IT.md:108-110` restates it from the probe side, where the pread pool at 4, 8 and 16 threads reads the misses in the same about 37 ms because that path is NVMe-bound. The same distinction is why one ticket per row is the right shape here and chunking is not. Nothing in this branch chunks a tensor.
+- The row store this design comes from is `research/v41-flash-landscape/03-triple-spark-mxfp4-engram/`, studied in its `CODE.md:189-233` and `HOW-WE-USE-IT.md:55-80`. Their chunk is 1 explicitly, because "a larger chunk would cap in-flight reads at count/kChunk" (their code, quoted at `CODE.md:216-221`); their pool is one process-wide instance shared by both layers, sized threads minus one because the caller drains too; and their published accounting is that concurrency took an exposed Engram read from about 11 ms per step to 1-3 ms (`CODE.md:280-294`). Their ids per step are a code comment, not a logged statistic, so treat the 4-10x as their number applied to our shape rather than as ours.
 - In the stacked tree `triple-all-fastest` this lever is the path the Engram lead read's miss goes through, so the two coexist rather than compete.
 - Record: `speed-bench/v41_engram_read_threads_gb10.md`. Owed there and not claimed here: the end-to-end A/B and the scaled probe row.
 - Caution from the record for anyone re-measuring this path: the Engram descriptor gets `F_NOCACHE` and `F_RDAHEAD(0)` on macOS only, so on Linux a repeated n-gram costs about 0.15 ms against 20 to 25 ms for a novel one. Two consecutive runs of one prompt are NOT two samples, arm order is a variable, and a baseline prompt is effectively single-use.
 
 ```
-   ONE DECODE STEP, AS SHIPPED          THIS BRANCH
-   ---------------------------          -----------
+   ONE DECODE STEP, AS SHIPPED          THIS BRANCH (default, divisor 1)
+   ---------------------------          --------------------------------
    24 ids for one table                 24 ids for one table
-      |                                    |
-      v                                    v
-   count 24, and 24 < 256               engram_reader_count(24):
-      |                                  24 / 2 rows per reader
-      v                                  -> 12 readers, capped at 16
+     |                                    |
+     v                                    v
+   count 24, and 24 < 256               engram_reader_count(24, 33):
+     |                                  24 / 1 row per reader
+     v                                  -> 24 parts, ONE wave
    the serial path                             |
-      |                                         v
-      v                                    qsort the requests by row id
-   24 preads, queue depth 1,               once, then slice the sorted
-   one row at a time, about                array across the readers
+     |                                         v
+     v                                   qsort the requests by row id
+   24 preads, queue depth 1,            once, then slice the sorted
+   one row at a time, about             array across the parts
    200 microseconds each                       |
-      |                                         v
-      v                                    each reader owns a DISJOINT
-   the read completes BEFORE the            slice, dedups equal row ids
-   first GPU command                        inside it, writes its own rows
-      |                                         |
-      v                                         v
-   the device is IDLE for 23.9 ms           all readers join before the
-   of a 198.6 ms step                       first GPU command is issued
+     |                                         v
+     v                                   ONE pool, started on first use
+   the read completes BEFORE the        and shared by both tables; the
+   first GPU command                    caller drains parts too
+     |                                         |
+     v                                         v
+   the device is IDLE for 23.9 ms       every part finishes before the
+   of a 198.6 ms step                   first GPU command is issued
 
    the sixteen readers that would have hidden it were already in the tree;
-   the 256-request gate, not the readers, is what kept decode serial
+   the divisor of 2 and the cap of 16, not the readers, kept decode serial
+
+   DS4_ENGRAM_ROWS_PER_READER=2 restores the left-hand shape as the control
+   arm from the same binary: 12 readers, two serial rounds
 ```
 
 **Why these cells are still blank.** A native pass was run on 2026-09-15 and its result files
@@ -374,11 +385,19 @@ So the honest statement is that this measurement is **owed** with a clean interl
 and these cells stay blank until it exists. Publishing the 2026-09-15 figures would put a
 number in a table that the run behind it does not support.
 
+**And the one-wave change is owed for a second, simpler reason: nothing has been run against
+this revision at all.** The pass above predates it. The build itself is OWED, because the CUDA
+build needs the Spark and the Spark is running an unrelated series; so are this revision's
+release gates and the tokens/s A/B. The only claims that do not depend on that run are the
+invariant (the reader count does not move a byte, swept in `tests/test_engram.c`) and the
+reader-count arithmetic, neither of which is a tokens/s figure.
+
 **Where the clean numbers will arrive.** A clean series is being run on the Spark with the
 harness `try.sh` on branch `triple-all-fastest`. Its results land under `~/sweeps/` as dated
 markdown-table files matching `~/sweeps/2026-09-16-*.txt`, plus one MATRIX file beside them,
 and every file states what was ON, the build vintage, the interleaved control and the noise
 floor - so any figure there can be traced back to its run without trusting this README.
 
-Status: **OWED** - until a file in `~/sweeps/` carries this lever's clean interleaved A/B,
-the cells above stay blank.
+Status: **OWED** - the build gate, this revision's release gates and the tokens/s A/B all still
+need the Spark. Until a file in `~/sweeps/` carries this lever's clean interleaved A/B, the
+cells above stay blank.
