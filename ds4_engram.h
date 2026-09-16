@@ -59,8 +59,15 @@ bool ds4_engram_read(const ds4_engram_table *table, const uint32_t *rows,
  * Disk reads run on one process-wide pool, created on first use and shared by
  * both tables; the number of parts scales with the request count and is capped
  * by that pool, so a single token's rows are read in one wave rather than one
- * at a time. DS4_ENGRAM_ROWS_PER_READER=2 restores the old two-round divisor. */
+ * at a time. DS4_ENGRAM_ROWS_PER_READER=2 restores the old two-round divisor.
+ * ONE TOKEN IS THE EXCEPTION AND TAKES NEITHER: a single-token read is the
+ * decode demand read and goes straight to ds4_engram_read, with no allocation,
+ * no sort and no pool. NEITHER READER KNOB REACHES IT - they govern the wide
+ * prefill read only, and the defaults there are unchanged. */
 bool ds4_engram_read_batch(const ds4_engram_table *table, const uint32_t *rows,
                            size_t tokens, size_t stride, float *out);
+/* How many reads have woken the shared pool. A one-token read is a decode
+ * demand read and takes the serial reader, so it must never move this. */
+uint64_t ds4_engram_pool_dispatches(void);
 
 #endif

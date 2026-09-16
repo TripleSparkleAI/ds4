@@ -168,6 +168,10 @@ static engram_pool g_engram_pool = {
 };
 static pthread_mutex_t g_engram_pool_create = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t g_engram_pool_run = PTHREAD_MUTEX_INITIALIZER;
+/* Counts runs that woke the pool. The demand read must never move it. */
+static uint64_t g_engram_pool_dispatches;
+
+uint64_t ds4_engram_pool_dispatches(void) { return g_engram_pool_dispatches; }
 
 static void *engram_pool_worker(void *context) {
     engram_pool *pool = context;
@@ -223,6 +227,9 @@ static void engram_pool_run(void (*fn)(void *, size_t), void *context, size_t pa
     }
     engram_pool *pool = &g_engram_pool;
     pthread_mutex_lock(&g_engram_pool_run);
+    /* Under the run mutex, so the plain increment has one writer at a time.
+     * Readers are tests on the calling thread after the read returned. */
+    g_engram_pool_dispatches++;
     engram_pool_create();
     pthread_mutex_lock(&pool->lock);
     pool->fn = fn;
@@ -348,7 +355,8 @@ static size_t engram_rows_per_reader(void) {
  * not by a constant: the cap is the number of contexts that can actually run a
  * part, so widening the pool widens the read. DS4_ENGRAM_ROWS_PER_READER=2
  * restores the old divisor and is the control arm in the same binary; a 24-row
- * read then gets 12 readers and two serial rounds, as it did before. The
+ * read then gets 12 readers and two serial rounds, as it did before. Neither
+ * knob is consulted for a one-token read: that one never reaches here. The
  * override is read per call rather than cached: this runs once per token per
  * table, immediately before dozens of disk reads, so the lookup is free and no
  * first caller wins the setting for the lifetime of the process. */
@@ -410,6 +418,17 @@ bool ds4_engram_read_batch(const ds4_engram_table *t, const uint32_t *rows,
         }
     }
     if (!tokens) return true;
+    if (tokens == 1) {
+        /* THE DEMAND PATH. One token is a decode read: DS4_ENGRAM_COLS rows,
+         * issued twice per token on the critical path. The batch machinery
+         * costs it a malloc, a qsort and a pool dispatch to win nothing - the
+         * sort cannot reorder work that is already one token wide, and the
+         * dedup it buys is a memcpy against a 264-byte pread. Hand it to the
+         * serial reader, which is what the engine did before this file grew a
+         * pool. Output layout is identical: request i writes row i either way.
+         * The prefill read below is untouched and stays wide on purpose. */
+        return ds4_engram_read(t, rows, DS4_ENGRAM_COLS, out);
+    }
     enum { BATCH_TOKENS = 2048 };
     const size_t cap = tokens < BATCH_TOKENS ? tokens : BATCH_TOKENS;
     engram_request *request = malloc(cap * DS4_ENGRAM_COLS * sizeof(*request));
