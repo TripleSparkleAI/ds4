@@ -276,31 +276,39 @@ it rock.
 
 **✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
 
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
 **✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
 
 **✦ above: the README, unchanged**
 
 **✦ below: our modifications and numbers for this branch**
 
-## read the prefill read-ahead in parallel
-
-Upstream's next-layer read-ahead walks its copies one at a time through two 8 MiB staging buffers, so the drive sees queue depth one for the whole speculative read. This branch splits those copies into tasks and runs them on a pread pool.
-
 ```
-+--  parallel SSD read-ahead - tokens/s owed ------------------------------
-
-      baseline        ____               tokens/s
-      this branch     ____               tokens/s
-      improvement     ____               %
-
-      ----------------------------------------------------------------------
-      switch          DS4_CUDA_SSD_PREFETCH_CHUNK_MB = task and per-worker
-                      staging size (default 8 MiB, cap 64; value 0 IGNORED)
-      fallback        pool declines -> antirez's single reader, unchanged
-      gate            expected output-invariant: WHEN bytes arrive changes,
-                      never how many
-
-   +  a blank cell is AWAITING THE SWEEP, not a zero.
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-prefetch-pool
+  │
+  │  WHAT           a parallel chunked read-ahead for prefill, with the
+  │                 single reader kept as the fallback whenever the pool
+  │                 declines the work
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             ____       ____        ____       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
+  │
+  │  SWITCH         DS4_CUDA_SSD_PREFETCH_CHUNK_MB, default 8 MiB, cap 64;
+  │                 a
+  │                 value of 0 is IGNORED, so there is no clean off arm
+  │  FALLBACK       pool declines -> the single reader, unchanged
+  │  GATE           expected output-invariant: WHEN bytes arrive changes,
+  │                 never
+  │                 how many
+  │
+  └──────────────────────────────────────────────────────────────────────
 ```
 
 **Standard results table**
