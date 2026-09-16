@@ -276,28 +276,36 @@ it rock.
 
 **✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
 
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
 **✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
 
 **✦ above: the README, unchanged**
 
 **✦ below: our modifications and numbers for this branch**
 
-## drop staged expert pages in the right order
-
-Fix the staged expert path's host-page release so the kernel actually honours it, and give the buffered miss reads a readahead hint so a layer's experts are already on their way in when the first pread waits.
-
 ```
-✦  staged page drop order
-
-      baseline        9.56               tokens/s
-      this branch     9.62               tokens/s
-      improvement     +0.6%               %   (noise floor 3.3-4.9 %)
-
-      ----------------------------------------------------------------------
-      headline        measured: awaiting the clean sweep
-      output          greedy-identical · sha256 bb06e711bc498bb9
-
-   ◦ a blank cell is AWAITING THE SWEEP, not a zero.
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-pagecache
+  │
+  │  WHAT           drops staged pages in an order that keeps the working
+  │                 set resident, instead of dropping them in arrival
+  │                 order
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             9.62       9.56      +0.6 %       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        inside the floor: this measurement does not resolve it
+  │
+  │  SWITCH         the drop order is staged; the arms are in the section
+  │                 below
+  │  HEADLINE       measured: awaiting the clean sweep
+  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │
+  └──────────────────────────────────────────────────────────────────────
 ```
 
 **Standard results table**
