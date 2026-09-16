@@ -284,75 +284,175 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-engram-read-threads                           NOT YET
+  │  BRANCH     triple-engram-read-threads                 CORRECT, WORTH ZERO
   │
-  │  WHAT       issues a decode step's Engram read as ONE WAVE, one row per
-  │             reader on a single persistent pool shared by both tables,
-  │             instead of two serial rounds of twelve readers
+  │  WHAT       takes the DECODE step's Engram read off the batch machinery:
+  │             one token now goes straight to the serial reader, with no
+  │             malloc, no qsort and no pool dispatch. The wide PREFILL read
+  │             keeps the one-wave rule the branch was named for.
   │
-  │  RESULT     gen t/s   not measured (this lever alone)
-  │             prefill   not measured
-  │             control = none run for this lever alone. Its serial form
-  │             (DS4_ENGRAM_READ_THREADS=1) is one of the SEVEN in the
-  │             2026-09-16 all-off block: stack as shipped -4.51 % vs tip
-  │             (0/7), all seven off -12.13 % (0/8), L = -7.62 pp joint,
-  │             3.5x the floor. Not attributable.
-  │             session  unstamped - this revision never built against CUDA
+  │  RESULT     gen t/s   MEASURED, AND IT BUYS NOTHING
+  │             the bisect's RT arm is this same decode revert, made on the
+  │             nine-lever stack at dd82361a: -6.07 % vs the clean tip, where
+  │             the stack as shipped read -4.35 %. |D_RT - D_STACK| = 1.72,
+  │             inside the 4.13 % floor, so NOT IT by the sealed rule and no
+  │             direction is reported
+  │             (2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md)
+  │             prefill   not measured. The one-wave PREFILL read has never run
+  │             session  the RT binary is tb-bis-rt @d1dd5ec2, native 23,147,372
+  │             .text, 2026-09-16. THIS revision has never been built for CUDA
   │
-  │  VERDICT    OWED - the one-wave change has not been run at all; the
-  │             invariant that holds is that the reader count moves no byte
+  │  VERDICT    CORRECT, TESTED, AND WORTH NOTHING ON THE CLOCK.
+  │             The decode fast path is right: it takes a malloc, a qsort and
+  │             a broadcast to 32 parked workers off the critical path, and a
+  │             counter proves the pool never wakes. The bisect measured that
+  │             same revert at 1.72 points, inside the floor.
+  │             A fix can be right, well tested, and buy nothing.
+  │             OWED: the one-wave PREFILL read, which is the untested half
   │
-  │  SWITCH     DS4_ENGRAM_ROWS_PER_READER=1|2, default 1 (one wave); 2 is
-  │             the old two-round divisor, the control arm in the same
-  │             binary. DS4_ENGRAM_READ_THREADS=<n> still overrides the
-  │             count; 0 clamps to one reader, the serial path.
+  │  SWITCH     ⚠ NEITHER KNOB REACHES THE DECODE READ ANY MORE. Both govern
+  │             the wide prefill read only, where the defaults are unchanged.
+  │             DS4_ENGRAM_ROWS_PER_READER=1|2, default 1 (one wave); 2 is the
+  │             old two-round divisor, the control arm in the same binary.
+  │             DS4_ENGRAM_READ_THREADS=<n> overrides the reader count;
+  │             0 clamps to one reader, the serial path.
   │  OUTPUT     not re-run (the previous revision's gates bb06e711bc498bb9 /
   │             2f2dd7f89d107bbc / 652dcda32c176cab belong to that revision)
   │
   └──────────────────────────────────────────────────────────────────────
 ```
 
-**The cost it attacks.** A decode step's Engram read is 48 serial 264-byte `pread` calls at queue
-depth one moving 12,672 bytes, complete before the first GPU command. Measured on the GB10: engram
-mean 23.922 ms of a 198.636 ms step, 12.04 % (`speed-bench/v41_engram_lead_gb10.md`). That is
-what this branch attacks; it is not a measurement of this branch.
+## The cost it attacks
 
-**The latent defect.** Sixteen concurrent readers were already in the tree and decode could not
-reach them: the old rule engaged a reader per two rows, capped at 16, so a 24-request table got 12
-readers and two serial rounds. Replaying the same 48-read pattern with no model and no GPU gives
-serial p50 9.600 ms against the pre-fix batch path's p50 10.054 ms
-(`speed-bench/v41_engram_read_threads_gb10.md`), because at one token that batch reader took the
-serial path plus a sort.
+- A decode step's Engram read is 48 serial 264-byte `pread` calls at queue depth one, moving
+  12,672 bytes, all complete before the first GPU command. That is 24 rows per table, two
+  tables, per token.
+- Measured on the GB10: engram mean **23.922 ms** of a **198.636 ms** step, **12.04 %**
+  (`speed-bench/v41_engram_lead_gb10.md`).
+- ⚠ That is the cost the branch attacks. It is not a measurement of the branch.
 
-**The mechanism.** `ENGRAM_ROWS_PER_READER` is 1; `engram_reader_count(count, pool)` is
-`count / rows_per_reader`, capped by the real pool size and by `count`, floor 1. The pool is one
-process-wide instance created on first use and shared by both tables, 32 parked workers plus the
-caller, so the cap is 33 and widening the pool widens the read with no second constant. The per-call
-`dispatch_apply_f` / `pthread_create` batch is gone; the caller claims parts too, so progress never
-depends on a wakeup. No backend symbol is used, so Metal, ROCm and CPU get the same pool. Both
-decode call sites (single-sequence and batched) now use the batch entry point. `tests/test_engram.c`
-sweeps both knobs at 1, 2 and 40 tokens against the serial per-row reader: the reader count changes
-how rows are fetched, never which rows or where they land.
+## The two defects the branch found
+
+**One. Sixteen concurrent readers were already in the tree and decode could not reach them.**
+
+- The old rule engaged one reader per two rows, capped at 16.
+- A 24-request table therefore got 12 readers and ran two serial rounds.
+
+**Two. The batch machinery was charging the decode path for work it could not use.**
+
+- `ds4_engram_read_batch` routed every one-token read through a malloc, a qsort, a pool
+  dispatch and a broadcast to 32 parked workers, per table, per token, on the critical path.
+- The sort cannot reorder work that is already one token wide, and the dedup it buys is a
+  memcpy against a 264-byte `pread`.
+- No value of `DS4_ENGRAM_READ_THREADS` or `DS4_ENGRAM_ROWS_PER_READER` restored the plain
+  `ds4_engram_read` loop the engine used at `9139e2ae`, so the branch had no OFF form for its
+  own experiment.
+- Replaying the same 48-read pattern with no model and no GPU: serial p50 **9.600 ms** against
+  the pre-fix batch path's p50 **10.054 ms** (`speed-bench/v41_engram_read_threads_gb10.md`),
+  because at one token that batch reader took the serial path anyway, plus a sort.
 
 ```
-   24 ids for one table -> engram_reader_count(24, 33) = 24 parts, ONE wave
-        |                   qsort once, slice the sorted array across the parts
-        v
-   every part finishes before the first GPU command
-   DS4_ENGRAM_ROWS_PER_READER=2 restores 12 readers, two rounds, as the control
+   ds4_engram_read_batch(table, rows, tokens, stride, out)
+
+   tokens == 1 · THE DEMAND PATH, decode
+       no malloc · no qsort · no pool dispatch
+       ds4_engram_read(t, rows, 24, out)      24 serial 264-byte preads
+       ds4_engram_pool_dispatches() must not move  <- the asserted invariant
+       NEITHER KNOB IS READ ON THIS PATH
+
+   tokens >= 2 · THE WIDE PATH, prefill, untouched by the fix
+       malloc · qsort once · slice the sorted array across the parts
+       engram_reader_count(count, pool) = count / ROWS_PER_READER
+           capped by the REAL pool size, 32 parked workers + the caller = 33
+           and capped by count, floor 1
+       ROWS_PER_READER=1  default   24 ids  ->  24 parts, ONE wave
+       ROWS_PER_READER=2  control   24 ids  ->  12 parts, two serial rounds
+       the caller claims parts too, so progress never waits on a wakeup
 ```
 
-**A different regime, not to be read against this one.** `WIKI/theory/177` section 16 finds a
-few-MiB expert tensor read is bandwidth-bound (chunking is slower; 8/16/32 whole reads in flight give
-10.1 / 9.9 / 9.7 GB/s). This read is 264 bytes a row and IOPS-bound: 48 rows in 9.6 ms is 5.0k IOPS
-against a drive at about 3.5k at QD=1 and about 112k at QD=64. The row store this design follows
-(`research/v41-flash-landscape/03-triple-spark-mxfp4-engram/`) uses chunk 1 and one shared pool, and
-reports its exposed read going from about 11 ms to 1-3 ms a step; that is their number on their shape.
+## The mechanism as it stands
 
-**Caution for re-measuring.** `F_NOCACHE` and `F_RDAHEAD(0)` are set on macOS only, so on Linux a
-repeated n-gram costs about 0.15 ms against 20 to 25 ms for a novel one: two runs of one prompt are
-not two samples, and a baseline prompt is single-use.
+- `ENGRAM_ROWS_PER_READER` is 1. `engram_reader_count(count, pool)` is
+  `count / rows_per_reader`, capped by the real pool size and by `count`, floor 1.
+- The pool is one process-wide instance, created on first use and shared by both tables: 32
+  parked workers plus the caller, so the cap is 33 and widening the pool widens the read with
+  no second constant.
+- The per-call `dispatch_apply_f` / `pthread_create` batch is gone. The caller claims parts
+  too, so progress never depends on a wakeup.
+- No backend symbol is used, so Metal, ROCm and CPU all get the same pool.
+- Both decode call sites, single-sequence and batched, use the batch entry point, and the
+  `tokens == 1` branch inside it hands them to the serial reader.
+- The override is read per call rather than cached. It runs once per token per table,
+  immediately before dozens of disk reads, so the lookup is free and no first caller wins the
+  setting for the lifetime of the process.
+- `ds4_engram_pool_dispatches()` counts the runs that woke the pool, so the decode claim is
+  observable rather than argued.
 
-**Owed.** The CUDA build, this revision's release gates, and the `ROWS_PER_READER=1` vs `2` A/B
-interleaved on one host against the tip (9.70 gen t/s median, 2026-09-16). The 2026-09-15 native
-pass is withheld: its control read 9.17 to 9.46 t/s and every arm, off arms included, beat it.
+## What the bisect measured, and why it is worth writing plainly
+
+- The bisect's **RT** arm, sealed in `2026-09-16-BISECT-PREREGISTERED-RULE.txt`, is
+  *"STACK with ONLY the two decode-path `ds4_engram_read_batch` calls reverted to
+  `ds4_engram_read`"*. That is this branch's decode change, reached at the call sites instead
+  of from inside the function. The effect on the decode path is the same: no malloc, no qsort,
+  no pool.
+- Result: RT **-6.07 %** against the clean tip, where the stack as shipped read **-4.35 %**.
+  Per frontier, RT read -9.25 / -6.06 / -5.73 % at 4096 / 6144 / 8192, sign 0 of 4.
+- The sealed rule: `|D_RT - D_STACK| = 1.72 <= 4.13`, the in-run tip floor. **RT is NOT IT.**
+  Its sign is slightly worse than the stack's, that sign is inside the floor, and it is
+  therefore not reported as a direction.
+- ⇒ **The fix is correct, it is tested, and it is measured worth nothing on the clock.**
+  Both halves of that sentence are true at once, and neither cancels the other. The malloc,
+  the qsort and the 32-worker broadcast really are off the critical path; the clock did not
+  notice.
+- ⚠ The arm ran on the NINE-lever binary at `dd82361a`, a sibling of `triple-all-fastest` off
+  `84ba6ef1b` (`2026-09-16-CORRECTION-the-measured-stack-is-nine-levers-and-has-diverged.md`).
+  The ten-lever tree has never been measured.
+- For scale, from the same round: the one thing that DID move the stack was a single eviction
+  comparator in `ds4_gpu_stream_expert_cache_prefetch`, worth **8.04 points**, -4.35 % to
+  +3.69 %, sign 4 of 4. That is 4.7x this change's 1.72.
+
+## A different regime, not to be read against this one
+
+- `WIKI/theory/177` section 16 finds a few-MiB expert tensor read is bandwidth-bound: chunking
+  is slower, and 8 / 16 / 32 whole reads in flight give 10.1 / 9.9 / 9.7 GB/s.
+- This read is 264 bytes a row and IOPS-bound: 48 rows in 9.6 ms is 5.0k IOPS, against a drive
+  at about 3.5k at QD=1 and about 112k at QD=64.
+- The row store this design follows
+  (`research/v41-flash-landscape/03-triple-spark-mxfp4-engram/`) uses chunk 1 and one shared
+  pool, and reports its exposed read going from about 11 ms to 1-3 ms a step.
+- ⚠ That is their number on their shape.
+
+## The tests
+
+`tests/test_engram.c`. Pure C, no GPU, no model.
+
+- It sweeps both knobs at 1, 2 and 40 tokens against the serial per-row reader: the reader
+  count changes how rows are fetched, never which rows or where they land.
+- `test_decode_read_never_dispatches` asserts `ds4_engram_pool_dispatches()` is zero on entry
+  and does not move across seven settings of the reader knob, with the bytes compared against
+  the serial reader each time.
+- `test_wide_read_still_dispatches` is its control, proving the counter CAN move.
+- RED before the fix, at the first unset pass:
+  `Assertion failed: (ds4_engram_pool_dispatches() == before), function
+  test_decode_read_never_dispatches, line 391`.
+- Re-run on this Mac 2026-09-17 (`make tests/test_engram && ./tests/test_engram`):
+  **PASS, exit 0** - hashes, history, bounded disk rows, reader counts and a serial demand read.
+
+## Caution for re-measuring
+
+- `F_NOCACHE` and `F_RDAHEAD(0)` are set on macOS only.
+- So on Linux a repeated n-gram costs about 0.15 ms against 20 to 25 ms for a novel one.
+- ⇒ two runs of one prompt are not two samples, and a baseline prompt is single-use.
+
+## Owed
+
+- The CUDA build, and this revision's release gates. This revision has never been compiled
+  against CUDA anywhere.
+- ⚠ The `ROWS_PER_READER=1` vs `2` A/B has CHANGED MEANING and must be re-scoped. It was the
+  decode experiment's control arm. Since the fix, neither knob reaches the decode read, so
+  that A/B now measures the **wide prefill read** and nothing else. The wide-decode experiment
+  it used to be needs the `tokens == 1` fast path removed before it can run at all.
+- That prefill A/B, interleaved on one host against the tip: 9.70 gen t/s median (n=16 of 18,
+  2026-09-16), whose round-1 band was 9.44 to 9.83 with a median of 9.65.
+- The 2026-09-15 native pass is withheld: its control read 9.17 to 9.46 t/s and every arm, the
+  off arms included, beat it.
