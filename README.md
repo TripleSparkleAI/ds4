@@ -290,18 +290,22 @@ it rock.
   │
   │  BRANCH    triple-engram-read-threads
   │
-  │  WHAT           issues a decode step's Engram read as ONE WAVE: one row
-  │                 per reader on a single persistent pool shared by both
-  │                 tables, instead of two serial rounds of twelve readers
+  │  WHAT           issues a decode step's Engram read as ONE WAVE: one
+  │                 row per reader on a single persistent pool shared by
+  │                 both tables, instead of two serial rounds of twelve
+  │                 readers
   │
   │  RESULTS              tokens/s        tip      change       floor
   │    generation             ____       ____        ____       4.9 %
   │    prefill                ____       ____        ____      15.8 %
   │
+  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │
   │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
   │
   │  SWITCH         DS4_ENGRAM_ROWS_PER_READER=1|2, default 1
-  │                 2 restores the old two-round divisor as the control arm
+  │                 2 restores the old two-round divisor as the control
+  │                 arm
   │                 DS4_ENGRAM_READ_THREADS=<n> still overrides the count
   │  HEADLINE       48 serial 264-byte preads, 12,672 bytes, 12.04% of the
   │                 step; the one-wave fix itself is OWED
