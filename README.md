@@ -276,30 +276,38 @@ it rock.
 
 **✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
 
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
 **✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
 
 **✦ above: the README, unchanged**
 
 **✦ below: our modifications and numbers for this branch**
 
-## reorder the read-ahead's victims: stop evicting what decode needs
-
-Upstream's prefill read-ahead evicts by `used` ascending, and across a forward sweep that is ascending layer, so it surrenders the earliest layers first while decode restarts at layer 0. This branch changes the order of the victim list, never its membership.
-
 ```
-+--  victim reorder - A/B not yet run -------------------------------------
-
-      baseline        ____               tokens/s
-      this branch     ____               tokens/s
-      improvement     ____               %
-
-      ----------------------------------------------------------------------
-      switch          none: the reorder is unconditional
-      stats           DS4_CUDA_SSD_PREFETCH_STATS=1 counts only
-      gate            expected output-invariant: residency changes WHEN a
-                      byte arrives, never which byte
-
-   +  a blank cell is AWAITING THE SWEEP, not a zero.
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-prefill-readahead-order
+  │
+  │  WHAT           reorders prefill victim eviction so the experts decode
+  │                 will need are not the ones dropped: the prefill hit
+  │                 list survives into decode
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             ____       ____        ____       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
+  │
+  │  SWITCH         NONE: the reorder is unconditional in this branch
+  │  STATS          DS4_CUDA_SSD_PREFETCH_STATS=1 counts only, it does not
+  │                 gate
+  │  GATE           expected output-invariant: residency changes WHEN a
+  │                 byte
+  │                 arrives, never which byte
+  │
+  └──────────────────────────────────────────────────────────────────────
 ```
 
 **Standard results table**
