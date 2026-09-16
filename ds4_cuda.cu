@@ -28624,22 +28624,10 @@ extern "C" int ds4_gpu_stream_expert_cache_prefetch(
          * reserve loop below can run out no more often than it does today. */
         const uint64_t swept_from = current->gate_offset < next->gate_offset ?
             current->gate_offset : next->gate_offset;
-        std::stable_sort(victims.begin(), victims.end(),
-                         [swept_from](uint32_t a, uint32_t b) {
-            const auto &sa = g_stream_expert_slots[a];
-            const auto &sb = g_stream_expert_slots[b];
-            const bool a_behind = sa.gate < swept_from;
-            const bool b_behind = sb.gate < swept_from;
-            /* Ahead of the sweep first: those layers are re-read on the way
-             * past anyway, so losing them costs one prefetch, not the opening. */
-            if (a_behind != b_behind) return !a_behind;
-            if (a_behind) {
-                /* Among the layers already passed, give up the ones CLOSEST to
-                 * the sweep: decode reaches layer 0 first, so the earliest
-                 * layers are the last thing worth surrendering. */
-                if (sa.gate != sb.gate) return sa.gate > sb.gate;
-            }
-            return sa.used < sb.used;
+        /* BISECT slice nos1: the TIP's victim order (used ascending), swept_from unused here. */
+        (void)swept_from;
+        std::stable_sort(victims.begin(), victims.end(), [](uint32_t a, uint32_t b) {
+            return g_stream_expert_slots[a].used < g_stream_expert_slots[b].used;
         });
         p.slots.reserve(next->n_total_expert);
         p.copies.reserve(3u * next->n_total_expert);
