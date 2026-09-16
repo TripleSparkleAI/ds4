@@ -276,26 +276,38 @@ it rock.
 
 **✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
 
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
 **✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
 
 **✦ above: the README, unchanged**
 
 **✦ below: our modifications and numbers for this branch**
 
-## the expert cache reserve becomes a knob
-
-The expert cache splits honest host free memory into a slot arena and a reserve for everything the process still has to allocate after it. That reserve was the literal 8 GiB, tuned on a 128 GB unified part and wrong on any box that is not one. This branch makes it an operator setting and prints the sizing decision it drives.
-
 ```
-✦  expert cache reserve knob
-
-      baseline        9.56               tokens/s
-      this branch     8.68               tokens/s
-      improvement     -9.2%               %   (noise floor 3.3-4.9 %)
-
-      ----------------------------------------------------------------------
-      headline        5,677 slots @0.918 hit vs 5,234 @0.901 (probe, other tree)
-      output          greedy-identical · sha256 bb06e711bc498bb9
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-margin
+  │
+  │  WHAT           turns the expert-cache size into a knob, trading
+  │                 resident experts against the RAM left to everything
+  │                 else on the box
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             8.68       9.56      -9.2 %       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        OUTSIDE the floor: a real regression at this
+  │                 measurement
+  │
+  │  SWITCH         is the reserve itself; the size goes up, the margin
+  │                 goes down
+  │  HEADLINE       5,677 slots @0.918 hit vs 5,234 @0.901 (probe, other
+  │                 tree)
+  │  OUTPUT         greedy-identical, sha256 bb06e711bc498bb9
+  │
+  └──────────────────────────────────────────────────────────────────────
 ```
 
 **Standard results table**
