@@ -22,6 +22,7 @@
 #include <atomic>
 #include "ds4_linux_memory.h"
 #include <unordered_map>
+#include "ds4_expert_claims.h"
 #include <vector>
 #include <algorithm>
 
@@ -47,6 +48,7 @@
 #endif
 #if defined(DS4_CUDA_HAVE_IO_URING)
 #include <linux/io_uring.h>
+#include "ds4_uring_sq.h"
 #endif
 
 #ifndef M_PI
@@ -123,6 +125,13 @@ static int g_model_hmm_direct;
 static int g_model_fd = -1;
 static const void *g_model_fd_host_base;
 static int g_model_direct_fd = -1;
+/* A filesystem that rejects O_DIRECT rejects it for every read, so the
+ * rejection is remembered against the fd that took it.  Without this each
+ * 8 MiB chunk of every task in the batch pays its own failing pread before
+ * falling back: the disable itself can only be applied on the calling thread,
+ * after the join, because a worker must not close a global fd.  Workers set
+ * this; the calling thread clears it when a fresh direct fd is opened. */
+static int g_model_direct_rejected_fd = -1;
 static uint64_t g_model_direct_align = 1;
 static uint64_t g_model_file_size;
 static int g_model_cache_full;
@@ -2496,7 +2505,8 @@ static int cuda_expert_stage_read_mt(void *stage, uint64_t stage_bytes,
 #if defined(__linux__) && defined(O_DIRECT)
     const int direct_fd = g_model_direct_fd;
     const uint64_t align = g_model_direct_align;
-    if (direct_fd >= 0 && align > 1 && g_model_file_size != 0) {
+    if (direct_fd >= 0 && align > 1 && g_model_file_size != 0 &&
+        __atomic_load_n(&g_model_direct_rejected_fd, __ATOMIC_RELAXED) != direct_fd) {
         const uint64_t aligned_off = cuda_round_down(offset, align);
         const uint64_t delta = offset - aligned_off;
         const uint64_t read_size = cuda_round_up(delta + bytes, align);
@@ -2511,6 +2521,9 @@ static int cuda_expert_stage_read_mt(void *stage, uint64_t stage_bytes,
             const int e = errno;
             if (e == EINVAL || e == EFAULT || e == ENOTSUP || e == EOPNOTSUPP) {
                 *direct_unsupported = 1;
+                /* Once per fd: every later chunk skips the direct attempt. */
+                __atomic_store_n(&g_model_direct_rejected_fd, direct_fd,
+                                 __ATOMIC_RELAXED);
             }
         }
     }
@@ -2873,11 +2886,8 @@ static void cuda_fetch_buf_pool_release(void) {
 
 typedef struct {
     int       fd;
-    unsigned  entries;
-    unsigned  submitted;   /* SQEs already handed to the kernel */
-    unsigned  tail;        /* next SQE index we will fill */
     unsigned  inflight;    /* submitted and not yet reaped */
-    unsigned *sq_head, *sq_tail, *sq_mask, *sq_array;
+    ds4_uring_sq sq;       /* the submission-queue accounting (ds4_uring_sq.h) */
     unsigned *cq_head, *cq_tail, *cq_mask;
     struct io_uring_sqe *sqes;
     struct io_uring_cqe *cqes;
@@ -2907,7 +2917,7 @@ static int cuda_uring_ring_init(cuda_uring_ring *r, unsigned entries) {
     if (fd < 0) return 0;
     memset(r, 0, sizeof *r);
     r->fd = fd;
-    r->entries = p.sq_entries ? p.sq_entries : entries;
+    r->sq.entries = p.sq_entries ? p.sq_entries : entries;
 
     r->sq_ring_sz = p.sq_off.array + p.sq_entries * sizeof(unsigned);
     r->cq_ring_sz = p.cq_off.cqes + p.cq_entries * sizeof(struct io_uring_cqe);
@@ -2932,10 +2942,10 @@ static int cuda_uring_ring_init(cuda_uring_ring *r, unsigned entries) {
     if (sqes == MAP_FAILED) { cuda_uring_ring_close(r); return 0; }
     r->sqes = (struct io_uring_sqe *)sqes;
 
-    r->sq_head  = (unsigned *)((char *)sq + p.sq_off.head);
-    r->sq_tail  = (unsigned *)((char *)sq + p.sq_off.tail);
-    r->sq_mask  = (unsigned *)((char *)sq + p.sq_off.ring_mask);
-    r->sq_array = (unsigned *)((char *)sq + p.sq_off.array);
+    r->sq.sq_head  = (unsigned *)((char *)sq + p.sq_off.head);
+    r->sq.sq_tail  = (unsigned *)((char *)sq + p.sq_off.tail);
+    r->sq.sq_mask  = (unsigned *)((char *)sq + p.sq_off.ring_mask);
+    r->sq.sq_array = (unsigned *)((char *)sq + p.sq_off.array);
     r->cq_head  = (unsigned *)((char *)r->cq_ring + p.cq_off.head);
     r->cq_tail  = (unsigned *)((char *)r->cq_ring + p.cq_off.tail);
     r->cq_mask  = (unsigned *)((char *)r->cq_ring + p.cq_off.ring_mask);
@@ -2944,11 +2954,9 @@ static int cuda_uring_ring_init(cuda_uring_ring *r, unsigned entries) {
 }
 
 static struct io_uring_sqe *cuda_uring_get_sqe(cuda_uring_ring *r) {
-    if (r->tail - *r->sq_head >= r->entries) return NULL;
-    const unsigned idx = r->tail & *r->sq_mask;
-    struct io_uring_sqe *sqe = &r->sqes[idx];
-    r->sq_array[idx] = idx;
-    return sqe;
+    const int idx = ds4_uring_sq_claim(&r->sq);
+    if (idx < 0) return NULL;
+    return &r->sqes[idx];
 }
 
 static void cuda_uring_prep_read(cuda_uring_ring *r, struct io_uring_sqe *sqe,
@@ -2961,29 +2969,39 @@ static void cuda_uring_prep_read(cuda_uring_ring *r, struct io_uring_sqe *sqe,
     sqe->len = len;
     sqe->off = off;
     sqe->user_data = user_data;
-    r->tail++;
+    ds4_uring_sq_fill(&r->sq);
 }
 
 /* Hand every queued SQE to the kernel and wait for one completion when the
- * caller asks for it.  Only the calling thread touches the ring. */
+ * caller asks for it.  Only the calling thread touches the ring.
+ *
+ * The SQ tail is published inside ds4_uring_sq_submit, before every enter:
+ * the private tail alone is invisible to the kernel, which then accepts
+ * nothing and returns without waiting. */
+typedef struct { cuda_uring_ring *r; } cuda_uring_enter_ctx;
+
+static int cuda_uring_enter_syscall(void *vctx, unsigned to_submit, unsigned wait_nr) {
+    cuda_uring_enter_ctx *c = (cuda_uring_enter_ctx *)vctx;
+    const unsigned flags = wait_nr ? (unsigned)IORING_ENTER_GETEVENTS : 0u;
+    const int rc = (int)syscall(__NR_io_uring_enter, c->r->fd, to_submit,
+                                wait_nr, flags, NULL, 0);
+    return rc < 0 ? -errno : rc;
+}
+
 static int cuda_uring_enter(cuda_uring_ring *r, unsigned wait_nr) {
-    for (;;) {
-        const unsigned to_submit = r->tail - r->submitted;
-        const unsigned flags = wait_nr ? (unsigned)IORING_ENTER_GETEVENTS : 0u;
-        const int rc = (int)syscall(__NR_io_uring_enter, r->fd, to_submit,
-                                    wait_nr, flags, NULL, 0);
-        if (rc < 0) {
-            if (errno == EINTR) continue;
-            return 0;
-        }
-        r->submitted += (unsigned)rc;
-        if (to_submit == 0 || r->submitted >= r->tail) return 1;
-    }
+    cuda_uring_enter_ctx ctx;
+    ctx.r = r;
+    /* A published tail drains in one round; the bound turns a ring that
+     * accepts nothing into a declined batch instead of a busy spin. */
+    return ds4_uring_sq_submit(&r->sq, cuda_uring_enter_syscall, &ctx, wait_nr,
+                               r->sq.entries + 8u);
 }
 
 static struct io_uring_cqe *cuda_uring_peek_cqe(cuda_uring_ring *r) {
-    if (*r->cq_head == *r->cq_tail) return NULL;
-    return &r->cqes[*r->cq_head & *r->cq_mask];
+    const unsigned head = *r->cq_head;
+    /* Acquire: the CQE payload must not be read before the tail that admits it. */
+    if (head == __atomic_load_n(r->cq_tail, __ATOMIC_ACQUIRE)) return NULL;
+    return &r->cqes[head & *r->cq_mask];
 }
 
 static void cuda_uring_cqe_seen(cuda_uring_ring *r) {
@@ -3040,7 +3058,8 @@ static int cuda_uring_job_prepare(cuda_uring_job *j, cuda_expert_pread_task *t) 
     j->task = t;
     const uint64_t align = g_model_direct_align > 1 ? g_model_direct_align : 1;
     if (!cuda_fetch_buffered_mode() && g_model_direct_fd >= 0 && align > 1 &&
-        g_model_file_size != 0) {
+        g_model_file_size != 0 &&
+        __atomic_load_n(&g_model_direct_rejected_fd, __ATOMIC_RELAXED) != g_model_direct_fd) {
         const uint64_t aligned_off = t->offset & ~(align - 1u);
         const uint64_t payload = t->offset - aligned_off;
         const uint64_t read_len = cuda_round_up(payload + t->bytes, align);
@@ -3210,6 +3229,8 @@ static int cuda_expert_uring_dispatch(cuda_expert_pread_task *tasks, uint32_t n_
                 /* O_DIRECT rejected this read: re-read the range buffered. */
                 cuda_expert_pread_task *t = j->task;
                 direct_unsupported = 1;
+                __atomic_store_n(&g_model_direct_rejected_fd, j->read_fd,
+                                 __ATOMIC_RELAXED);
                 cuda_fetch_buf_put(j->host_buf, j->read_len);
                 j->host_buf = NULL;
                 j->retried_direct = 1;
@@ -5468,6 +5489,7 @@ extern "C" int ds4_gpu_set_model_fd(int fd) {
         (void)close(g_model_direct_fd);
         g_model_direct_fd = -1;
     }
+    g_model_direct_rejected_fd = -1;   /* a new fd has not been rejected yet */
     g_model_direct_align = 1;
     if (fd >= 0) {
         struct stat st;
@@ -28220,6 +28242,14 @@ static int cuda_stream_selected_cache_begin_load(
         std::vector<cuda_expert_pread_task> tasks;
         std::vector<uint32_t> task_victim;
         cuda_stream_upload_batch uploads;
+        /* Every claim below is provisional until its bytes land.  The ledger
+         * withdraws whatever is still provisional on ANY exit from here, so
+         * the mid-loop `victim == UINT32_MAX` return, an upload failure and a
+         * thrown exception can no longer leave a gate pointing at a slot that
+         * was never written.  See ds4_expert_claims.h. */
+        ds4_expert_claim_ledger<std::vector<cuda_stream_expert_slot>,
+                                std::unordered_map<uint64_t, uint32_t> >
+            claims(g_stream_expert_slots, g_stream_expert_by_gate);
         const double t_read0 = cuda_wall_sec();
         for (size_t i = 0; i < unique.size(); i++) {
             g_stream_expert_lookups++;
@@ -28259,10 +28289,10 @@ static int cuda_stream_selected_cache_begin_load(
             t.what = "stream down";
             tasks.push_back(t);
             task_victim.push_back(victim);
-            /* Claim the slot now so a later miss in this batch cannot take it;
-             * a failed read drops it again below. */
+            /* Claim the slot now so a later miss in this batch cannot take it.
+             * The claim is provisional: it is withdrawn unless committed. */
             slot = {gate, up, down, stamp};
-            g_stream_expert_by_gate[gate] = victim;
+            claims.claim(victim, gate);
             slots[i] = (int32_t)victim;
         }
         if (!tasks.empty()) {
@@ -28280,11 +28310,11 @@ static int cuda_stream_selected_cache_begin_load(
             int all_ok = 1;
             for (size_t m = 0; m < task_victim.size(); m++) {
                 const cuda_expert_pread_task *t3 = &tasks[m * 3u];
-                if (t3[0].ok && t3[1].ok && t3[2].ok) continue;
-                all_ok = 0;
-                auto &slot = g_stream_expert_slots[task_victim[m]];
-                if (slot.used) g_stream_expert_by_gate.erase(slot.gate);
-                slot.used = 0;
+                if (t3[0].ok && t3[1].ok && t3[2].ok) {
+                    claims.commit(task_victim[m]);   /* the bytes are there */
+                    continue;
+                }
+                all_ok = 0;   /* uncommitted: the ledger withdraws it */
             }
             g_stream_expert_sec_read += cuda_wall_sec() - t_read0;
             if (!all_ok) return 0;
