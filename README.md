@@ -419,7 +419,7 @@ Spark, 0 errors.
 One card per branch, the box copied from that branch's own README at its HEAD by
 `rebuild_index.py`, grouped by the status the card itself declares. Regenerate,
 never hand-edit: a hand-edited row drifts from the branch it describes.
-Regenerated 2026-09-16 09:26Z, 24 cards.
+Regenerated 2026-09-16 16:30Z, 24 cards.
 
 ## POSITIVELY MEASURED
 
@@ -439,7 +439,8 @@ Regenerated 2026-09-16 09:26Z, 24 cards.
   │             control = unpatched tip, interleaved, same native vintage
   │             session  2026-09-15, DGX Spark GB10, native 23.1 MB .text, unstamped
   │
-  │             in the stack (2026-09-16, hits-first ON vs clean tip @e6d9d3b8):
+  │             in the stack (2026-09-16, hits-first ON vs clean tip @e6d9d3b8;
+  │             that stack is the NINE-lever binary at dd82361a, not this branch):
   │             -4.23 % at 4096 (0/6, clears the 2.89 % floor)
   │             -0.57 / -0.76 / -0.95 % at 6144 / 8192 / min - INSIDE the floor
   │             min-vs-min 9.55 vs 9.55 = +0.00 %, paired n=6
@@ -447,6 +448,7 @@ Regenerated 2026-09-16 09:26Z, 24 cards.
   │  VERDICT    MEASURED WIN solo, INSIDE THE FLOOR in the stack
   │             +8.3 % clears the 4.9 % floor at n=2; in the stack it ties the
   │             tip at three of four readings and loses -4.23 % at 4096
+  │             the repair ca5232d40 has NOT been measured anywhere
   │
   │  SWITCH     DS4_CUDA_HITS_FIRST=1 (default OFF in the stack; =0 is wait-then-launch)
   │             DS4_CUDA_HITS_FIRST_STAGED=0 keeps hits-first, single-stage read order
@@ -754,39 +756,6 @@ Regenerated 2026-09-16 09:26Z, 24 cards.
   └──────────────────────────────────────────────────────────────────────
 ```
 
-### triple-engram-read-threads
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-engram-read-threads                           NOT YET
-  │
-  │  WHAT       issues a decode step's Engram read as ONE WAVE, one row per
-  │             reader on a single persistent pool shared by both tables,
-  │             instead of two serial rounds of twelve readers
-  │
-  │  RESULT     gen t/s   not measured (this lever alone)
-  │             prefill   not measured
-  │             control = none run for this lever alone. Its serial form
-  │             (DS4_ENGRAM_READ_THREADS=1) is one of the SEVEN in the
-  │             2026-09-16 all-off block: stack as shipped -4.51 % vs tip
-  │             (0/7), all seven off -12.13 % (0/8), L = -7.62 pp joint,
-  │             3.5x the floor. Not attributable.
-  │             session  unstamped - this revision never built against CUDA
-  │
-  │  VERDICT    OWED - the one-wave change has not been run at all; the
-  │             invariant that holds is that the reader count moves no byte
-  │
-  │  SWITCH     DS4_ENGRAM_ROWS_PER_READER=1|2, default 1 (one wave); 2 is
-  │             the old two-round divisor, the control arm in the same
-  │             binary. DS4_ENGRAM_READ_THREADS=<n> still overrides the
-  │             count; 0 clamps to one reader, the serial path.
-  │  OUTPUT     not re-run (the previous revision's gates bb06e711bc498bb9 /
-  │             2f2dd7f89d107bbc / 652dcda32c176cab belong to that revision)
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
 ### triple-hippocampal-warmset
 
 ```
@@ -833,6 +802,7 @@ Regenerated 2026-09-16 09:26Z, 24 cards.
   │
   │  VERDICT    OWED - the seeding arm's -1.9 % is INSIDE THE FLOOR (3.3-4.9 %);
   │             the re-scoped lever, a warm cache at the first 64 tokens, is not measured
+  │             the repair 44bc5398c is unbuilt against CUDA and unmeasured
   │
   │  SWITCH     DS4_CUDA_EXPERT_HOTLIST_WRITE=<file> (0 disables the writer)
   │             DS4_CUDA_EXPERT_HOTLIST_DECAY=none|halve|quarter|eighth|shift:<n>, default halve
@@ -917,10 +887,12 @@ Regenerated 2026-09-16 09:26Z, 24 cards.
   │             control = none run since the io_uring port; the last A/B (9.94 vs
   │                       9.56, +4.0 %; device probe 7.6 -> 10.1 GB/s single vs 8
   │                       readers) was the pthread-only pool and is superseded
-  │             session  none - no CUDA build since the port (the Spark was busy)
+  │             session  none - this branch has NEVER been CUDA-compiled, on any
+  │                       box, at any sha
   │
-  │  VERDICT    OWED - the fetch engine changed after the last +4.0 %, so that
-  │             number no longer describes the tree; nothing re-measured since
+  │  VERDICT    OWED, and further back than most: the io_uring engine is
+  │             unproven even as a BUILD, so the +4.0 % describes a fetch engine
+  │             this tree no longer has
   │
   │  SWITCH     DS4_CUDA_FETCH_QD=<n> ring queue depth, default 64, clamped 8-512
   │             DS4_CUDA_FETCH_URING=0 falls back to the pread pool
@@ -944,7 +916,8 @@ Regenerated 2026-09-16 09:26Z, 24 cards.
   │             the single reader stays as the fallback when the pool declines
   │
   │  RESULT     gen t/s   not measured
-  │             prefill   not measured
+  │             prefill   wait per layer 398.0 -> 196.5 ms at four readers;
+  │                       no tokens/s or percent figure for prefill is held
   │             control = none with a sound control; the 2026-09-15 pass is withheld
   │             session  2026-09-15, DGX Spark GB10, native 23.1 MB .text, unstamped
   │
@@ -1141,6 +1114,51 @@ Regenerated 2026-09-16 09:26Z, 24 cards.
   │             DS4_SSD_PAGECACHE_FLOOR_PCT default 10 (range 1-40)
   │             DS4_SSD_AUTO_CACHE_PCT default 80, now a SHARE, not a maximum
   │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+## UNTAGGED - the card carries no status
+
+### triple-engram-read-threads
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-engram-read-threads                 CORRECT, WORTH ZERO
+  │
+  │  WHAT       takes the DECODE step's Engram read off the batch machinery:
+  │             one token now goes straight to the serial reader, with no
+  │             malloc, no qsort and no pool dispatch. The wide PREFILL read
+  │             keeps the one-wave rule the branch was named for.
+  │
+  │  RESULT     gen t/s   MEASURED, AND IT BUYS NOTHING
+  │             the bisect's RT arm is this same decode revert, made on the
+  │             nine-lever stack at dd82361a: -6.07 % vs the clean tip, where
+  │             the stack as shipped read -4.35 %. |D_RT - D_STACK| = 1.72,
+  │             inside the 4.13 % floor, so NOT IT by the sealed rule and no
+  │             direction is reported
+  │             (2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md)
+  │             prefill   not measured. The one-wave PREFILL read has never run
+  │             session  the RT binary is tb-bis-rt @d1dd5ec2, native 23,147,372
+  │             .text, 2026-09-16. THIS revision has never been built for CUDA
+  │
+  │  VERDICT    CORRECT, TESTED, AND WORTH NOTHING ON THE CLOCK.
+  │             The decode fast path is right: it takes a malloc, a qsort and
+  │             a broadcast to 32 parked workers off the critical path, and a
+  │             counter proves the pool never wakes. The bisect measured that
+  │             same revert at 1.72 points, inside the floor.
+  │             A fix can be right, well tested, and buy nothing.
+  │             OWED: the one-wave PREFILL read, which is the untested half
+  │
+  │  SWITCH     ⚠ NEITHER KNOB REACHES THE DECODE READ ANY MORE. Both govern
+  │             the wide prefill read only, where the defaults are unchanged.
+  │             DS4_ENGRAM_ROWS_PER_READER=1|2, default 1 (one wave); 2 is the
+  │             old two-round divisor, the control arm in the same binary.
+  │             DS4_ENGRAM_READ_THREADS=<n> overrides the reader count;
+  │             0 clamps to one reader, the serial path.
+  │  OUTPUT     not re-run (the previous revision's gates bb06e711bc498bb9 /
+  │             2f2dd7f89d107bbc / 652dcda32c176cab belong to that revision)
   │
   └──────────────────────────────────────────────────────────────────────
 ```
