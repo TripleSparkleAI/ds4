@@ -310,53 +310,134 @@ it rock.
   └──────────────────────────────────────────────────────────────────────
 ```
 
-**The problem, measured on the unpatched tip** (`plans/prs/PR_PREFILLHANDOFF.md` and
-`plans/prs/MEASURED_PREFETCH_PROBE.md`, branch `lane-pr-docs`, which is not published on this
-fork, so these figures are attributable but not checkable from a clone):
+### The problem: decode restarts cold
 
-- the first 32 decode tokens miss **32.22 experts/token at hit rate 0.8658** against a steady
-  state of 9.16 at 0.9618; a second run read 33.09 / 0.8621 against 9.19 / 0.9617
-- the prefill takes 36,022 expert lookups, hits 35,377, evicts zero through the demand path with
-  the arena full at 8,548 of 8,548; the eviction that matters is the read-ahead's own
-  reservation loop, which a demand-only counter cannot see
-- **93.8 percent of the first decode step's misses are experts the prefill had selected** and
-  the cache no longer holds; 65.9 percent of the last prefill batch is still resident
-- 98.4 percent of the opening's misses live in layers 0-19; layers 20-39 miss 0.47 percent
-- an earlier pair, 4.7 percent surviving and 92.7 percent loaded-then-evicted, was WITHDRAWN:
-  the replay reconstructed residency from the demand path alone and read 645 where the engine
-  printed 8,548
+Upstream sorts victims by `used` ascending. During a prefill sweep `used` rises with the layer.
+So the arena ends the prefill holding the LATE layers, and decode starts again at layer 0 with
+nothing it needs.
 
-**The mechanism.** Upstream sorts victims by `used` ascending, and `used` rises with the layer
-during a prefill sweep, so the arena ends the prefill holding the LATE layers and decode restarts
-cold at layer 0. This branch changes one `stable_sort` comparator in
-`ds4_gpu_stream_expert_cache_prefetch` and adds a held subset: slots ahead of the sweep go first,
-then slots behind it closest to the sweep, `used` stays the tie-break within a layer, and a held
-band (the earliest layers, a quarter of the cache, anchored on the lowest layer the read-ahead is
-shown) is appended last so the reserve loop releases it only when nothing else is left. The
-demand path does the same with a two-pass choice. The victim SET is unchanged, so the starvation
-path `if (p.slots.size() >= victims.size()) throw 0;` fires exactly as often as upstream. The
-band size is a chosen constant, not a tuned one.
+Measured on the unpatched tip:
 
-Two records point the same way: the Mac-mini reader's "Stable admission avoids thrashing during
-the full layer scan each token" (`research/v41-flash-landscape/09-macs-and-dwarfstar/`, workspace
-only), and the measured knee in `WIKI/theory/48-decode-speedup-levers.md` § 5 and § 8: cache size
-is not the lever, admission and victim policy are. Our arena is denominated in stored GGUF expert
-bytes (`ds4_streaming_cache_experts_for_byte_budget` divides by `per_expert_bytes`), the same
-currency as the disk read it removes, so the Mac-mini reader's dequantized-byte budget trap does
-not apply here.
+- the first 32 decode tokens miss **32.22 experts/token at hit rate 0.8658**, against a steady
+  state of **9.16 at 0.9618**. A second run read **33.09 / 0.8621** against **9.19 / 0.9617**
+- the prefill takes **36,022** expert lookups and hits **35,377**. It evicts **zero** through the
+  demand path, with the arena full at **8,548 of 8,548**. The eviction that matters is the
+  read-ahead's own reservation loop, which a demand-only counter cannot see
+- **93.8 %** of the first decode step's misses are experts the prefill had selected and the cache
+  no longer holds. **65.9 %** of the last prefill batch is still resident
+- **98.4 %** of the opening's misses live in layers 0-19. Layers 20-39 miss **0.47 %**
+- WITHDRAWN: an earlier pair reading 4.7 % surviving and 92.7 % loaded-then-evicted. The replay
+  reconstructed residency from the demand path alone and read **645** where the engine printed
+  **8,548**
 
-**Held now.** A host-side harness (outside the repo, not committed) splices the patched regions
-out of `ds4_cuda.cu`, compiles them with `clang++`, and replays 20,000 randomized cache states
-plus a tight-cache phase against upstream's own comparator: the order with the switch off, the
-set with it on, held-last placement, and identical starvation counts in all three arms. It was
-this harness that showed the previous revision's switch-off still reordered.
+⚠ Source caveat. These figures come from `plans/prs/PR_PREFILLHANDOFF.md` and
+`plans/prs/MEASURED_PREFETCH_PROBE.md` on branch `lane-pr-docs`, which is not published on this
+fork. They are attributable but not checkable from a clone.
 
-**A related number, not this branch's.** The prefill read-ahead's foreground blocking wait fell
-from **398.0 to 196.5 ms per layer** (single reader to four, `wait MIN` of two interleaved
-passes, output `2f2dd7f89d107bbc` on every arm) on branch `triple-prefetch-pool`
-(`CUDA_LANES_CHANNEL.md`, PREFETCHPOOL 13:41 RESULT). That branch changes the reader pool; this
-one changes the victim order and carries no pool change, so the figure is context, not a result.
+### The change: one comparator, plus a held band
 
-**Owed.** The CUDA build on the Spark, then both arms interleaved on one vintage, against the
-in-run tip floor. The clean series lands under `~/sweeps/2026-09-16-*.txt` with the build vintage,
-the control and the floor in each file.
+- One `stable_sort` comparator in `ds4_gpu_stream_expert_cache_prefetch`.
+- Slots ahead of the sweep go first. Then slots behind it, closest to the sweep first.
+- `used` stays the tie-break within a layer.
+- A held band is appended LAST, so the reserve loop releases it only when nothing else is left.
+- The demand path makes the same choice in two passes.
+- The victim SET is unchanged, so the starvation path `if (p.slots.size() >= victims.size())
+  throw 0;` fires exactly as often as upstream.
+- The band size is a chosen constant, not a tuned one.
+
+```
+   THE HELD BAND, and the divisions hoisted out of the scan
+
+   gate offset ───────────────────────────────────────────────────────▶
+   │◀── held ──▶
+   [ lowest layer the read-ahead was shown, + a quarter of the cache
+     ▲ one-sided: no lower bound below the low gate, so one cannot appear silently
+     ▲ released only when every unheld slot is gone
+
+   the cost of asking "is this slot held?", per victim scan over 4,096 slots
+
+   BEFORE   slot 0     ─▶ re-derive the band: 3 x 64-bit divide
+            slot 1     ─▶ re-derive the band: 3 x 64-bit divide
+            ...           and the hold is ON when the env is unset,
+            slot 4095  ─▶  so this WAS the default path
+            ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁  measured  12,291 divisions
+                                        RED: 22 checks, 3 failed, EXIT=1
+
+   AFTER    derive ONCE per scan  ─▶  band {on, low_gate, width}
+            slot 0..4095          ─▶  one compare each, zero divides
+            ▁▁▁▁                        measured  3 divisions
+                                        GREEN: 23 checks, 0 failed, EXIT=0
+                                        tests/test_prefill_hold.c, pure C99
+```
+
+### The hoist, and why it is legal
+
+Every input to the band is loop-invariant for the scan that consumes it. Read and checked by
+grepping every mutator of the three:
+
+- `table` belongs to the caller and is not written inside the loop
+- `g_stream_expert_slots` is resized only in the cache (re)allocation block, which runs before any
+  victim scan
+- `g_stream_prefill_low_gate` and `_set` are written only by `cuda_stream_prefill_low_gate_note`
+  and `_clear`, whose call sites are the cache release, the pre-scan reset and `prefetch_begin`.
+  None is reachable from inside a scan
+
+So the band is derived once per scan in `ds4_prefill_hold.h`, and the per-slot question becomes a
+compare. Both scans move: the `begin_load` victim search and the prefetch held/victims split.
+Behaviour is unchanged. `band.on` carries exactly the non-slot refusals the old predicate made
+(hold off, no low gate noted, degenerate table, both overflow guards), and the slot half is the
+same `used && gate < low_gate + band`.
+
+A work counter, `ds4_prefill_hold_divisions`, makes the hoist a test rather than a claim: a
+4,096-slot scan must add zero divisions after the derivation's three. Also pinned by the same
+suite: the OFF form pays nothing and holds nothing, the unset low gate, both overflow refusals,
+the degenerate table, the `hold_layers` floor of one, the band being gate-bytes, and the rule
+being one-sided.
+
+**A comment was wrong and is fixed.** It claimed the band was "a quarter of the cache, at least
+one layer". The band is measured in GATE-offset bytes, and consecutive layers' gate blocks are
+separated in the file by that layer's up, down and attention tensors, so it spans fewer layers
+than that. The comment now says what the code does. No behaviour change.
+
+### Two records point the same way
+
+- The Mac-mini reader: "Stable admission avoids thrashing during the full layer scan each token"
+  (`research/v41-flash-landscape/09-macs-and-dwarfstar/`, workspace only).
+- The measured knee in `WIKI/theory/48-decode-speedup-levers.md` § 5 and § 8: cache size is not
+  the lever, admission and victim policy are.
+
+Our arena is denominated in stored GGUF expert bytes
+(`ds4_streaming_cache_experts_for_byte_budget` divides by `per_expert_bytes`), the same currency
+as the disk read it removes. So the Mac-mini reader's dequantized-byte budget trap does not apply
+here.
+
+### What is held, and by what
+
+A host-side harness, outside the repo and not committed, splices the patched regions out of
+`ds4_cuda.cu`, compiles them with `clang++`, and replays 20,000 randomized cache states plus a
+tight-cache phase against upstream's own comparator. It asserts:
+
+- the order, with the switch off
+- the set, with it on
+- held-last placement
+- identical starvation counts in all three arms
+
+That harness is what caught the previous revision still reordering with its switch off.
+
+### ⚠ A related number, and it is NOT this branch's
+
+The prefill read-ahead's foreground blocking wait fell from **398.0 to 196.5 ms per layer**
+(single reader to four, `wait MIN` of two interleaved passes, output `2f2dd7f89d107bbc` on every
+arm). That is branch **`triple-prefetch-pool`** (`CUDA_LANES_CHANNEL.md`, PREFETCHPOOL 13:41
+RESULT). That branch changes the reader pool. This one changes the victim order and carries no
+pool change. The figure is context, never a result of this card.
+
+### Owed
+
+- The CUDA build on the Spark.
+- Both arms interleaved on one vintage, against the in-run tip floor.
+- The clean series lands under `~/sweeps/2026-09-16-*.txt`, each file carrying the build vintage,
+  the control and the floor.
+
+The line to clear: the clean tip reads **9.65 t/s median**
+(`2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md`).
