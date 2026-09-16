@@ -276,32 +276,38 @@ it rock.
 
 **✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
 
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
 **✦✦✦  ✧  T R I P L E S P A R K L E  ✧  ✦✦✦**
 
 **✦ above: the README, unchanged**
 
 **✦ below: our modifications and numbers for this branch**
 
-## scale the Engram batch reader to the request count
-
-The concurrent pread readers the tree already ships were gated behind 256 requests, so a decode
-token, which asks for 24 per table, was read one row at a time; the reader count now scales with
-the request count instead.
-
 ```
-✦  Engram batch reader, readers scaled to the request count
-
-      baseline        ____               tokens/s
-      this branch     ____               tokens/s
-      improvement     ____               %
-
-      ----------------------------------------------------------------------
-      headline        48 serial 264-byte preads, 12,672 bytes, 12.04% of every step
-      record          speed-bench/v41_engram_read_threads_gb10.md
-      output          gates match · short bb06e711bc498bb9 · long 2f2dd7f89d107bbc
-                      generation 652dcda32c176cab · the end-to-end A/B is OWED
-
-   ◦ a blank cell is AWAITING THE SWEEP, not a zero.
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH    triple-engram-read-threads
+  │
+  │  WHAT           scales the Engram table readers to the rows the batch
+  │                 actually needs, instead of a fixed 2 rows per reader
+  │                 capped at 16
+  │
+  │  RESULTS              tokens/s        tip      change       floor
+  │    generation             ____       ____        ____       4.9 %
+  │    prefill                ____       ____        ____      15.8 %
+  │
+  │  VERDICT        AWAITING THE SWEEP: a blank cell is not a zero
+  │
+  │  HEADLINE       48 serial 264-byte preads, 12,672 bytes, 12.04% of
+  │                 every step
+  │  RECORD         speed-bench/v41_engram_read_threads_gb10.md
+  │  OUTPUT         gates match; short bb06e711bc498bb9, long
+  │                 2f2dd7f89d107bbc,
+  │                 generation 652dcda32c176cab; the end-to-end A/B is OWED
+  │
+  └──────────────────────────────────────────────────────────────────────
 ```
 
 **Standard results table**
