@@ -299,6 +299,8 @@ it rock.
   │    generation             ____        ____        ____       4.9 %
   │    prefill                ____        ____        ____      15.8 %
   │
+  │  ENV    GB10 128GB · native 23.1MB · load ____ · gpu ____ · mem ____
+  │
   │  VERDICT        OWED.  The seeding arm this branch shipped measured
   │                 -1.9 %, which is INSIDE the floor.  The re-scoped
   │                 lever, a warm cache, is not measured yet.
