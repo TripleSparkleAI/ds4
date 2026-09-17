@@ -1,0 +1,20 @@
+static int cuda_expert_stage_read_mt(const cuda_pread_pool *pool,
+                                     void *stage, uint64_t stage_bytes,
+                                     uint64_t offset, uint64_t bytes,
+                                     const char **payload,
+                                     int *direct_unsupported) {
+    const int private_fds = pool->use_private_fds;
+    const int buffered_fd = private_fds ? pool->fd : g_model_fd;
+    *payload = (const char *)stage;
+#if defined(__linux__) && defined(O_DIRECT)
+    const int direct_fd = private_fds ? pool->direct_fd : g_model_direct_fd;
+    const uint64_t align = private_fds ? pool->align : g_model_direct_align;
+    const uint64_t file_size = private_fds ? pool->file_size : g_model_file_size;
+    if (direct_fd >= 0 && align > 1 && file_size != 0 &&
+        __atomic_load_n(&g_model_direct_rejected_fd, __ATOMIC_RELAXED) != direct_fd) {
+        const uint64_t aligned_off = cuda_round_down(offset, align);
+        const uint64_t delta = offset - aligned_off;
+        const uint64_t read_size = cuda_round_up(delta + bytes, align);
+        if (aligned_off <= file_size &&
+            read_size <= stage_bytes &&
+            read_size <= file_size - aligned_off) {

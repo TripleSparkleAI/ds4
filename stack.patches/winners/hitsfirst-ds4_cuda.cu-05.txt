@@ -1,0 +1,21 @@
+static int cuda_pread_pool_dispatch_start_staged(cuda_pread_pool *pool,
+                                                 cuda_expert_pread_task *tasks,
+                                                 uint32_t n_tasks,
+                                                 uint32_t stage_boundary);
+static int cuda_pread_pool_dispatch_start(cuda_pread_pool *pool,
+                                          cuda_expert_pread_task *tasks,
+                                          uint32_t n_tasks) {
+    return cuda_pread_pool_dispatch_start_staged(pool, tasks, n_tasks, 0);
+}
+static int cuda_expert_pread_pool_dispatch_start(cuda_expert_pread_task *tasks, uint32_t n_tasks) {
+    return cuda_pread_pool_dispatch_start_staged(&g_expert_pread, tasks, n_tasks, 0);
+}
+static int cuda_expert_pread_pool_dispatch_start_staged(cuda_expert_pread_task *tasks,
+                                                        uint32_t n_tasks,
+                                                        uint32_t stage_boundary) {
+    return cuda_pread_pool_dispatch_start_staged(&g_expert_pread, tasks, n_tasks, stage_boundary);
+}
+static int cuda_pread_pool_dispatch_start_staged(cuda_pread_pool *pool,
+                                                 cuda_expert_pread_task *tasks,
+                                                 uint32_t n_tasks,
+                                                 uint32_t stage_boundary) {

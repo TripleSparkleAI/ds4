@@ -1,0 +1,30 @@
+    /* Private descriptors, set by the caller before dispatch.  Zero here means
+     * the globals, which is what the demand pool wants. */
+    int      use_private_fds;
+    int      fd;
+    int      direct_fd;
+    uint64_t align;
+    uint64_t file_size;
+    int      no_fadvise;   /* direct reads never entered the page cache */
+    int      cancel;       /* drop the rest of the batch; read under the mutex */
+    double   drained_at;   /* wall clock when the last worker finished */
+} cuda_pread_pool;
+static cuda_pread_pool g_expert_pread = { "expert", "DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS",
+    "DS4_CUDA_STREAMING_EXPERT_PREAD_POOL", 8u,
+    PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, PTHREAD_COND_INITIALIZER };
+
+/* The resolution rules live in ds4_pread_pool_config.h so they can be tested
+ * on a host with no CUDA toolkit; tests/test_pread_pool_config.c exercises the
+ * parse, both clamps and the read count.  The pool's own ceiling and the
+ * header's must agree, because both index thread[]/args[]/ctx[]. */
+static_assert(DS4_PREAD_POOL_MAX == DS4_CUDA_EXPERT_PREAD_MAX,
+              "pread pool worker ceiling must match the fixed array bound");
+
+static int cuda_pread_pool_enabled(cuda_pread_pool *pool) {
+    return ds4_pread_pool_enabled(&pool->cfg, pool->enable_env);
+}
+/* The io_uring ring asks the demand pool's switch before it takes a batch. */
+static int cuda_expert_pread_pool_enabled(void) { return cuda_pread_pool_enabled(&g_expert_pread); }
+
+static uint32_t cuda_pread_pool_limit(cuda_pread_pool *pool) {
+    return ds4_pread_pool_threads(&pool->cfg, pool->threads_env, pool->default_threads);

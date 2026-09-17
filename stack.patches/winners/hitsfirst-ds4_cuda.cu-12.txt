@@ -1,0 +1,44 @@
+        int hits_first_started = 0;
+        if (!tasks.empty() && slot_count <= 8u && cuda_hits_first_enabled()) {
+            g_hits_first.staged = 0;
+            g_hits_first.n_gate_up = 0;
+            std::vector<cuda_expert_pread_task> order;
+            bool ok_order = true;
+            try {
+                if (cuda_hits_first_staged_enabled()) {
+                    /* gate/up of every miss first, then the downs; same tasks,
+                     * same destinations, only the pool's pick-up order changes */
+                    order.reserve(tasks.size());
+                    for (size_t m = 0; m < task_victim.size(); m++) { order.push_back(tasks[3u * m]); order.push_back(tasks[3u * m + 1u]); }
+                    const uint32_t n_gate_up = (uint32_t)order.size();
+                    for (size_t m = 0; m < task_victim.size(); m++) order.push_back(tasks[3u * m + 2u]);
+                    g_hits_first.tasks = std::move(order);
+                    g_hits_first.staged = 1;
+                    g_hits_first.n_gate_up = n_gate_up;
+                } else {
+                    g_hits_first.tasks = tasks;
+                }
+                g_hits_first.victim = task_victim;
+            } catch (...) { ok_order = false; }
+            if (ok_order) {
+                g_hits_first.n_miss = (uint32_t)task_victim.size();
+                g_hits_first.layer = table->layer;
+                g_hits_first.t0 = t_read0;
+                g_hits_first.pair_miss_mask = 0;
+                for (uint32_t i = 0; i < slot_count && i < 32u; i++)
+                    if (ds4_hitsfirst_miss_get(miss_mask, (size_t)(uint32_t)remap[i]))
+                        g_hits_first.pair_miss_mask |= 1u << i;
+                if (cuda_expert_pread_pool_dispatch_start_staged(g_hits_first.tasks.data(),
+                        (uint32_t)g_hits_first.tasks.size(),
+                        g_hits_first.staged ? g_hits_first.n_gate_up : 0u)) {
+                    g_hits_first.active = 1;
+                    hits_first_started = 1;
+                    /* The pool owns these reads now and cuda_hits_first_wait
+                     * drops any slot whose bytes do not land, so the debt moves
+                     * there: settle every claim, or the ledger would withdraw
+                     * them on return while the reads are still in flight. */
+                    for (size_t m = 0; m < task_victim.size(); m++) claims.commit(task_victim[m]);
+                }
+            }
+        }
+        if (!tasks.empty() && !hits_first_started) {

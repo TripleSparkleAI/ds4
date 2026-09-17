@@ -1,0 +1,9 @@
+            t->ok = device >= 0 && cuda_expert_pread_task_run(pool, ctx, t);
+            pthread_mutex_lock(&pool->mutex);
+            if (task_index < pool->stage_boundary &&
+                ++pool->stage_done == pool->stage_boundary) {
+                pthread_cond_broadcast(&pool->done);
+            }
+        }
+        if (pool->remaining > 0 && --pool->remaining == 0) {
+            pool->drained_at = cuda_wall_sec();

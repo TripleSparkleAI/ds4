@@ -1,0 +1,119 @@
+# <claudes_code_comments>
+# ** WHAT THIS FILE IS **
+# The definition of branch triple-winners: THE THREE MEASURED WINNERS of round 4
+# (2026-09-17-R4-RESULT-*.md, no-drop reading, solo on the new tip), and nothing else:
+#     triple-pool           +7.27 %   3/4    the io_uring ring over the pread pool
+#     triple-hitsfirst      +6.47 %   4/4    launch the resident experts before the miss reads land
+#     triple-prefetch-pool  +2.28 %   4/4    the prefill prefetch read in chunks across a private pool
+# It answers the navigator's question "why not combine pool and hitsfirst and prefetch-pool?"
+# with a tree round 7 can measure. The line kinds are stack.manifest's (see the ten-lever
+# stack-on-newtip.manifest on triple-all-fastest-newtip for the legend); the machinery is the
+# same build_stack.sh / stack_resolve.py, copied onto this branch so it is self-contained.
+#
+# ** DEFAULTS **
+# pool ON · hitsfirst ON (the lever's own default: DS4_CUDA_HITS_FIRST=0 turns it off) ·
+# prefetch-pool ON. No patch line: nothing here is code that no lever carries. The prefetch
+# victim order is the tip's own (`used` ascending, ds4_gpu_stream_expert_cache_prefetch);
+# the sweep-aware comparator and DS4_CUDA_PREFETCH_SWEEP_ORDER belong to readahead-order,
+# which this tree does not carry, so there is no region to gate.
+#
+# ** DERIVATION **
+#   base      git rev-parse triple-tip-2026-09-16
+#   shas      git rev-parse triple-<name>~1   (the code commit under each card commit; all
+#                                              three branches are rebased onto the tip)
+#   resolve   decided one hunk at a time, 2026-09-17, lane WINNERS, on a tree built lever by
+#             lever (the survey's prefetch-pool numbering is taken on a theirs-throughout
+#             hitsfirst tree and is NOT the numbering below: 30 ds4_cuda.cu hunks, not 28).
+#
+# ** THE RESOLUTION LEDGER - 49 hunks (hitsfirst 16, prefetch-pool 33): ours 14 · theirs 19 · both 3 · hand 13 **
+#   (derive: grep '^resolve' | awk '{print $4}' | sed 's/:.*//' | sort | uniq -c)
+#   hitsfirst Makefile 00          list union: the hits-first test beside pool's two
+#   hitsfirst ds4_cuda.cu 05       pool's dispatch_start(pool,..) wrapper kept beside the staged
+#                                  entry points; both route to one staged body
+#   hitsfirst ds4_cuda.cu 08       hits-first's wait_stage wrapper + pool's whole io_uring ring
+#   hitsfirst ds4_cuda.cu 10       hits-first's miss mask + pool's claim ledger + stats_on gating
+#   hitsfirst ds4_cuda.cu 12       THE CLAIM-LEDGER HUNK, and it is NEEDED with hitsfirst ON:
+#                                  when hits-first takes the batch the pool owns the reads and
+#                                  cuda_hits_first_wait drops any slot whose bytes do not land,
+#                                  so every claim is committed there - or pool's RAII ledger
+#                                  would withdraw the slots on return while the reads are still
+#                                  in flight (same shape as the newtip stack's hitsfirst 13)
+#   hitsfirst ds4_cuda.cu 13       ledger commit on the plain path + hits-first's stats gating
+#   prefetch-pool Makefile 01 02   list unions
+#   prefetch-pool ds4_cuda.cu 00   both comment paragraphs; the ceiling is 32u (the config
+#                                  header static_asserts it)
+#   prefetch-pool ds4_cuda.cu 04   private-fd pool fields + cfg-resolved enabled()/limit() +
+#                                  the zero-arg cuda_expert_pread_pool_enabled() the ring calls
+#   prefetch-pool ds4_cuda.cu 05   private descriptors + pool's once-per-fd rejection check
+#   prefetch-pool ds4_cuda.cu 12   task_run(pool, ctx, t) + hits-first's stage_done broadcast +
+#                                  prefetch-pool's drained_at stamp
+#   prefetch-pool ds4_cuda.cu 17   the staged entry points + the unclamped-limit worker count
+#   Every `ours` on prefetch-pool 03 20 21 23 25-28 keeps hits-first's staging and pool's
+#   ledger where the lever's diff only re-contexted the tip; every `theirs` on 07-11 13-16
+#   18 19 22 is the private-fd plumbing the lever is; 06 ours keeps pool's rejected-fd store;
+#   10 theirs takes no_fadvise gating (no pagecache lever here, so no discard-then-drop order).
+#
+# ** THE CHECK **
+#   bash build_stack.sh winners.manifest --check <HEAD of triple-winners>
+#   ⚠ NOT COMPILED FOR CUDA. Assembled on a Mac with no nvcc; `make` here builds the Metal
+#   target only, which never sees ds4_cuda.cu. The first Spark build is the real gate.
+# </claudes_code_comments>
+
+base        12997e9c84b39258f28781b808d18ea0069af2ac
+paths       *.c *.h *.cu *.cuh *.inc Makefile tests/ cuda/ speed-bench/*.c gguf-tools/
+lever-base  12997e9c84b39258f28781b808d18ea0069af2ac
+
+lever   triple-pool                     6371428b0357c1fe61abbe55c1c7b91c00cfa44a   on
+
+lever   triple-hitsfirst                3e477367150ff20d1b5b93dd28b20b82452bf941   on
+resolve Makefile 00 hand:winners/hitsfirst-Makefile-00.txt
+resolve ds4_cuda.cu 00 ours
+resolve ds4_cuda.cu 01 theirs
+resolve ds4_cuda.cu 02 ours
+resolve ds4_cuda.cu 03 ours
+resolve ds4_cuda.cu 04 theirs
+resolve ds4_cuda.cu 05 hand:winners/hitsfirst-ds4_cuda.cu-05.txt
+resolve ds4_cuda.cu 06 theirs
+resolve ds4_cuda.cu 07 theirs
+resolve ds4_cuda.cu 08 hand:winners/hitsfirst-ds4_cuda.cu-08.txt
+resolve ds4_cuda.cu 09 ours
+resolve ds4_cuda.cu 10 hand:winners/hitsfirst-ds4_cuda.cu-10.txt
+resolve ds4_cuda.cu 11 ours
+resolve ds4_cuda.cu 12 hand:winners/hitsfirst-ds4_cuda.cu-12.txt
+resolve ds4_cuda.cu 13 hand:winners/hitsfirst-ds4_cuda.cu-13.txt
+resolve ds4_cuda.cu 14 theirs
+
+lever   triple-prefetch-pool            ed11cb4747254cd8e3e2447225c1b1a08964f9e7   on
+resolve Makefile 00 both
+resolve Makefile 01 hand:winners/prefetch-pool-Makefile-01.txt
+resolve Makefile 02 hand:winners/prefetch-pool-Makefile-02.txt
+resolve ds4_cuda.cu 00 hand:winners/prefetch-pool-ds4_cuda.cu-00.txt
+resolve ds4_cuda.cu 01 theirs
+resolve ds4_cuda.cu 02 theirs
+resolve ds4_cuda.cu 03 ours
+resolve ds4_cuda.cu 04 hand:winners/prefetch-pool-ds4_cuda.cu-04.txt
+resolve ds4_cuda.cu 05 hand:winners/prefetch-pool-ds4_cuda.cu-05.txt
+resolve ds4_cuda.cu 06 ours
+resolve ds4_cuda.cu 07 theirs
+resolve ds4_cuda.cu 08 theirs
+resolve ds4_cuda.cu 09 theirs
+resolve ds4_cuda.cu 10 theirs
+resolve ds4_cuda.cu 11 theirs
+resolve ds4_cuda.cu 12 hand:winners/prefetch-pool-ds4_cuda.cu-12.txt
+resolve ds4_cuda.cu 13 theirs
+resolve ds4_cuda.cu 14 theirs
+resolve ds4_cuda.cu 15 theirs
+resolve ds4_cuda.cu 16 theirs
+resolve ds4_cuda.cu 17 hand:winners/prefetch-pool-ds4_cuda.cu-17.txt
+resolve ds4_cuda.cu 18 theirs
+resolve ds4_cuda.cu 19 theirs
+resolve ds4_cuda.cu 20 ours
+resolve ds4_cuda.cu 21 ours
+resolve ds4_cuda.cu 22 theirs
+resolve ds4_cuda.cu 23 ours
+resolve ds4_cuda.cu 24 both
+resolve ds4_cuda.cu 25 ours
+resolve ds4_cuda.cu 26 ours
+resolve ds4_cuda.cu 27 ours
+resolve ds4_cuda.cu 28 ours
+resolve ds4_cuda.cu 29 both
