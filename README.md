@@ -279,25 +279,32 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-lfu-offsetkey                                 NOT YET
+  │  BRANCH     triple-lfu-offsetkey                              WORTH ZERO
   │
   │  WHAT       ports upstream NeutronStar's host expert cache: byte ranges
   │             keyed by FILE OFFSET, a 16-way table, a per-slot uses counter
   │             halved every 4096 inserts. Three arms out of one binary isolate
   │             the eviction POLICY on one structure
   │
-  │  LATEST     never in a sealed round. The arm lists of
-  │             2026-09-17-ROUND3-, -R4- and -R5-PREREGISTERED-RULE.txt name
-  │             this branch zero times, and no 2026-09-16 series switch block
-  │             contains DS4_EXPERT_CACHE_MODE. The only numbers this branch
-  │             holds are its own host-side harness, below
+  │  LATEST     round 6 · 2026-09-17 · TIES · -0.20 % ·
+  │             2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
   │
-  │  GEN        not measured
-  │  PREFILL    not measured
+  │  GEN        -0.20 %  floor 3.35 %  sign 1/3  n=3
+  │             raw: arm min-across median 9.71 t/s (9.52 · 9.85 · 9.64 · 9.77)
+  │             vs the tip's 9.69 t/s (9.67 · 9.56 · 9.88 · 9.70 kept, 9.45
+  │             contention-dropped; the result file's figure line reads 9.67).
+  │             gen_steady at min across 4096/6144. The delta is each run
+  │             against its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:12-11:58Z · DGX Spark GB10 ·
+  │             native 24.87 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 85.90 t/s min-across median vs the
+  │             tip's 89.16 t/s, n=4. Round 6 makes no prefill verdict.
   │
-  │  VERDICT    NOT YET - a CUDA build and the three-arm sweep are owed. What
-  │             exists is a 36-assertion host harness of the eviction block,
-  │             all passing, including one window where LFU and LRU disagree
+  │  VERDICT    WORTH ZERO - inside the floor, with a repeat range of -0.8 to
+  │             +2.4 % and one repeat of three positive. The CUDA build that
+  │             was owed here exists and ran; the policy costs nothing and
+  │             buys nothing on this tip. Both rules give this verdict
   │
   │  SWITCH     DS4_EXPERT_CACHE_MODE=hotlist|offsetkey|offsetkey-lru, default
   │             hotlist, in which the cache is inert: it never allocates, probes
@@ -307,6 +314,15 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42
   │
   └──────────────────────────────────────────────────────────────────────
 ```
+
+## Round 6, and what it does and does not settle
+
+- The offset-keyed structure with the frequency policy is **measured and worth zero**: -0.20 % gen,
+  1 of 3, inside a 3.35 % floor. It is the widest repeat range of the three tied arms.
+- So the upstream-versus-us policy disagreement below is not resolved in either direction by round
+  6: a tie says the structure did not move the token rate on this tip, not that LFU beats LRU.
+- The three-arm sweep that isolates `offsetkey` against `offsetkey-lru` is still owed; round 6 ran
+  one arm of the three.
 
 ## The question
 
