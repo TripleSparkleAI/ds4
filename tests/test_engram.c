@@ -254,14 +254,177 @@ static void test_all_scaled_values(void) {
     close(fd);
 }
 
+/* The reader count must never change a byte. A single token's worth of rows
+ * is the size the batch reader used to leave serial, so it is swept here
+ * alongside a multi-token read. The serial per-row reader is the reference
+ * because it takes no reader count at all. Both knobs are swept: the reader
+ * override and the row divisor that picks one wave against two rounds. */
+static void test_reader_counts(void) {
+    char path[] = "/tmp/ds4-engram-readers-XXXXXX";
+    const int fd = mkstemp(path);
+    assert(fd >= 0);
+    enum { ROWS = 7, TOKENS = 40, STRIDE = DS4_ENGRAM_COLS,
+           WIDTH = DS4_ENGRAM_COLS * DS4_ENGRAM_DIM };
+    uint8_t raw[ROWS][DS4_ENGRAM_ROW_BYTES];
+    for (int r = 0; r < ROWS; r++) {
+        for (int i = 0; i < DS4_ENGRAM_DIM; i++)
+            raw[r][i] = (uint8_t)((i * 5 + r) % 127);
+        for (int i = 0; i < 8; i++)
+            raw[r][DS4_ENGRAM_DIM + i] = (uint8_t)(120 + r);
+    }
+    assert(pwrite(fd, raw, sizeof(raw), 0) == sizeof(raw));
+    ds4_engram_table t;
+    assert(ds4_engram_table_open(&t, path, 0, ROWS));
+    assert(unlink(path) == 0);
+
+    uint32_t *ids = malloc((size_t)TOKENS * STRIDE * sizeof(*ids));
+    float *reference = malloc((size_t)TOKENS * WIDTH * sizeof(*reference));
+    float *actual = malloc((size_t)TOKENS * WIDTH * sizeof(*actual));
+    assert(ids && reference && actual);
+    for (size_t i = 0; i < (size_t)TOKENS * STRIDE; i++)
+        ids[i] = (uint32_t)((i * 13) % ROWS);
+    for (size_t tok = 0; tok < TOKENS; tok++)
+        assert(ds4_engram_read(&t, ids + tok * STRIDE, DS4_ENGRAM_COLS,
+                               reference + tok * WIDTH));
+
+    /* This sweep sets the variable itself, so an ambient value in the
+     * environment does not reach it. To hold one setting across the whole
+     * binary, set it outside and do not run this function. */
+    const char *counts[] = {"0", "1", "2", "3", "5", "12", "16", "64", "bogus", ""};
+    const size_t token_counts[] = {1, 2, 40};
+    for (size_t c = 0; c < sizeof(counts) / sizeof(*counts); c++) {
+        assert(setenv("DS4_ENGRAM_READ_THREADS", counts[c], 1) == 0);
+        for (size_t n = 0; n < sizeof(token_counts) / sizeof(*token_counts); n++) {
+            const size_t tokens = token_counts[n];
+            memset(actual, 0, (size_t)TOKENS * WIDTH * sizeof(*actual));
+            assert(ds4_engram_read_batch(&t, ids, tokens, STRIDE, actual));
+            assert(memcmp(actual, reference, tokens * WIDTH * sizeof(*actual)) == 0);
+        }
+    }
+    assert(unsetenv("DS4_ENGRAM_READ_THREADS") == 0);
+    /* Same invariant for the divisor: 1 is one wave, 2 is the old control arm.
+     * A bogus or empty value falls back to the default. */
+    const char *divisors[] = {"1", "2", "3", "bogus", ""};
+    for (size_t c = 0; c < sizeof(divisors) / sizeof(*divisors); c++) {
+        assert(setenv("DS4_ENGRAM_ROWS_PER_READER", divisors[c], 1) == 0);
+        for (size_t n = 0; n < sizeof(token_counts) / sizeof(*token_counts); n++) {
+            const size_t tokens = token_counts[n];
+            memset(actual, 0, (size_t)TOKENS * WIDTH * sizeof(*actual));
+            assert(ds4_engram_read_batch(&t, ids, tokens, STRIDE, actual));
+            assert(memcmp(actual, reference, tokens * WIDTH * sizeof(*actual)) == 0);
+        }
+    }
+    assert(unsetenv("DS4_ENGRAM_ROWS_PER_READER") == 0);
+    for (size_t n = 0; n < sizeof(token_counts) / sizeof(*token_counts); n++) {
+        const size_t tokens = token_counts[n];
+        memset(actual, 0, (size_t)TOKENS * WIDTH * sizeof(*actual));
+        assert(ds4_engram_read_batch(&t, ids, tokens, STRIDE, actual));
+        assert(memcmp(actual, reference, tokens * WIDTH * sizeof(*actual)) == 0);
+    }
+    free(ids);
+    free(reference);
+    free(actual);
+    ds4_engram_table_close(&t);
+    close(fd);
+}
+
+/* Builds a small table and reads it back; the caller owns the ids and the
+ * expected bytes, taken with the serial reader that takes no reader count. */
+typedef struct {
+    ds4_engram_table table;
+    int fd;
+    uint32_t *ids;
+    float *expected, *actual;
+    size_t tokens;
+} decode_fixture;
+
+enum { FIXTURE_ROWS = 7, FIXTURE_TOKENS = 40,
+       FIXTURE_WIDTH = DS4_ENGRAM_COLS * DS4_ENGRAM_DIM };
+
+static void fixture_open(decode_fixture *f) {
+    char path[] = "/tmp/ds4-engram-decode-XXXXXX";
+    f->fd = mkstemp(path);
+    assert(f->fd >= 0);
+    uint8_t raw[FIXTURE_ROWS][DS4_ENGRAM_ROW_BYTES];
+    for (int r = 0; r < FIXTURE_ROWS; r++) {
+        for (int i = 0; i < DS4_ENGRAM_DIM; i++)
+            raw[r][i] = (uint8_t)((i * 5 + r) % 127);
+        for (int i = 0; i < 8; i++)
+            raw[r][DS4_ENGRAM_DIM + i] = (uint8_t)(120 + r);
+    }
+    assert(pwrite(f->fd, raw, sizeof(raw), 0) == sizeof(raw));
+    assert(ds4_engram_table_open(&f->table, path, 0, FIXTURE_ROWS));
+    assert(unlink(path) == 0);
+    f->tokens = FIXTURE_TOKENS;
+    f->ids = malloc(f->tokens * DS4_ENGRAM_COLS * sizeof(*f->ids));
+    f->expected = malloc(f->tokens * FIXTURE_WIDTH * sizeof(*f->expected));
+    f->actual = malloc(f->tokens * FIXTURE_WIDTH * sizeof(*f->actual));
+    assert(f->ids && f->expected && f->actual);
+    for (size_t i = 0; i < f->tokens * DS4_ENGRAM_COLS; i++)
+        f->ids[i] = (uint32_t)((i * 13) % FIXTURE_ROWS);
+    for (size_t tok = 0; tok < f->tokens; tok++)
+        assert(ds4_engram_read(&f->table, f->ids + tok * DS4_ENGRAM_COLS,
+                               DS4_ENGRAM_COLS, f->expected + tok * FIXTURE_WIDTH));
+}
+
+static void fixture_close(decode_fixture *f) {
+    free(f->ids);
+    free(f->expected);
+    free(f->actual);
+    ds4_engram_table_close(&f->table);
+    close(f->fd);
+}
+
+/* THE DEMAND READ IS SERIAL. One token's DS4_ENGRAM_COLS rows per table is a
+ * decode read, and the engine issues it on the critical path twice per token.
+ * It must reach the pool zero times, whatever the reader knobs say. */
+static void test_decode_read_never_dispatches(void) {
+    /* Runs before any wide read, so the first pass proves the absolute claim:
+     * a decode-only workload never creates the pool at all. */
+    assert(ds4_engram_pool_dispatches() == 0);
+    decode_fixture f;
+    fixture_open(&f);
+    const char *counts[] = {NULL, "0", "1", "2", "12", "24", "64"};
+    for (size_t c = 0; c < sizeof(counts) / sizeof(*counts); c++) {
+        if (counts[c]) assert(setenv("DS4_ENGRAM_READ_THREADS", counts[c], 1) == 0);
+        else assert(unsetenv("DS4_ENGRAM_READ_THREADS") == 0);
+        const uint64_t before = ds4_engram_pool_dispatches();
+        memset(f.actual, 0, FIXTURE_WIDTH * sizeof(*f.actual));
+        assert(ds4_engram_read_batch(&f.table, f.ids, 1, DS4_ENGRAM_COLS, f.actual));
+        assert(ds4_engram_pool_dispatches() == before);
+        assert(!memcmp(f.actual, f.expected, FIXTURE_WIDTH * sizeof(*f.actual)));
+    }
+    assert(unsetenv("DS4_ENGRAM_READ_THREADS") == 0);
+    fixture_close(&f);
+}
+
+/* The control for the case above: the counter CAN move, so a zero there is a
+ * measurement and not a dead instrument. The wide prefill read is deliberately
+ * wide and keeps its dispatch. */
+static void test_wide_read_still_dispatches(void) {
+    decode_fixture f;
+    fixture_open(&f);
+    const uint64_t before = ds4_engram_pool_dispatches();
+    memset(f.actual, 0, f.tokens * FIXTURE_WIDTH * sizeof(*f.actual));
+    assert(ds4_engram_read_batch(&f.table, f.ids, f.tokens, DS4_ENGRAM_COLS, f.actual));
+    assert(ds4_engram_pool_dispatches() > before);
+    assert(!memcmp(f.actual, f.expected, f.tokens * FIXTURE_WIDTH * sizeof(*f.actual)));
+    fixture_close(&f);
+}
+
 int main(void) {
     test_hash();
+    /* Before anything else: these two read the process-wide dispatch counter,
+     * and the first wants it still at zero. */
+    test_decode_read_never_dispatches();
+    test_wide_read_still_dispatches();
     unsetenv("DS4_ENGRAM_PARALLEL_DECODE");
     test_rows();
     setenv("DS4_ENGRAM_PARALLEL_DECODE", "1", 1);
     test_rows();
     unsetenv("DS4_ENGRAM_PARALLEL_DECODE");
     test_all_scaled_values();
-    puts("Engram hashes, history and bounded disk rows: PASS");
+    test_reader_counts();
+    puts("Engram hashes, history, bounded disk rows, reader counts and a serial demand read: PASS");
     return 0;
 }
