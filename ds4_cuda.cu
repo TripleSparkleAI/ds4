@@ -27,6 +27,7 @@
 #include "cuda/mmq/ds4_mmq.h"
 #include "cuda/mmq/ds4_repack.h"
 #include "ds4_image.h"
+#include "ds4_prefill_hold.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -189,6 +190,111 @@ static int cuda_stream_compact_prefill(const char **gate, const char **up,
                                       uint32_t *experts, uint32_t in_dim = 0,
                                       uint32_t mid_dim = 0, uint32_t out_dim = 0);
 
+/* The victim rule this branch adds decides WHEN a byte arrives, so it has to be
+ * switchable: an unconditional reorder cannot be measured against its own
+ * control. 0 restores upstream exactly, plain `used`-ascending victims and no
+ * held set anywhere; anything else keeps the rule on.
+ *
+ * The off forms are matched exactly, ignoring case, rather than by first letter.
+ * A control arm that typed "off" and silently got the arm it was meant to
+ * control is the kind of bad control this branch already suffered once. */
+static bool cuda_stream_env_word_is(const char *v, const char *word) {
+    size_t i = 0;
+    for (; v[i] && word[i]; i++) {
+        const char a = v[i] >= 'A' && v[i] <= 'Z' ? (char)(v[i] - 'A' + 'a') : v[i];
+        const char b = word[i] >= 'A' && word[i] <= 'Z' ? (char)(word[i] - 'A' + 'a') : word[i];
+        if (a != b) return false;
+    }
+    return v[i] == '\0' && word[i] == '\0';
+}
+
+static bool cuda_stream_prefill_readahead_hold_off_value(const char *v) {
+    if (!v || !*v) return false;
+    for (const char *p = v; *p; p++)
+        if (*p < '0' || *p > '9')
+            return cuda_stream_env_word_is(v, "off") ||
+                   cuda_stream_env_word_is(v, "no") ||
+                   cuda_stream_env_word_is(v, "false");
+    for (const char *p = v; *p; p++)
+        if (*p != '0') return false;
+    return true;
+}
+
+static bool cuda_stream_prefill_readahead_hold(void) {
+    static int on = -1;
+    if (on < 0)
+        on = cuda_stream_prefill_readahead_hold_off_value(
+                 getenv("DS4_PREFILL_READAHEAD_HOLD")) ? 0 : 1;
+    return on != 0;
+}
+
+/* Stable admission, in the form this cache can take it: the EARLIEST layers of
+ * the scan are a held subset, and a held slot is a victim only after every
+ * unheld one.
+ *
+ * A token walks all layers in the same order every token, so under LRU the
+ * reuse distance of a slot is the whole scan: the sweep drops each layer
+ * about one scan before the next token asks for it again. Decode restarts at
+ * layer 0, so the earliest layers are both the first thing the next token
+ * needs and, under plain LRU, the first thing evicted. Measured cost, ours:
+ * 93.8 percent of the first decode step's misses are experts the prefill
+ * selected and the cache no longer holds (plans/prs/MEASURED_PREFETCH_PROBE.md,
+ * branch lane-pr-docs). Recorded rather than assumed:
+ * research/v41-flash-landscape/09-macs-and-dwarfstar/CODE.md:154-158, and the
+ * one line in their reader this comes from,
+ * sources/atbender-mac-mini/deepseek_v41_mlx/native_stream.py:107.
+ *
+ * Held is a preference, never a guarantee. A held slot stays a legal victim;
+ * it just goes last, so a cache too tight to hold anything behaves exactly as
+ * it does today. Membership needs no extra slot field either: a slot is held
+ * while it holds an early-layer expert and stops being held when it holds
+ * something else, which is the whole point.
+ *
+ * The band is a quarter of the cache measured in GATE-offset bytes, floored at
+ * one layer's worth of gate bytes, so the read-ahead always has room for the
+ * layer it is installing. Note what that is and is not: consecutive layers'
+ * gate blocks are separated in the file by that layer's up, down and attention
+ * tensors, so a band of `hold_layers` gate-block lengths spans FEWER than
+ * `hold_layers` layers - at least layer 0's, whose gate block starts at the low
+ * gate. It is a quarter of the cache in gate bytes, never a quarter of the
+ * cache in layers. A chosen constant, not a tuned one; the A/B that would tune
+ * it is owed.
+ *
+ * The band depends only on the table and the cache size, so it is derived ONCE
+ * per victim scan (ds4_prefill_hold_band_make, ds4_prefill_hold.h) and the
+ * per-slot question is a compare. Every division in the rule lives in that
+ * header; tests/test_prefill_hold.c asserts a scan of N slots pays them once. */
+static uint64_t g_stream_prefill_low_gate;
+static bool g_stream_prefill_low_gate_set;
+
+static void cuda_stream_prefill_low_gate_note(uint64_t gate) {
+    if (!g_stream_prefill_low_gate_set || gate < g_stream_prefill_low_gate) {
+        g_stream_prefill_low_gate = gate;
+        g_stream_prefill_low_gate_set = true;
+    }
+}
+
+static void cuda_stream_prefill_low_gate_clear(void) {
+    g_stream_prefill_low_gate = 0;
+    g_stream_prefill_low_gate_set = false;
+}
+
+/* Derive the held band for one whole scan. Every input is loop-invariant for
+ * the scan that follows: `table` is the caller's, `g_stream_expert_slots` is
+ * only resized in the cache (re)allocation block that runs before any victim
+ * scan, and the low gate is only written by cuda_stream_prefill_low_gate_note
+ * / _clear, neither of which is reachable from inside a scan. */
+static ds4_prefill_hold_band cuda_stream_prefill_hold_band(
+        const ds4_gpu_stream_expert_table &table) {
+    return ds4_prefill_hold_band_make(
+        cuda_stream_prefill_readahead_hold() ? 1 : 0,
+        g_stream_prefill_low_gate_set ? 1 : 0,
+        g_stream_prefill_low_gate,
+        (uint64_t)g_stream_expert_slots.size(),
+        (uint64_t)table.n_total_expert,
+        (uint64_t)table.gate_expert_bytes);
+}
+
 static void cuda_stream_selected_cache_invalidate(void) {
     g_stream_selected_cache.valid = 0;
 }
@@ -219,6 +325,7 @@ static void cuda_stream_selected_cache_release(void) {
     g_stream_expert_slots.clear();
     g_stream_expert_by_gate.clear();
     g_stream_expert_clock = 1;
+    cuda_stream_prefill_low_gate_clear();
     g_stream_prefill_ids.clear();
     g_stream_prefill_slots.clear();
 }
@@ -27225,6 +27332,9 @@ static int cuda_stream_selected_cache_begin_load(
             g_stream_expert_by_gate.clear();
             for (auto &slot : g_stream_expert_slots) slot.used = 0;
             g_stream_expert_clock = 1;
+            /* The held band was measured against slots that no longer hold
+             * anything, so it starts over with the scan that refills them. */
+            cuda_stream_prefill_low_gate_clear();
         }
         const uint64_t stamp = ++g_stream_expert_clock;
         std::vector<int32_t> slots(unique.size(), -1);
@@ -27245,16 +27355,29 @@ static int cuda_stream_selected_cache_begin_load(
             slot.used = stamp;
         }
         cuda_stream_upload_batch uploads;
+        /* Loop-invariant for every victim scan below: derive it once. */
+        const ds4_prefill_hold_band hold_band = cuda_stream_prefill_hold_band(*table);
         for (size_t i = 0; i < unique.size(); i++) {
             if (slots[i] >= 0) continue;
             uint32_t victim = UINT32_MAX;
             uint64_t oldest = stamp;
-            for (uint32_t j = 0; j < g_stream_expert_slots.size(); j++) {
-                if (!cuda_stream_prefetch_protects(g_stream_expert_slots[j]) &&
-                    g_stream_expert_slots[j].used < oldest) {
-                    oldest = g_stream_expert_slots[j].used;
-                    victim = j;
-                    if (!oldest) break;
+            /* Pass 0 runs the ordinary LRU choice over everything that is not
+             * held; pass 1 runs it over the held slots, so a held expert is
+             * only ever surrendered when there is no unheld candidate at all.
+             * With the switch off, pass 0 sees the same slots upstream sees and
+             * the second pass is unreachable, so this is upstream's choice. */
+            for (int pass = 0; pass < 2 && victim == UINT32_MAX; pass++) {
+                for (uint32_t j = 0; j < g_stream_expert_slots.size(); j++) {
+                    const auto &slot = g_stream_expert_slots[j];
+                    if (cuda_stream_prefetch_protects(slot)) continue;
+                    if (pass == 0 &&
+                        ds4_prefill_hold_slot_held(&hold_band, slot.gate, slot.used))
+                        continue;
+                    if (slot.used < oldest) {
+                        oldest = slot.used;
+                        victim = j;
+                        if (!oldest) break;
+                    }
                 }
             }
             if (victim == UINT32_MAX) return 0;
@@ -27334,6 +27457,44 @@ static struct {
     double started = 0, elapsed = 0;
 } g_stream_prefetch;
 
+/* The read-ahead can decline a layer for a dozen reasons and used to do it
+ * silently, so "it prefetched" and "it did nothing at all" looked identical
+ * from outside. These only count; nothing here changes a decision. */
+static struct {
+    uint64_t asked;          /* calls that reached the function          */
+    uint64_t refused_early;  /* declined by the entry guard              */
+    uint64_t no_victims;     /* ran out of evictable slots mid-reserve   */
+    uint64_t cancelled;      /* any other throw on the way to the thread */
+    uint64_t started;        /* reader threads actually launched         */
+    uint64_t published;      /* finishes that published their slots      */
+    uint64_t dropped;        /* finishes that threw their slots away     */
+    uint64_t slots_published;
+} g_stream_prefetch_stats;
+
+static bool cuda_stream_prefetch_stats_on(void) {
+    static int on = -1;
+    if (on < 0) on = getenv("DS4_CUDA_SSD_PREFETCH_STATS") != NULL ? 1 : 0;
+    return on != 0;
+}
+
+static void cuda_stream_prefetch_stats_report(void) {
+    if (!cuda_stream_prefetch_stats_on()) return;
+    const auto &st = g_stream_prefetch_stats;
+    const double rate = st.asked ? (double)st.started / (double)st.asked : 0.0;
+    fprintf(stderr,
+            "ds4: CUDA SSD read-ahead: asked=%llu started=%llu (%.1f%%) "
+            "refused_early=%llu no_victims=%llu cancelled=%llu "
+            "published=%llu dropped=%llu slots=%llu\n",
+            (unsigned long long)st.asked, (unsigned long long)st.started,
+            100.0 * rate,
+            (unsigned long long)st.refused_early,
+            (unsigned long long)st.no_victims,
+            (unsigned long long)st.cancelled,
+            (unsigned long long)st.published,
+            (unsigned long long)st.dropped,
+            (unsigned long long)st.slots_published);
+}
+
 static bool cuda_stream_slot_in_table(const cuda_stream_expert_slot &slot,
                                       const ds4_gpu_stream_expert_table &table) {
     if (!slot.used || slot.gate < table.gate_offset) return false;
@@ -27404,6 +27565,14 @@ extern "C" void ds4_gpu_stream_expert_cache_prefetch_finish(bool cancel) {
         p.active = false;
     }
     const bool publish = p.ok && !cancel;
+    if (!p.slots.empty()) {
+        if (publish) {
+            g_stream_prefetch_stats.published++;
+            g_stream_prefetch_stats.slots_published += p.slots.size();
+        } else {
+            g_stream_prefetch_stats.dropped++;
+        }
+    }
     for (const auto &reserved : p.slots) {
         auto &slot = g_stream_expert_slots[reserved.index];
         slot.used = 0;
@@ -27446,6 +27615,7 @@ extern "C" void ds4_gpu_stream_expert_cache_prefetch_finish(bool cancel) {
 
 static void cuda_stream_prefetch_exit(void) {
     ds4_gpu_stream_expert_cache_prefetch_finish(true);
+    cuda_stream_prefetch_stats_report();
 }
 
 extern "C" int ds4_gpu_stream_expert_cache_prefetch(
@@ -27465,8 +27635,18 @@ extern "C" int ds4_gpu_stream_expert_cache_prefetch(
         next->gate_expert_bytes != cache.gate_expert_bytes ||
         next->down_expert_bytes != cache.down_expert_bytes ||
         g_stream_expert_slots.size() < (uint64_t)current->n_total_expert + next->n_total_expert ||
-        g_stream_expert_clock >= UINT64_MAX - 2 || g_model_direct_align > (UINT64_C(1) << 20))
+        g_stream_expert_clock >= UINT64_MAX - 2 || g_model_direct_align > (UINT64_C(1) << 20)) {
+        g_stream_prefetch_stats.asked++;
+        g_stream_prefetch_stats.refused_early++;
         return 0;
+    }
+    g_stream_prefetch_stats.asked++;
+    /* The held band is anchored on the lowest layer the read-ahead is shown,
+     * which is where decode restarts: layer 0 for a prefill that starts at the
+     * top of the model. */
+    if (cuda_stream_prefill_readahead_hold())
+        cuda_stream_prefill_low_gate_note(current->gate_offset < next->gate_offset ?
+                                          current->gate_offset : next->gate_offset);
     try {
         /* Registered after CUDA initialization and the cache's static objects:
          * an early exit must join before either is destroyed. */
@@ -27496,15 +27676,87 @@ extern "C" int ds4_gpu_stream_expert_cache_prefetch(
         p.fd = dup(g_model_fd);
         if (p.fd < 0) throw 0;
         p.direct_fd = g_model_direct_fd >= 0 ? dup(g_model_direct_fd) : -1;
-        std::vector<uint32_t> victims;
+        const bool hold = cuda_stream_prefill_readahead_hold();
+        /* Loop-invariant for the scan below: derive it once, not per slot. */
+        const ds4_prefill_hold_band hold_band = cuda_stream_prefill_hold_band(*next);
+        std::vector<uint32_t> victims, held;
         for (uint32_t i = 0; i < g_stream_expert_slots.size(); i++) {
             const auto &slot = g_stream_expert_slots[i];
-            if (!cuda_stream_slot_in_table(slot, *current) && !cuda_stream_slot_in_table(slot, *next))
-                victims.push_back(i);
+            if (cuda_stream_slot_in_table(slot, *current) || cuda_stream_slot_in_table(slot, *next))
+                continue;
+            if (hold && ds4_prefill_hold_slot_held(&hold_band, slot.gate, slot.used))
+                held.push_back(i);
+            else victims.push_back(i);
         }
-        std::stable_sort(victims.begin(), victims.end(), [](uint32_t a, uint32_t b) {
-            return g_stream_expert_slots[a].used < g_stream_expert_slots[b].used;
-        });
+        /* Upstream's rule, kept verbatim as the control arm: the switch is what
+         * makes this branch measurable at all, so 0 has to be the tip, not a
+         * near miss. */
+        if (!hold) {
+            std::stable_sort(victims.begin(), victims.end(), [](uint32_t a, uint32_t b) {
+                return g_stream_expert_slots[a].used < g_stream_expert_slots[b].used;
+            });
+        } else {
+            /* Take victims from the layers the sweep has already passed LAST.
+             *
+             * A prefill visits each layer once, so a slot behind the sweep is
+             * dead weight for the rest of this prefill and is exactly what
+             * decode wants first: decode restarts at layer 0 on every token.
+             * Sorting purely by `used` does the opposite, because during a
+             * sweep `used` rises with the layer index, so the oldest slot is
+             * always the earliest layer.
+             *
+             * An expert tensor's offset rises with its layer (verified against
+             * the model's own tensor table: 40 of 40 layers strictly
+             * increasing), so the gate offset orders layers without carrying a
+             * layer on the slot.
+             *
+             * `used` remains the tie-break, so within one layer the least
+             * recently routed expert still goes first, and a slot the router
+             * never touched (stamped 1 by the look-ahead) still outranks one it
+             * did.
+             *
+             * This changes the ORDER of `victims`, never its membership, and
+             * the held set is split out of that same list and appended behind
+             * it, so the reserve loop below sees the same candidate SET it sees
+             * today and can run out no more often: the hazard that silently
+             * switches the read-ahead off is not reachable by this change. */
+            const uint64_t swept_from = current->gate_offset < next->gate_offset ?
+                current->gate_offset : next->gate_offset;
+            std::stable_sort(victims.begin(), victims.end(),
+                             [swept_from](uint32_t a, uint32_t b) {
+                const auto &sa = g_stream_expert_slots[a];
+                const auto &sb = g_stream_expert_slots[b];
+                const bool a_behind = sa.gate < swept_from;
+                const bool b_behind = sb.gate < swept_from;
+                /* Ahead of the sweep first: those layers are re-read on the way
+                 * past anyway, so losing them costs one prefetch, not the
+                 * opening. */
+                if (a_behind != b_behind) return !a_behind;
+                if (a_behind) {
+                    /* Among the layers already passed, give up the ones
+                     * CLOSEST to the sweep: decode reaches layer 0 first, so
+                     * the earliest layers are the last thing worth
+                     * surrendering. */
+                    if (sa.gate != sb.gate) return sa.gate > sb.gate;
+                }
+                return sa.used < sb.used;
+            });
+            if (!held.empty()) {
+                /* And the held band goes after all of that, which is how it is
+                 * not evicted: the reserve loop below walks `victims` from the
+                 * front, so a held slot is touched only once every unheld
+                 * candidate is gone. It is released from the far end, the
+                 * layers the sweep reached most recently, so layer 0 is the
+                 * last slot standing. */
+                std::stable_sort(held.begin(), held.end(), [](uint32_t a, uint32_t b) {
+                    const auto &sa = g_stream_expert_slots[a];
+                    const auto &sb = g_stream_expert_slots[b];
+                    if (sa.gate != sb.gate) return sa.gate > sb.gate;
+                    return sa.used < sb.used;
+                });
+                victims.insert(victims.end(), held.begin(), held.end());
+            }
+        }
         p.slots.reserve(next->n_total_expert);
         p.copies.reserve(3u * next->n_total_expert);
         for (uint32_t expert = 0; expert < next->n_total_expert; expert++) {
@@ -27518,7 +27770,13 @@ extern "C" int ds4_gpu_stream_expert_cache_prefetch(
                 if (slot.up == value.up && slot.down == value.down) continue;
                 throw 0;
             }
-            if (p.slots.size() >= victims.size()) throw 0;
+            if (p.slots.size() >= victims.size()) {
+                /* Not enough evictable slots for this layer, so the whole
+                 * read-ahead for it is abandoned. A victim-list change that
+                 * starves the reader is visible here and nowhere else. */
+                g_stream_prefetch_stats.no_victims++;
+                throw 0;
+            }
             const uint32_t index = victims[p.slots.size()];
             p.slots.push_back({index, value});
             auto &slot = g_stream_expert_slots[index];
@@ -27544,6 +27802,7 @@ extern "C" int ds4_gpu_stream_expert_cache_prefetch(
         }
         p.started = cuda_wall_sec();
         if (pthread_create(&p.thread, NULL, cuda_stream_prefetch_read, NULL) != 0) throw 0;
+        g_stream_prefetch_stats.started++;
         p.active = true;
         return 1;
     } catch (...) {
