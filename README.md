@@ -285,14 +285,26 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test-me
   │             expresses the cache budget as a split of one RAM pool across
   │             three consumers. An instrument and a bound, not a speed lever
   │
-  │  LATEST     never in a sealed round
+  │  LATEST     round 5 - 2026-09-17 - TIES - +1.17 % 3/4 under a 5.69 floor -
+  │             2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
   │
-  │  GEN        not measured
-  │  PREFILL    not measured
+  │  GEN        +1.17 %  floor 5.69 %  sign 3/4  n=4  (legacy rule +1.20)
+  │             raw: arm min-across median 9.66 t/s (9.72 / 9.60 / 9.40 / 9.74)
+  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
+  │             across 4096/6144, each run against its bracketing TIP runs
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
+  │             native 24.89 MB .text (tip 24.86 MB) - lean regime 4096/6144
+  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
+  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
+  │             that nothing clears it
+  │  PREFILL    reported, not a verdict: 89.49 t/s min-across median vs the
+  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
   │
-  │  VERDICT    TOOLING - nothing about t/s is claimed or owed here. The
-  │             default path is arithmetic-identical to before, which is an
-  │             argument and not a measurement. No CUDA build exists
+  │  VERDICT    TOOLING - still tooling, and now with a number that agrees. Round 5
+  │             reads +1.17 % at 3 of 4 inside a 5.69 % floor, which is exactly what an
+  │             instrument that changes no arithmetic on the default path should read.
+  │             Nothing about t/s is claimed or owed here
   │
   │  SWITCH     DS4_MEM_RESERVE_MIB=N default 512 · DS4_MEM_RESERVE_ENFORCE=1|0
   │             default 1 (a breach stops) · DS4_MEM_RESERVE_RECORD=FILE (one JSON
@@ -402,3 +414,9 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test-me
   (`ds4_rocm_memory.h`), left unconverted.
 - ⚠ Behaviour change: enforcement is ON by default, so a Linux launch with `MemAvailable` under
   512 MiB now stops. `DS4_MEM_RESERVE_ENFORCE=0` restores the old behaviour.
+
+## Round 5, and the number this card now carries
+
+- **Round 5 built and ran this branch as an arm**: +1.17 % gen, 3 of 4 positive, TIES under a 5.69 % floor. The status word stays TOOLING, because a tie is the predicted reading for a default path that is arithmetic-identical, not a speed result.
+- The no-CUDA-build note above is discharged: a binary at 24.89 MB .text exists and ran four repeats, the largest .text of the seven arms.
+- Its prefill median, 89.49 t/s, is the highest of the seven arms and above the tip's 84.61, and round 5 makes no prefill verdict, so that is reported and nothing more.
