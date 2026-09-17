@@ -1,0 +1,66 @@
+# try-spec-offload result - 2026-09-16 - triple-spec-under-offload - dspark-off-warm
+
+> **THE NUMBERS IN THIS FILE ARE OWED.** Every cell below is blank on purpose.
+> The CUDA build gate and the four legs both need the DGX Spark, and the Spark is
+> serialized to an unrelated series right now. Nothing here has been run, and
+> nothing here is estimated. When the lane is free, the four legs are run
+> interleaved on ONE binary vintage (see the branch README) and the cells are
+> filled from the runner's own output, not by hand.
+
+| field | value |
+| --- | --- |
+| date | 2026-09-16 |
+| branch | triple-spec-under-offload |
+| branch sha | ____ |
+| build | ____ (one worktree on the Spark, one vintage for all four legs) |
+| arm | warm |
+| dspark | off |
+| drafter loaded | yes - the drafter is in the argv |
+| residency | warm - working set already resident at ctx 8321 |
+| prime pass sent | yes |
+| env | DS4_MTP_SPEC_DISABLE=1 |
+| pair partner | same argv as dspark-on-warm |
+| server | `./ds4-server -m $HOME/dwarfstar/gguf/DeepSeek-V4.1-Flash-Q2.gguf --port 8000 --ctx 8321 --ssd-streaming --ssd-streaming-cache-experts 90GB --dspark --mtp-model gguf/DeepSeek-V4-Flash-DSpark-support-0731.gguf` |
+| spark | spark port 8000 ctx 8321 |
+| nvme bytes read per decode token | ____ |
+| accept length tau | ____ |
+| output sha256, greedy short | ____ |
+| output sha256, greedy long | ____ |
+
+## tokens per second
+
+| test | tokens | secs | tok/s |
+| --- | ---: | ---: | ---: |
+| short-1 | ____ | ____ | ____ |
+| short-2 | ____ | ____ | ____ |
+| short-3 | ____ | ____ | ____ |
+| short-4 | ____ | ____ | ____ |
+| short-5 | ____ | ____ | ____ |
+| long-1 | ____ | ____ | ____ |
+| long-2 | ____ | ____ | ____ |
+| long-3 | ____ | ____ | ____ |
+| long-4 | ____ | ____ | ____ |
+| long-5 | ____ | ____ | ____ |
+
+## summary
+
+| stat | tok/s |
+| --- | ---: |
+| min | ____ |
+| median | ____ |
+| max | ____ |
+| tests counted | ____ |
+
+## the pair, as the README reads it
+
+| arm / measurement | value | change |
+| --- | ---: | ---: |
+| tokens/s - dspark OFF, warm, same vintage | ____ | - |
+| tokens/s - dspark ON, warm, same vintage | ____ | ____ |
+| control-to-control floor, generation | ____ | read the delta beside this |
+| NVMe bytes per decode token, OFF / ON | ____ / ____ | ____ |
+| accept length tau, ON leg | ____ | - |
+
+*triple-spec-under-offload · warm · dspark off · prime yes.*
+
+_Prepared 2026-09-16. Not run. The CUDA build gate is OWED and the Spark is busy._
