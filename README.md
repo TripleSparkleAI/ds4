@@ -280,11 +280,16 @@ Card format: `CARD_STANDARD_v2.md` at the repository root (v2, 2026-09-17).
   │  BRANCH     triple-all-fastest                                POSITIVE
   │
   │  WHAT       the new tip plus hitsfirst, the measured fastest tree, set
-  │             by rule from rounds 4 and 8, provisional on round 9. One
+  │             by rule from rounds 4 and 8 and confirmed by round 9. One
   │             lever, ON by default, and nothing else.
   │
-  │  LATEST     round 8 · 2026-09-17 · BEATS · +12.31 % (no-tip_1 +11.54 %) ·
+  │  LATEST     round 9 · 2026-09-17 · THE DEFAULT HOLDS · hitsfirst highest
+  │             median 10.41 (tip 9.42) ·
+  │             2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
+  │             round 8 · 2026-09-17 · BEATS · +12.31 % (no-tip_1 +11.54 %) ·
   │             2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
+  │             round 4 · 2026-09-17 · BEATS · +6.47 % (kept +7.93 %) ·
+  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
   │
   │  GEN        +12.31 %  floor 10.69 % (sealed, max)  sign 4/4  n=4
   │             raw: arm 10.49 · 9.43 · 10.38 · 10.29 (median 10.34 t/s) vs
@@ -301,17 +306,32 @@ Card format: `CARD_STANDARD_v2.md` at the repository root (v2, 2026-09-17).
   │             round 4 beside it: +6.47 % (kept +7.93 %)  floor 2.71 %
   │             sign 4/4  n=4  arm median 10.37 vs tip 9.65 t/s
   │             (2026-09-17 09:50-10:57Z, same control, same box)
+  │             ─── round 9, TIES on the rule, and it holds the default:
+  │             +12.09 %  floor 17.27 %  sign 4/4  n=4
+  │             raw: arm min-across median 10.41 t/s (10.32 to 10.51, spread
+  │             0.19) vs the tip's 9.42 t/s (8.51 to 9.98), every arm run above
+  │             every control run. Highest median and tightest tree of the five
+  │             arms: pool 10.35, winners 10.20, triple-all 10.11, and the
+  │             ten-lever stack carrying this same lever 9.93
+  │             ⚠ the instrument sets that floor, not the arm: the five control
+  │             runs span 8.51 to 9.98 t/s because the page cache holds 2.9 GB of
+  │             an 81 GB model and the bench streams 842 MB/s from the NVMe, so
+  │             identical binaries swing about 8 % run to run
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 14:41-15:36Z · DGX Spark GB10 · native
+  │             24.89 MB .text (r9-hitsfirst, 24,886,127; tip 24.86 MB) · lean
+  │             regime 4096/6144 · quiet box, warm-up run discarded
   │  PREFILL    not measured
   │
-  │  VERDICT    POSITIVE - two sealed wins, no sealed loss: round 4 +6.47 %
-  │             through a 2.71 floor, round 8 +12.31 % through a 10.69 floor,
-  │             the only arm of seven that cleared round 8's floor. By the
-  │             navigator's standing rule the all-fastest default follows the
-  │             measured number, so this branch IS that tree. Provisional:
-  │             round 9 (sealed 2026-09-17-R9-PREREGISTERED-RULE.txt, quiet
-  │             box, with the warm-up run) re-measures hitsfirst, pool,
-  │             winners, stack+hits and triple-all; if it ranks another tree
-  │             above hitsfirst on a clean floor, the default moves again.
+  │  VERDICT    POSITIVE - three sealed rounds, two wins and one tie, and no
+  │             sealed loss: round 4 +6.47 % through a 2.71 floor, round 8
+  │             +12.31 % through a 10.69 floor, round 9 +12.09 % and the highest
+  │             median of five arms on a quiet box. By the navigator's standing
+  │             rule the all-fastest default follows the measured number, so
+  │             this branch IS that tree, and ROUND 9 CONFIRMS THE DEFAULT: the
+  │             word provisional is dropped. Round 9 ranked every other arm
+  │             below this one lever, including the ten-lever tree that carries
+  │             it (9.93), and no arm cleared the round's 17.27 floor.
   │
   │  SWITCH     DS4_CUDA_HITS_FIRST=0 turns the lever off (ON here, the lever's
   │             own default; =0 restores wait-then-launch)
@@ -323,12 +343,15 @@ Card format: `CARD_STANDARD_v2.md` at the repository root (v2, 2026-09-17).
 ```
 
 ```
-   the two sealed wins of the one lever this tree carries   (gen vs the new tip, min-across)
+   the three sealed rounds of the one lever this tree carries   (gen vs the new tip, min-across)
 
               0        +2        +4        +6        +8        +10       +12
    round 4    ┃━━━━━━━━━┫━━━━━━━━━━━━━━━━━━●  +6.47   4/4   floor 2.71 (the ┫)
    round 8    ┃━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫━━━━━━━●  +12.31  4/4   floor 10.69 (the ┫)
-   round 9    ┃ ○ running now, quiet box, warm-up run       provisional until it lands
+   round 9    ┃━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●  +12.09  4/4
+              the floor is 17.27 and sits RIGHT of the delta, so TIES on the rule while the
+              ranking is the sharpest yet: median 10.41, spread 0.19, every run above every
+              control run. the default holds
 ```
 
 ### How this tree was built
@@ -375,6 +398,8 @@ Every sealed number for the stacks, in order, so the history reads whole:
 | round 8 | 2026-09-17 | newtip stack + readahead ON | +6.64 % | 3/4 | 10.69 | TIES | `2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md` |
 | round 8 | 2026-09-17 | newtip stack + hitsfirst ON | +5.46 % | 4/4 | 10.69 | TIES | same file |
 | round 8 | 2026-09-17 | newtip stack + both ON | -5.95 % | 0/4 | 10.69 | TIES, slowest tree measured | same file |
+| round 9 | 2026-09-17 | six-lever `triple-all` | +7.02 % | 3/4 | 17.27 | TIES, reads with round 6 | `2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md` |
+| round 9 | 2026-09-17 | newtip stack + hitsfirst ON | +3.77 % | 2/3 | 17.27 | TIES, lowest median of the round | same file |
 | round 8 | 2026-09-17 | `triple-winners` (pool + hits + prefetch-pool) | +1.54 % | 2/3 | 10.69 | TIES | same file |
 | round 8 | 2026-09-17 | six-lever `triple-all` | -0.98 % | 1/4 | 10.69 | TIES | same file |
 | round 8 | 2026-09-17 | **hitsfirst alone, this tree** | **+12.31 %** | 4/4 | 10.69 | **BEATS** | same file |
@@ -384,6 +409,17 @@ The old tree's full record and its lever table stay readable at the tag:
 `git show sealed/all-fastest-tenlever-oldbase:README.md`.
 
 ---
+
+### Round 9, 2026-09-17: the default holds
+
+- **Confirmed, not provisional.** Round 9 ran the quiet box with the discarded warm-up and put
+  this one lever first again: median **10.41 t/s** against the tip's 9.42, +12.09 %, sign 4 of 4.
+  Three sealed rounds, two wins and one tie, no sealed loss.
+- **It TIES only because the floor is 17.27.** The five control runs span 8.51 to 9.98, so the
+  round confirms a ranking rather than a magnitude, and the magnitude still stands from round 8.
+- **Every rival ranked below it**, including the ten-lever tree that carries this same lever:
+  pool 10.35, winners 10.20, triple-all 10.11, stack + hits 9.93. Its spread of 0.19 is five times
+  tighter than the next arm's.
 
 ## The index: every branch card
 
