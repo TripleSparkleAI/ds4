@@ -339,7 +339,8 @@ it rock.
   │             and read +8.56 % at 3 of 4 under a 10.69 floor: two runs at 10.47
   │             to 10.65, as round 4, and two at 8.98 to 9.53 in the loaded
   │             window. That TIES, so it neither confirms nor retracts round 4.
-  │             Round 9 re-measures it on a quiet box
+  │             Round 9 ran that quiet box and read +9.59 % at 10.35 t/s, sign
+  │             4 of 4, second of the five arms behind hitsfirst
   │
   │  SWITCH     DS4_CUDA_FETCH_QD=<n> ring queue depth, default 64, clamped 8-512
   │             DS4_CUDA_FETCH_URING=0 falls back to the pread pool
