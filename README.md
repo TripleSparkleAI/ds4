@@ -267,3 +267,156 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+
+
+
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
+
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
+
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-prefetch-pool                                  NOT YET
+  │
+  │  WHAT       cuts the prefill read-ahead into chunked tasks for a pool of
+  │             readers with their own pinned buffers and upload streams;
+  │             the single reader stays as the fallback when the pool declines
+  │
+  │  LATEST     never in a sealed round
+  │             round 3 is measuring this branch now: in flight, unresolved
+  │
+  │  GEN        not measured
+  │  PREFILL    not measured as a delta. The device probe holds an instrument
+  │             counter, not a result: wait per layer 398.0 ms at one reader to
+  │             196.5 ms at four (speed-bench/v41_cuda_prefetch_pool_gb10.md,
+  │             2026-09-15). It has no tokens/s or percent figure behind it.
+  │
+  │  VERDICT    NOT YET - in the 2026-09-15 pass every arm read above its
+  │             control, the OFF arms included, so that pass measures a bad
+  │             control and not a lever, and it is withheld.
+  │
+  │  SWITCH     DS4_CUDA_SSD_PREFETCH_CHUNK_MB, default 8, cap 64; 0 is ignored,
+  │             so the chunking has no off arm. DS4_CUDA_SSD_PREFETCH_POOL=0 or
+  │             DS4_CUDA_SSD_PREFETCH_THREADS=1 reverts the whole pool
+  │  OUTPUT     greedy-identical sha256 2f2dd7f89d107bbc (33,527 bytes, 12 runs)
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### What the branch measured
+
+From `speed-bench/v41_cuda_prefetch_pool_gb10.md` in this tree: twelve runs across seven
+configurations.
+
+```
+   THE FOREGROUND'S BLOCKING WAIT ON THE READ-AHEAD, per layer
+   38 layers · 3,822,059,520 bytes · same bytes on every arm
+
+   1 reader    ████████████████████████████████████████   398.0 ms   NVMe QD 1
+   4 readers   ███████████████████                        196.5 ms   NVMe QD 4
+               ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+               7.65 s removed from one 4,392-token prefill
+
+   4 readers beat 8 and 16 by about 11 %, in both passes
+
+   THE DRIVE ITSELF, probed
+   single reader   7.6 GB/s  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+   eight readers  10.1 GB/s  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+
+   a prefetch moves WHEN a byte arrives, never HOW MANY arrive
+```
+
+### ⚠ A number that is not this branch's
+
+`+72 to +81 %` has been attached to this branch in conversation. It appears **zero times**
+anywhere in this branch's tree. It came from `triple-all-fastest`'s card. Do not carry it back
+here. What this branch itself measured is the wait figure above, and nothing more.
+
+### Why tokens/s is not measured
+
+- The 2026-09-15 native pass ran, and every arm read above its control, **including the arms with
+  the lever off**.
+- Two of three levers measured better off than on.
+- Its control read **9.17 to 9.46 t/s** against **9.56** in a later pass.
+- An off arm is the control, so a pass where the off arms win has a bad control, not a lever. The
+  figures are withheld.
+- No arm of the chunk-size axis has been run at all.
+
+### Mechanism
+
+- The read-ahead's copies are cut into `DS4_CUDA_SSD_PREFETCH_CHUNK_MB` MiB tasks and handed to
+  the read-ahead's own pool instance, `g_prefetch_pread`.
+- Each worker owns a pinned staging buffer and its own upload stream, so the drive sees the
+  layer's whole queue depth instead of one read at a time.
+- A 38-layer prefill creates **no** threads on the pooled path, where it previously created and
+  joined **38**.
+- The pool is separate from the demand pool because `cuda_pread_pool_dispatch_start` declines
+  while a batch is in flight.
+- Workers take private file descriptors per batch. So the foreground cannot close one underneath
+  them, and a rejected direct read cannot disable `O_DIRECT` for the demand path.
+- The read-ahead's invariants live outside the reader and survive: slots reserved
+  `used = UINT64_MAX`, publication one foreground act, the join still a join on cancellation and
+  teardown.
+
+### The env resolution, hoisted
+
+`cuda_pread_pool_dispatch_start` called `cuda_pread_pool_limit()` twice in four lines: once for
+the worker count it clamps to the batch, once, unclamped, for the pool's own size. Each call was
+a `getenv` plus a `strtoul`, and the dispatch runs once per expert prefetch batch.
+`cuda_pread_pool_enabled()` was a third `getenv` on the same path until the pool finished
+initializing.
+
+- **Both uses survive and are genuinely different.** The pool is persistent, so it is sized to the
+  configured limit, not to whatever the first batch happened to carry. It was the RESOLUTION that
+  was duplicated, and that is what went.
+- `ds4_pread_pool_workers()` now keeps the clamped and unclamped halves apart, so the distinction
+  is named instead of implied.
+- The rules moved to `ds4_pread_pool_config.h` as pure C99 - the parse, both clamps and the
+  read-once cache - because `ds4_cuda.cu` does not compile on a host with no CUDA toolkit and none
+  of this was reachable by any test.
+- The cache carries a `_resolved` flag per setting rather than a sentinel, so an all-zero struct
+  means "not resolved yet". That matters because it lives inside `cuda_pread_pool`, whose globals
+  are built by a positional initializer that leaves the tail zeroed.
+- A `static_assert` pins `DS4_PREAD_POOL_MAX` to `DS4_CUDA_EXPERT_PREAD_MAX`, since both index the
+  pool's fixed thread, args and ctx arrays.
+
+**Stated, because it is a behaviour change.** Read-once means a mid-run mutation of either
+variable no longer moves the next dispatch's worker count. It never moved the pool's size:
+`cuda_pread_pool_init` fixes that on first use and never revisits it. So the per-batch clamp is
+the only reachable difference.
+
+Tests: `tests/test_pread_pool_config.c`, 16 cases and 59 checks, wired into `make test`. A
+counting reader is substituted for `getenv`, so "resolved once" is a counted fact. Proven RED
+against the unhoisted resolver first: 3 assertions fire, exit 1, at 4,000 reads over 4,000 calls
+on each setting and 10 over ten dispatches. GREEN after: 0 failed, exit 0.
+
+No measurement is claimed for the hoist. Nothing CUDA compiles on the Mac host, so the Spark
+build is the gate for the `.cu` half.
+
+### In the stack
+
+Applying this branch's diff onto `triple-all-fastest` produced about thirty conflict regions
+(**30** by `git apply --3way`, **31** by `git merge-tree`), resolved by hand:
+
+- 8 took the stack's side
+- 16 took this branch's side
+- 6 were combined
+
+The merged tree built clean natively.
+
+### Owed
+
+- A clean interleaved A/B on a Spark build, both arms on one vintage, with a control that the off
+  arms do not beat.
+- The chunk-size axis, which has never been run.
+
+The line to clear: the clean tip reads **9.65 t/s median**
+(`2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md`).
