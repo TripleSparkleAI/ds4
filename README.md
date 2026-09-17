@@ -292,23 +292,26 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29
   │             actually lands, and hints WILLNEED over a layer's miss ranges
   │             on the buffered read path
   │
-  │  LATEST     attrib series · 2026-09-16 · JOINT, NOT ATTRIBUTABLE: this
-  │             branch's switch is one of the SEVEN turned off together, and
-  │             the seven together are a net GAIN of +7.62 pp against their own
-  │             off state at min-across-frontiers, floor max 2.18, cleared 3.5x.
-  │             Nothing in that file says what THIS lever did
-  │             (2026-09-16-triple-all-fastest-attrib-SUMMARY-levers-attribution.txt)
-  │             ⚠ that arm is the NINE-lever binary at dd82361a, not this branch
+  │  LATEST     round 5 - 2026-09-17 - TIES - +1.47 % 4/4 under a 5.69 floor -
+  │             2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
   │
-  │  GEN        9.62 t/s  vs control 9.56  +0.6 %  floor 4.9 %  n=2
-  │             control = unpatched tip, interleaved, same native vintage
-  │             session = 2026-09-15 · DGX Spark GB10 · native 23.1 MB .text · unstamped
-  │  PREFILL    not measured
+  │  GEN        +1.47 %  floor 5.69 %  sign 4/4  n=4
+  │             raw: arm min-across median 9.73 t/s (9.66 / 9.85 / 9.51 / 9.80)
+  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
+  │             across 4096/6144, each run against its bracketing TIP runs
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
+  │             native 24.86 MB .text (tip 24.86 MB) - lean regime 4096/6144
+  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
+  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
+  │             that nothing clears it
+  │  PREFILL    reported, not a verdict: 83.55 t/s min-across median vs the
+  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
   │
-  │  VERDICT    WORTH ZERO - the ordering repair is correct by the Linux
-  │             semantics and worth +0.6 % against a 4.9 % floor, which is
-  │             nothing. It buys a resident set that stops growing, and that
-  │             is an argument about memory, not a measured speed
+  │  VERDICT    WORTH ZERO - +1.47 % at 4 of 4 inside a 5.69 % floor, which is the
+  │             same word this card already carried from a different pass. The memory
+  │             argument is unchanged and is still an argument about the resident set,
+  │             not a measured speed
   │
   │  SWITCH     DS4_CUDA_KEEP_MODEL_PAGES=1 disables both drops
   │             DS4_CUDA_NO_EXPERT_READAHEAD=1 disables the hint
@@ -386,3 +389,9 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29
 - Whether the resident set actually stops growing. That is the claim the repair rests on and it has
   never been observed, only reasoned from the kernel's documented behaviour.
 - A measurement on the new tip, and the greedy-identical check re-run on the rebased tree.
+
+## Round 5, and the number this card now carries
+
+- **Round 5 re-measured this lever alone and the word did not move**: +1.47 % gen, 4 of 4 positive, TIES under a 5.69 % floor. It was already WORTH ZERO from the 2026-09-15 solo pass at +0.6 %, so this is a confirmation rather than a change.
+- Two passes, two controls, two floors, one verdict: +0.6 % against a 4.9 % floor on 15 Sep and +1.47 % against a 5.69 % floor today.
+- The 4 of 4 sign is worth noting even under a wide floor: the delta is small and consistently positive, which is what a correct ordering repair that buys nothing looks like.
