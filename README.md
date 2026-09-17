@@ -267,3 +267,131 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
+
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+
+Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42 pass lines, 5 pre-existing failures (the Qwen3.8 and GLM 5.3 model-absent skips, counted as failures by ds4_test and identical on every branch).
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-spec-under-offload                            NOT YET
+  │
+  │  WHAT       does DSpark speculative decoding PAY on a box whose weights
+  │             stream from disk? A residency axis crossed with a spec axis:
+  │             RAW (cold, page cache evicted) and WARM WORKING SET (resident
+  │             before the measured block). Four legs, one binary, no engine
+  │             code added
+  │
+  │  LATEST     never in a sealed round. The arm lists of 2026-09-17-ROUND3-,
+  │             -R4- and -R5-PREREGISTERED-RULE.txt name this branch zero times,
+  │             and no round's argv carries --dspark. Its own four result files
+  │             under try-results/ are TEMPLATES: every numeric cell is blank on
+  │             purpose, and a grep for a two-decimal number across all four
+  │             returns 0 lines
+  │
+  │  GEN        not measured - no engine code, nothing for the bench to run
+  │  PREFILL    not measured - no engine code, nothing for the bench to run
+  │
+  │  VERDICT    NOT YET - the four legs and the CUDA build both need the Spark,
+  │             and nothing has been run. The warm arm is the one nobody has
+  │             ever run: every DSpark A/B we hold ran WITHOUT residency,
+  │             because the F16 drafter at 117.73 GiB with the target does not
+  │             fit beside the 115 GiB the GB10 offers
+  │
+  │  SWITCH     --dspark --mtp-model <file>; the off leg is
+  │             DS4_MTP_SPEC_DISABLE=1 on the same argv. The residency axis uses
+  │             the pre-existing --ssd-streaming, --ssd-streaming-cold and
+  │             --ssd-streaming-cache-experts N|NGB (ds4_help.c lines 174 and
+  │             175 at HEAD)
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+**Why this branch is not in the measurement pass.** It adds no engine code. Its files are
+`try-spec-offload.sh` (828 lines of POSIX sh), four blank result templates, an index and this card.
+The standing round builds one binary per arm and runs `ds4-bench` with no switches set, so an arm
+built from this branch would be the tip compiled twice. The question here needs its own four-leg
+runner on the Spark, and the Spark is serialized to another series.
+
+## The question
+
+- Not "is DSpark lossless" and not "does DSpark help on a resident box". On a disk-bound box, does
+  the draft's saved forward passes outweigh the extra bytes the verify pass pulls through the
+  device?
+- Our record says every DSpark A/B ran without residency: the converted drafter is F16 at
+  39,696,568,160 bytes, so 117.73 GiB with the target against 115 GiB available before KV
+  (`WIKI/theory/03-dspark.md` section 5).
+- Upstream describes its support file as adding "about 5.6 GiB of weights plus runtime state"
+  (`docs/SPECULATIVE_DECODING.md` line 35, in this branch's own tree). The runner records the server
+  command, so the two drafters can be told apart afterwards.
+- ⚠ The `WIKI/` paths here are not in this branch's tree. The branch is rooted on the upstream tip,
+  which carries no `WIKI/`.
+
+## What the field knows, and why it does not close this
+
+- `WIKI/theory/89-serving-reframe-bug-shaped-2026-07-19.md` section 6: the community runs ds4-flash
+  with DSpark on GB10s and wins. Dual-GB10 about 31 to 34 t/s, a forum report about 60 to 67 against
+  40 to 45 plain, a reproduction at 26 to 40 to 60 t/s, so 1.51x then 2.29x.
+- ⚠ All of those are dual-box TP=2 plus CUDA graphs plus a higher quant. Our single-box IQ2
+  `ds4-server` has none of the three, so none of them is a number about our configuration.
+- `WIKI/theory/48-decode-speedup-levers.md` section 8 still ranks more spec-decode as "net-negative,
+  settled, do not" for this box. That ranking is the position under test.
+
+## The tension inside our own record
+
+- Closed branch `triple-word-finisher` measured a k-token verify pass reading the SAME NVMe bytes as
+  k single passes: bytes saved 0.0000 at k of 2, 4 and 8, miss reuse 0 of 1,219, acceptance real at
+  2.37x code and 1.17x prose, and the union of k steps' misses equal to their sum. If that transfers,
+  a streaming box gains nothing from drafting.
+- Against it, SpecOffload (`WIKI/research/engine-harvests/05-new-engines-scout-round2.md`) fills idle
+  cycles during the fetch, and `03-adaptive-gamma-under-concurrency.md` records a rejected draft as
+  pure wasted verify bandwidth, worse when the box is already saturated.
+- The sign can fall either way. That is the point of running it.
+
+```
+   T H E   F O U R   L E G S ─────────────────────────────────────────
+
+   leg  residency  dspark  drafter loaded   verify path
+    1     cold      off    yes, same argv   killed by DS4_MTP_SPEC_DISABLE=1
+    2     cold      on     yes, same argv   runs
+    3     warm      off    yes, same argv   killed by DS4_MTP_SPEC_DISABLE=1
+    4     warm      on     yes, same argv   runs
+
+   cold = --ssd-streaming-cold + page cache evicted: about 112 GiB of the
+          unrelated Pro gguf pushed through the cache with dd, about 105 s at
+          the measured 1.2 GB/s SSD read (WIKI/theory/48 section 4a)
+   warm = default preload + one DISCARDED prime pass at the fixed context
+
+   ctx 8321 · the same ten tests · order 1 2 3 4, then the block again, one vintage
+   every numeric cell of all four result files is blank today: grep for a
+   two-decimal number across try-results/*.txt returns 0
+```
+
+## What the branch adds
+
+- `try-spec-offload.sh`, a sibling of the stack branch's `try.sh`: POSIX sh, `${VAR:-default}` knobs,
+  markdown-table result files, the model unloaded on every exit path.
+- Four blank result files under `try-results/`, named by date, branch and what was on, plus an index.
+- No kernel, no data path, no arithmetic change.
+- `--dspark-strict` is a third state and is NOT the pair partner: the pair keeps one argv and closes
+  the verify path with the kill switch, which gates the speculative branch in the server
+  (`ds4_server.c`), the agent and the CLI.
+
+## Owed
+
+- `make cuda-spark` on the Spark.
+- The four legs and their repeat.
+- NVMe bytes per decode token from a device-side reading.
+  `WIKI/theory/89-serving-reframe-bug-shaped-2026-07-19.md` section 3 names the decode capture at
+  B=1 across draft lengths as the arbiter: flat means the non-routed read amortises, linear means it
+  is re-read per position.
+- Accept length tau on the on legs, and greedy identity off against on.
+- One known limitation, stated in the runner: the off legs keep the drafter loaded, so they measure
+  the verify pass and not the drafter's footprint. A no-drafter baseline is a different argv, labelled
+  `dspark-absent`.
