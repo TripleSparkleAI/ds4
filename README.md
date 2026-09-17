@@ -267,3 +267,127 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
+
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+
+Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42 pass lines, 5 pre-existing failures (the Qwen3.8 and GLM 5.3 model-absent skips, counted as failures by ds4_test and identical on every branch); cc -fsyntax-only clean on ds4.c and ds4_gpu.h.
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-all                                           NOT YET
+  │
+  │  WHAT       six lever branches stacked in series: the pread pool, the
+  │             event-gated selected-expert readback, the cache reserve knob,
+  │             the hot list seed, the staged page-drop order and hits-first.
+  │             A reference tree, never a submission, and SUPERSEDED
+  │
+  │  LATEST     never in a sealed round, and it will not be in one. The arm
+  │             lists of 2026-09-17-ROUND3-, -R4- and -R5-PREREGISTERED-RULE.txt
+  │             name this branch zero times, and a word-bounded search for
+  │             triple-all not followed by -fastest returns 0 lines across every
+  │             2026-09-16 and 2026-09-17 result and rule file. Its successor
+  │             triple-all-fastest-newtip is round 4's ALLFASTESTNE arm
+  │
+  │  GEN        not measured. No arm of this tree has ever been built or run
+  │  PREFILL    not measured
+  │
+  │  VERDICT    NOT YET and SUPERSEDED - the work moved to triple-all-fastest
+  │             and then to triple-all-fastest-newtip, which carries these six
+  │             plus four more AND the round-2 comparator revert as its default.
+  │             Read that branch; this one is kept as a record
+  │
+  │  SWITCH     the six levers' own switches, verified present in this tree's
+  │             diff: DS4_CUDA_STREAMING_EXPERT_PREAD_POOL and _PREAD_THREADS,
+  │             DS4_CUDA_SELECTED_DRAIN_SYNC, DS4_CUDA_EXPERT_CACHE_MARGIN_GB,
+  │             DS4_CUDA_EXPERT_HOTLIST_WRITE, DS4_CUDA_NO_EXPERT_READAHEAD,
+  │             DS4_CUDA_HITS_FIRST and _HITS_FIRST_STAGED
+  │  OUTPUT     not re-run. A greedy sha was recorded on a prior card and is
+  │             withheld here: it was taken before this rebase, on a tree this
+  │             branch is no longer on
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+## Why it has no number, and must not be given one
+
+- The combined number was never measured on this tree.
+- It must not be assembled from the six branches' own deltas: the levers overlap, since pool and
+  prefetch-pool touch the same expert-pread code and all six pull on one NVMe, and each solo delta
+  was taken against unpatched code.
+- Hits-first measured a null on this tree because the decode path's shared-expert kernels already
+  occupy the window it wanted, which is itself a reason a stack is not a sum.
+- Files at HEAD, re-counted with `git diff --numstat 12997e9c8 HEAD`: `ds4_cuda.cu` **+1112/-41**,
+  `ds4.c` **+37**, `ds4_gpu.h` **+9**, `README.md` **+42**. So it is a real tree, not a pointer, and
+  that is exactly why an unmeasured one is a hazard.
+
+## ⚠ The number this card used to carry, and why it is gone
+
+The previous card's VERDICT read: *"SUPERSEDED by triple-all-fastest - that tree carries these six
+plus four more, on the rolled tip, and it is the one measured (-4.51 % vs the tip, 0 of 7)."* The
+supersession stands. **The -4.51 % is removed as a live figure, on three counts:**
+
+- **It is not this branch's number**, and never was. It is the as-shipped arm of the attrib series
+  (`2026-09-16-triple-all-fastest-attrib-SUMMARY-levers-attribution.txt`, min-across-frontiers row).
+- **It was measured on a binary that is not on this line of history.**
+  `2026-09-16-CORRECTION-the-measured-stack-is-nine-levers-and-has-diverged.md` records that the
+  measured sha `dd82361a` carries **nine** levers, lacks the prefetch pool entirely, and is a
+  SIBLING of `triple-all-fastest` off `84ba6ef1b` rather than an ancestor of it.
+- **The behaviour it measured is no longer the default.** The bisect
+  (`2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md`) found one
+  `std::stable_sort` comparator in `ds4_gpu_stream_expert_cache_prefetch` carrying the loss, and
+  reverting it moved the stack 8.04 percentage points, from -4.35 % to +3.69 %. Round 2
+  (`2026-09-17-ROUND2-RESULT-the-revert-beats-the-tip.md`) re-ran it at n=8 on a cleared box:
+  **+3.46 % against the clean tip, sign 8 of 8, floor max 1.37, cleared by 2.5x, bands that do not
+  touch.** Under the standing rule that the default follows the measured number, the revert became
+  the stack's shipped behaviour, and `triple-all-fastest-newtip` (`b8f8a5a06`) carries it as
+  "the victim order defaults to used-ascending".
+
+⇒ **a stack figure of -4.51 % now describes neither the tree it named nor the behaviour that
+ships.** It is kept above as a dated record of one arm of one series, and nowhere else.
+
+```
+   W H E R E   T H E   S T A C K   W E N T ───────────────────────────
+
+   triple-all              six levers, never built, never run      ◀ this card
+        │
+        ▼
+   triple-all-fastest      +prefetch-pool +engram-lead
+                           +engram-read-threads +readahead-order
+        │                  measured as the nine-lever dd82361a, a SIBLING
+        │                  as-shipped  -4.51 %  (attrib, 2026-09-16)
+        │                  as-shipped  -4.35 %  (bisect, 2026-09-16)
+        ▼
+   BISECT ─── one std::stable_sort comparator carries the whole loss
+        │     revert it:  -4.35 %  ──▶  +3.69 %        8.04 pp
+        ▼
+   ROUND 2 ── +3.46 % vs the clean tip · 8 of 8 · floor 1.37 · cleared 2.5x
+        │     the revert becomes the DEFAULT
+        ▼
+   triple-all-fastest-newtip @b8f8a5a06   ◀ round 4's ALLFASTESTNE arm
+
+   this branch's six are the first two rungs of that ladder and nothing else
+```
+
+## Where the branch now sits
+
+- It was rebased onto `triple-tip-2026-09-16` (`12997e9c8`) on 2026-09-17, so **`12997e9c8` is its
+  base today**.
+- ⚠ The previous card said the six were "stacked in series on `9139e2ae5`" and that the branch
+  "stays as the record of the first stack at `84ba6ef1b`". Both are dated statements about a line of
+  history the branch has left. Measured: `9139e2ae5` IS an ancestor of the new tip;
+  `84ba6ef1b` is **not** an ancestor of the new tip and is **no longer an ancestor of this branch**.
+  The record of the first stack is the commit `84ba6ef1b` itself, reachable by sha, not by this
+  branch's ancestry.
+
+## Read instead
+
+- `triple-all-fastest-newtip` for the measured stack on this tip.
+- The six levers' own cards for what each one is, and `triple-draincut`'s for the
+  `DS4_CUDA_SELECTED_DRAIN_SYNC` arm in particular.
+- `2026-09-16-CORRECTION-the-measured-stack-is-nine-levers-and-has-diverged.md` before quoting any
+  2026-09-16 stack figure, whichever branch it is attached to.
