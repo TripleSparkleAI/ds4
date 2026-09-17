@@ -277,7 +277,7 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-all-fastest-newtip                            NOT YET
+  │  BRANCH     triple-all-fastest-newtip                     POSITIVE
   │
   │  WHAT       the ten-lever stack REBUILT ON THE NEW TIP from its manifest:
   │             base triple-tip-2026-09-16 (12997e9c8), one commit per lever
@@ -286,22 +286,27 @@ it rock.
   │             tree from the manifest alone. Nine levers on, hits-first off,
   │             victim order used-ascending (the measured default).
   │
-  │  LATEST     never in a sealed round
-  │             round 3 (2026-09-17-ROUND3-PREREGISTERED-RULE.txt) measures the
-  │             OLD-base stack at b17231fd, not this tree. This tree has never
-  │             been compiled for CUDA: it was assembled on a Mac with no nvcc.
+  │  LATEST     round 4 · 2026-09-17 · BEATS · +4.65 % (kept +6.87 %) ·
+  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
   │
-  │  GEN        not measured
-  │  PREFILL    not measured
+  │  GEN        +4.65 % (kept +6.87 %)  floor 2.71 % (no-drop)  sign 4/4  n=4
+  │             raw: arm median 10.14 t/s vs tip median 9.65 t/s, gen_steady
+  │             at min across 4096/6144; the delta is each run against the
+  │             mean of its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
+  │             bracket per cycle
+  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
+  │             native 24.94 MB .text · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 136.25 t/s min-across median vs the
+  │             tip's 80.73 t/s, n=4. Round 4 makes no prefill verdict.
   │
-  │  VERDICT    NOT YET. The one number that shaped this tree is inherited,
-  │             not earned here: on the OLD base the sweep-aware victim
-  │             comparator in ds4_gpu_stream_expert_cache_prefetch cost
-  │             -4.35 % and reverting it alone gave +3.46 % vs the clean tip
-  │             (round 2, n=8, sign 8/8, bands disjoint). So used-ascending is
-  │             the default here too, with DS4_CUDA_PREFETCH_SWEEP_ORDER=1
-  │             restoring the losing order. Whether that carries onto this
-  │             base is a measurement, not an inference.
+  │  VERDICT    POSITIVE - beats the new tip on both readings, +4.65 % no-drop and
+  │             +6.87 % kept, sign 4 of 4. First measurement of this tree, and it
+  │             compiled first time at 24.94 MB .text, which refuted prediction P4.
+  │             ⚠ It ships the WRONG SIDE of both levers round 4 measured solo:
+  │             prefill-readahead-order ON at -11.38 % solo, and hits-first OFF at
+  │             +6.47 % solo. Nothing here attributes the stack's number to any
+  │             lever; the seal forbids it. ROUND 7 asks the question directly.
   │
   │  SWITCH     ten levers, see the table below; plus
   │             DS4_CUDA_PREFETCH_SWEEP_ORDER=1 restores the sweep-aware order
@@ -344,3 +349,11 @@ names every judgement call. The branch's history mirrors the manifest: one commi
 
 ⚠ What this card does NOT say: any speed. The old-base stack's numbers live on
 `triple-all-fastest`'s card and describe a different tree. Read them there, never here.
+
+## Round 4, 2026-09-17: on the new tip, in a sealed round
+
+- **First measurement of this tree, and it beats the new tip.** +4.65 % no-drop, +6.87 % kept, sign 4 of 4, no-drop floor 2.71 %. Raw min-across medians 10.14 t/s arm against 9.65 t/s tip. It compiled on the first attempt at 24.94 MB .text, which scored prediction P4 wrong.
+- ⚠ **It ships both measured levers the wrong way round.** `DS4_PREFILL_READAHEAD_HOLD` is ON by default and that lever measured **-11.38 %** solo; `DS4_CUDA_HITS_FIRST` is OFF by default and that lever measured **+6.47 %** solo. The stack still beats the tip by +4.65 % while carrying both.
+- Round 4 attributes NOTHING of this number to any lever, by its own seal. The measurable question is round 7: this stack with hits-first ON, with the readahead hold OFF, with both, and hitsfirst plus pool as a two-lever tree. `spark_arms.py` needs per-arm environment switches first.
+
+Sealed rule `2026-09-17-R4-PREREGISTERED-RULE.txt` @`3914a3226`, result `2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md`, raw CSVs and runlog in `sweeps/r4/`.
