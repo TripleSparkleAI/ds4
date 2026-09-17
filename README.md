@@ -267,3 +267,114 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
+
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+
+Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29 verdicts all pass (it stops at ds4_test, whose model is absent in a worktree, identically before and after), make test-warmset 102 checks passed, cc -fsyntax-only clean on 2 touched C files; one Makefile conflict resolved in the clean rule, two non-overlapping rm -f additions, both kept. ⚠ Re-counted on this Mac 2026-09-17: `make test` gives **26** verdicts, all pass, stopping at ds4_test as before. Counting the run's `PASS` and `ok` verdict lines does not reproduce 29, on this branch or on any of the eight, so 26 is the current figure and 29 is superseded. `make test-warmset` re-run the same day: **102 checks passed**.
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-hippocampal-warmset                           NOT YET
+  │
+  │  WHAT       gives the persisted expert hot list a longer horizon: carried
+  │             free inside a day, halved once per day boundary, promoted to a
+  │             durable set when a (layer, expert) pair is demanded on three
+  │             distinct days
+  │
+  │  LATEST     never in a sealed round
+  │
+  │  GEN        not measured
+  │  PREFILL    not measured
+  │
+  │  VERDICT    NOT YET - no CUDA build of this branch exists, so `session`
+  │             has never been run against `day` on a box. The only runs are
+  │             host tests of the rules, and the default tier reproduces
+  │             today's behaviour exactly
+  │
+  │  SWITCH     DS4_WARMSET_TIER=session|day, default session, which IS
+  │             today's behaviour: one file, halved at every load
+  │             DS4_WARMSET_DAYS 3 · _MAX <n> · _DIR <dir> · _PROFILE=1
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+## The mechanism
+
+- The hot list (`triple-hotlist`, this branch's pre-rebase base at `fe366d6f4`) already writes
+  `~/.cache/ds4/cuda_expert_hotlist.txt` at exit and seeds the next session's empty SSD
+  expert-cache slots from it before the first prefill, halving every entry on each load.
+- That is one file, one horizon, one decay rate. This branch adds two more horizons.
+- The RULES live in a pure C header, `ds4_warmset.h`: no I/O, no allocation, no CUDA, so they are
+  testable on any host.
+- The I/O lives in `ds4_cuda.cu` under `~/.cache/ds4/warmset/<model_size>/`: `day.txt` carries
+  everything with `days` and `last_day` provenance, and `durable.txt` carries pairs recurring on
+  at least `DS4_WARMSET_DAYS` days.
+- `session.txt` keeps the seeder's columns, so `ds4.c` is untouched by the tier.
+- Halving happens once per DAY boundary rather than once per load, which is what makes an
+  intra-day sequence of short sessions stop eroding the list.
+- The tier is read ONCE, not per call, so a run cannot straddle two tiers.
+
+```
+   THE THREE HORIZONS, and what each boundary costs an entry
+
+   session ─▶ session    everything, HALVED          today, unchanged
+   session ─▶ day        everything, FREE            same calendar day
+   day     ─▶ day        everything, HALVED; one-day pairs dropped
+   day     ─▶ durable    pairs demanded on >= 3 DISTINCT days
+   anything ─▶ forward   NOTHING. a slot, or nothing at all
+
+   merge rule when two sessions disagree
+     hits      ADD
+     absence   NOT a negative vote: kept, halved at the next boundary
+     recurrence  MAXIMUM, never the sum, so the merge can only UNDERSTATE
+     identity  (layer, expert) · order days > hits > layer > expert
+               makes the truncated set unique
+```
+
+- A missing or foreign file falls back to the session file, halved, which is the hot list's own
+  behaviour.
+
+## Safety, enforced in code rather than asserted
+
+- A `ds4_warmset_entry` is `(layer, expert, hits, days, last_day)`, five integers, and
+  `_Static_assert(sizeof(ds4_warmset_entry) == 24)` stops the build if that ever changes.
+- No float, value, weight, scale or gate exists anywhere in its vocabulary.
+- The only consumer is `ds4_gpu_stream_expert_cache_seed_experts`, which fills EMPTY slots only
+  and truncates to the free count. The size guarantee is enforced in the consumer, not only
+  promised by the producer.
+- `g_stream_expert_seeding` keeps a seed from being counted as demand.
+- A non-seed cache lookup sets `g_warmset_sealed` and the seeder refuses after it.
+- So a wrong entry costs ONE SLOT and can never reach an output byte.
+- This is the safe side of `WIKI/theory/167` (the content control: residual injection hurt at
+  z = +7.14, presence 27 to 45x content), because there is no residual to inject into.
+
+## What is measured, and what is not
+
+- `make test-warmset`: **102 checks, 0 failures**, host compiler, no GPU, re-run 2026-09-17.
+  Session boundary, day boundary, merge, consolidation threshold, deterministic truncation, and
+  the structural safety property.
+- ⚠ An earlier card said 92 checks. That was before the repair at `394c9c245` (halve once per DAY
+  boundary, read the tier once, enforce the size guarantee in the consumer) added its arms. 102 is
+  the current run.
+- A persistence harness extracted from `ds4_cuda.cu`, three simulated sessions across a hand-built
+  day boundary: 14 checks, 0 failures. NOT COMMITTED, because it needs static internals.
+- Nothing about the tier's effect on t/s is measured, at all.
+- The new block compiles as C++17 under `clang++ -Wall -Wextra`. That is not a CUDA build.
+- ROLLINGSPLIT, the staleness-against-gain curve, lives on `triple-hotlist` at `9fb0b64e7` behind
+  `DS4_CUDA_EXPERT_HOTLIST_ROLLING=1`, one commit after this branch's pre-rebase base. The two are
+  not yet in one tree.
+
+## Owed
+
+- `make cuda-spark` on the Spark, then an interleaved A/B of `session` against `day` at one power
+  mode, then the greedy-identical check.
+- ⚠ The A/B is slow by construction: `day` cannot differ from `session` inside one session, so the
+  measurement needs runs on at least two calendar days, and `durable` needs three.
+- Files: `ds4_cuda.cu` +653/-1, `ds4_warmset.h` (240 lines, new), `tests/test_warmset.c` (409,
+  new), `ds4.c` +26, `ds4_gpu.h` +4, `Makefile`, `.gitignore`.
