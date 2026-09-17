@@ -711,6 +711,13 @@ tests/test_engram: tests/test_engram.c ds4_engram.c ds4_engram.h
 test-engram: tests/test_engram
 	./tests/test_engram
 
+tests/test_host_range_cache: tests/test_host_range_cache.c ds4_host_range_cache.h
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -o $@ tests/test_host_range_cache.c $(LDLIBS)
+
+.PHONY: test-host-range-cache
+test-host-range-cache: tests/test_host_range_cache
+	./tests/test_host_range_cache
+
 tests/test_deepseek41_gguf.o: tests/test_deepseek41_gguf.c ds4.c ds4.h ds4_engram.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -DDS4_NO_GPU -I. -c -o $@ $<
 
@@ -1080,7 +1087,7 @@ clean:
 	rm -f tests/test_linux_memory tests/test_rocm_memory
 	rm -f tests/test_glm_attention tests/test_glm_attention_rocm
 	rm -f speed-bench/engram_decode_bench
-	rm -f tests/test_ssd_cache tests/test_engram
+	rm -f tests/test_ssd_cache tests/test_engram tests/test_host_range_cache
 	rm -f tests/test_session_state tests/test_session_state_gpu tests/test_tp_commands
 	rm -f tests/test_tp_rdma tests/test_tp_link tests/test_tp_tcp
 	rm -f tests/test_metal_tp_spec

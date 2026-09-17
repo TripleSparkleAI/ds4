@@ -18,6 +18,8 @@
 #include <time.h>
 #include <unistd.h>
 #include <pthread.h>
+
+#include "ds4_host_range_cache.h"
 #include <atomic>
 #include "ds4_linux_memory.h"
 #include <unordered_map>
@@ -221,6 +223,119 @@ static void cuda_stream_selected_cache_release(void) {
     g_stream_expert_clock = 1;
     g_stream_prefill_ids.clear();
     g_stream_prefill_slots.clear();
+}
+
+/* =========================================================================
+ * Host expert read cache: the table lives in ds4_host_range_cache.h so that
+ * it is a unit under test (it is pure C and touches no CUDA call). What stays
+ * here is the wiring: the mode switch, the budget, the reporting, and the
+ * MODEL EPOCH that is now part of the key.
+ * ========================================================================= */
+static ds4_host_range_cache g_host_cache;
+static int g_host_cache_mode = -1; /* -1 = not parsed yet */
+
+/*
+ * The generation of the model file these offsets refer to. Bumped by
+ * ds4_gpu_set_model_fd, the single place the file behind the offsets changes.
+ * A counter, not a pointer or a size: an address can be reused by a second
+ * mmap and a size can repeat between two builds of one architecture, and
+ * either would let a stale entry match. A counter cannot repeat.
+ */
+static uint64_t g_model_epoch;
+
+static uint64_t cuda_host_cache_budget_bytes(void) {
+    const char *env = getenv("DS4_CUDA_HOST_EXPERT_CACHE_GB");
+    if (env && env[0]) {
+        char *end = NULL;
+        errno = 0;
+        const unsigned long long gb = strtoull(env, &end, 10);
+        if (end != env && errno == 0 && gb > 0) return (uint64_t)gb << 30;
+        fprintf(stderr, "ds4: DS4_CUDA_HOST_EXPERT_CACHE_GB='%s' is not GiB; ignoring\n", env);
+    }
+    /* No explicit knob: match the configured expert-cache byte size so an A/B
+     * between the two arms compares the same amount of memory. */
+    if (!g_stream_expert_budget || !g_stream_expert_bytes) return 0;
+    if ((uint64_t)g_stream_expert_budget > UINT64_MAX / g_stream_expert_bytes) return 0;
+    return (uint64_t)g_stream_expert_budget * g_stream_expert_bytes;
+}
+
+static void cuda_host_cache_report(void) {
+    const uint64_t total = g_host_cache.hits + g_host_cache.misses;
+    if (total != 0 && total % 2048 == 0) {
+        fprintf(stderr,
+                "ds4: CUDA host expert cache: %.1f%% hit rate (%llu lookups, "
+                "%.2f GiB resident, %llu inserts, %llu evictions)\n",
+                100.0 * (double)g_host_cache.hits / (double)total,
+                (unsigned long long)total,
+                (double)g_host_cache.used / 1073741824.0,
+                (unsigned long long)g_host_cache.inserts,
+                (unsigned long long)g_host_cache.evictions);
+    }
+}
+
+static void cuda_host_cache_final_report(void) {
+    if (!g_host_cache.nslots) return;
+    const uint64_t total = g_host_cache.hits + g_host_cache.misses;
+    fprintf(stderr,
+            "ds4: CUDA host expert cache final: %llu lookups, %llu hits, "
+            "hit_rate=%.3f, %llu inserts, %llu evictions, %llu model-epoch "
+            "purges, %.2f GiB budget\n",
+            (unsigned long long)total,
+            (unsigned long long)g_host_cache.hits,
+            total ? (double)g_host_cache.hits / (double)total : 0.0,
+            (unsigned long long)g_host_cache.inserts,
+            (unsigned long long)g_host_cache.evictions,
+            (unsigned long long)g_host_cache.purges,
+            (double)g_host_cache.budget / 1073741824.0);
+}
+
+/* Print the arm's own hit rate, then return every buffer. The cache lives as
+ * long as the process: it is never dropped on a device-arena resize, so a
+ * session that shrinks the arena keeps its host-resident bytes. A MODEL
+ * change is a different event from an arena resize and does drop it - see
+ * ds4_hrc_set_epoch. */
+static void cuda_host_cache_shutdown(void) {
+    cuda_host_cache_final_report();
+    ds4_hrc_close(&g_host_cache);
+}
+
+static void cuda_host_cache_init(void) {
+    if (g_host_cache_mode >= 0) return;
+    const char *mode_env = getenv("DS4_EXPERT_CACHE_MODE");
+    g_host_cache_mode = ds4_hrc_parse_mode(mode_env);
+    if (g_host_cache_mode == DS4_HRC_OFF) {
+        if (mode_env && mode_env[0]) {
+            fprintf(stderr, "ds4: expert cache mode hotlist: host offset-keyed "
+                    "cache off, expert-ID path only\n");
+            if (getenv("DS4_CUDA_HOST_EXPERT_CACHE_GB"))
+                fprintf(stderr, "ds4: DS4_CUDA_HOST_EXPERT_CACHE_GB is ignored "
+                        "while DS4_EXPERT_CACHE_MODE=hotlist\n");
+        }
+        return;
+    }
+    const uint64_t budget = cuda_host_cache_budget_bytes();
+    if (budget == 0) {
+        fprintf(stderr, "ds4: DS4_EXPERT_CACHE_MODE selects an offset-keyed host "
+                "expert cache but no budget is available; set "
+                "DS4_CUDA_HOST_EXPERT_CACHE_GB. Cache stays off.\n");
+        g_host_cache_mode = DS4_HRC_OFF;
+        return;
+    }
+    if (!ds4_hrc_open(&g_host_cache, g_host_cache_mode, budget)) {
+        fprintf(stderr, "ds4: CUDA host expert cache allocation failed; cache off\n");
+        g_host_cache_mode = DS4_HRC_OFF;
+        return;
+    }
+    g_host_cache.epoch = g_model_epoch;
+    fprintf(stderr,
+            "ds4: CUDA host expert cache enabled: mode=%s %llu GiB budget, "
+            "%u slots, %u-way, aging every %llu inserts, pageable, entries <= %llu MiB\n",
+            ds4_hrc_mode_name(g_host_cache_mode),
+            (unsigned long long)(budget >> 30), g_host_cache.nslots,
+            (unsigned)DS4_HRC_WAYS,
+            (unsigned long long)DS4_HRC_AGING_INSERTS,
+            (unsigned long long)(DS4_HRC_MAX_ENTRY >> 20));
+    (void)atexit(cuda_host_cache_shutdown);
 }
 
 typedef struct {
@@ -2310,10 +2425,51 @@ static int cuda_model_copy_to_device_streamed(
                        what ? what : "stream selected expert copy");
     }
 
+    /* Offset-keyed host cache, off unless DS4_EXPERT_CACHE_MODE selects it.
+     * A hit SKIPS the disk read entirely and uploads from pageable host RAM. */
+    cuda_host_cache_init();
+    const int host_cacheable = g_host_cache.nslots != 0 &&
+        bytes <= DS4_HRC_MAX_ENTRY;
+    if (host_cacheable) {
+        /* The key carries the model generation, so an entry written for a
+         * previously opened model file cannot be returned for this one. */
+        ds4_hrc_set_epoch(&g_host_cache, g_model_epoch);
+        const void *cached = ds4_hrc_get(&g_host_cache, offset, bytes);
+        cuda_host_cache_report();
+        if (cached) {
+            /* ON THE BATCH'S OWN UPLOAD STREAM, not the legacy default one.
+             * A hit used to be a synchronous cudaMemcpy on the legacy stream,
+             * which also waits on every in-flight blocking stream - so a hit,
+             * the thing this cache exists to make common, serialised where a
+             * miss pipelines. The single caller sets uploads.active before
+             * these calls and joins this stream in uploads.finish(), so dst
+             * is complete at exactly the same point it was before.
+             * The source outlives the call: CUDA stages a pageable H2D source
+             * into its own buffer before returning, and a just-hit slot has
+             * the newest age and a bumped use count, so it is the last victim
+             * its probe window would pick under either policy. */
+            return cuda_ok(cudaMemcpyAsync(dst, cached, (size_t)bytes,
+                                           cudaMemcpyHostToDevice,
+                                           g_stream_selected_upload_stream),
+                           what ? what : "host expert cache copy");
+        }
+    }
+    /* Decide the slot BEFORE the read. A refusal (budget full with nothing
+     * reclaimable in the window) now costs one 16-slot probe instead of a
+     * full-size malloc, a memcpy of every chunk into it and a free. */
+    uint32_t capture_slot = DS4_HRC_NO_SLOT;
+    char *capture = NULL;
+    if (host_cacheable)
+        capture = (char *)ds4_hrc_reserve(&g_host_cache, offset, bytes,
+                                          &capture_slot);
+
     const uint64_t chunk = cuda_model_copy_chunk_bytes();
     const uint64_t stage_bytes =
         chunk + (g_model_direct_align > 1 ? g_model_direct_align : 1);
-    if (!cuda_stream_selected_stage_pool_alloc(stage_bytes)) return 0;
+    if (!cuda_stream_selected_stage_pool_alloc(stage_bytes)) {
+        ds4_hrc_abandon(&g_host_cache, capture_slot, capture);
+        return 0;
+    }
 
     uint64_t copied = 0;
     while (copied < bytes) {
@@ -2327,6 +2483,7 @@ static int cuda_model_copy_to_device_streamed(
                         "ds4: CUDA streaming selected staging wait failed for %s: %s\n",
                         what ? what : "expert", cudaGetErrorString(err));
                 (void)cudaGetLastError();
+                ds4_hrc_abandon(&g_host_cache, capture_slot, capture);
                 return 0;
             }
         }
@@ -2338,8 +2495,10 @@ static int cuda_model_copy_to_device_streamed(
                     "ds4: CUDA streaming selected read failed for %s at %.2f MiB: %s\n",
                     what ? what : "expert", (double)copied / 1048576.0,
                     strerror(errno));
+            ds4_hrc_abandon(&g_host_cache, capture_slot, capture);
             return 0;
         }
+        if (capture) memcpy(capture + copied, payload, (size_t)n);
         err = cudaMemcpyAsync(dst + copied, payload, (size_t)n,
                               cudaMemcpyHostToDevice,
                               g_stream_selected_upload_stream);
@@ -2349,6 +2508,7 @@ static int cuda_model_copy_to_device_streamed(
                     what ? what : "expert", (double)copied / 1048576.0,
                     cudaGetErrorString(err));
             (void)cudaGetLastError();
+            ds4_hrc_abandon(&g_host_cache, capture_slot, capture);
             return 0;
         }
         err = cudaEventRecord(g_stream_selected_stage_event[bi],
@@ -2358,6 +2518,7 @@ static int cuda_model_copy_to_device_streamed(
                     "ds4: CUDA streaming selected staging record failed for %s: %s\n",
                     what ? what : "expert", cudaGetErrorString(err));
             (void)cudaGetLastError();
+            ds4_hrc_abandon(&g_host_cache, capture_slot, capture);
             return 0;
         }
         cuda_model_drop_file_pages(offset + copied, n);
@@ -2367,6 +2528,8 @@ static int cuda_model_copy_to_device_streamed(
         chunk_idx++;
     }
 
+    /* Publish the reservation now that every chunk is in it. */
+    ds4_hrc_commit(&g_host_cache, capture_slot, offset, bytes, capture);
     return 1;
 }
 
@@ -4492,6 +4655,11 @@ extern "C" int ds4_gpu_lookup_cache_strict(uint64_t source_offset,
 
 extern "C" int ds4_gpu_set_model_fd(int fd) {
     ds4_gpu_stream_expert_cache_prefetch_finish(true);
+    /* A different file is behind every offset from here on. The host range
+     * cache keys on this, so its entries for the previous model can never be
+     * returned for this one - and the next probe drops them, returning their
+     * RAM instead of leaving it held for the life of the process. */
+    g_model_epoch++;
     g_model_fd = fd;
     g_model_fd_host_base = g_model_host_base;
     g_model_file_size = 0;
