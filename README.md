@@ -267,3 +267,121 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+
+
+
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
+
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
+
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+
+Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29 verdicts all pass (it stops at ds4_test, whose model is absent in a worktree, identically before and after), cc -fsyntax-only clean on 1 touched C file (ds4.c). ⚠ Re-counted on this Mac 2026-09-17: **26** verdicts, all pass, stopping at ds4_test as before. Counting the run's `PASS` and `ok` verdict lines does not reproduce 29, on this branch or on any of the eight, so 26 is the current figure and 29 is superseded.
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-engram-lead                                   NOT YET
+  │
+  │  WHAT       starts the Engram table read one token ahead of first use,
+  │             speculating on the current step's own argmax, so the read
+  │             overlaps the step instead of landing exposed inside it
+  │
+  │  LATEST     attrib series · 2026-09-16 · JOINT, NOT ATTRIBUTABLE: this
+  │             branch's switch is one of the SEVEN turned off together, and
+  │             the seven together are a net GAIN of +7.62 pp against their own
+  │             off state at min-across-frontiers, floor max 2.18, cleared 3.5x.
+  │             Nothing in that file says what THIS lever did
+  │             (2026-09-16-triple-all-fastest-attrib-SUMMARY-levers-attribution.txt)
+  │             ⚠ that arm is the NINE-lever binary at dd82361a, not this branch
+  │
+  │  GEN        not measured
+  │  PREFILL    not measured
+  │
+  │  VERDICT    NOT YET - the lead-on against lead-off A/B has never been run
+  │             with a sound control. The 2026-09-15 pass that touched it had a
+  │             control that moved, and its numbers stay unpublished
+  │
+  │  SWITCH     DS4_V41_ENGRAM_LEAD_OFF - the lead is ON by default; set the
+  │             variable to anything to turn it off. Read once per process,
+  │             all-or-nothing
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+## The cost it attacks
+
+- A V4.1 decode step reads both Engram tables at its head and finishes before
+  `ds4_gpu_begin_commands()`, so none of that read overlaps a GPU command.
+- Measured with `DS4_V41_ENGRAM_PROFILE` on the GB10: engram mean **23.922 ms of a 198.636 ms
+  step, 12.04 %**, over 31 decode steps (`speed-bench/v41_engram_lead_gb10.md`).
+- ⚠ That is a measurement of the SHIPPED path. It says how big the window is. It says nothing
+  about what this branch recovers from it.
+
+```
+   ONE DECODE STEP, 198.636 ms, profiled on the GB10
+
+   engram read  |@@@@@@@@@@@@                                          23.922 ms
+   the rest     |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  174.714 ms
+
+   as shipped   the read sits INSIDE the step, before any GPU command is queued
+   this branch  the read starts at step N-1's tail and is joined at step N's head
+
+   so 23.922 ms is the SIZE OF THE WINDOW, and how much of it is recovered
+   is the number nobody has taken
+```
+
+## The mechanism
+
+- Row ids are a pure function of the token and a three-entry history tail (`ds4_engram_hash`), so
+  the next step's rows are computable from this step's argmax, and under greedy decoding that
+  argmax IS the next token.
+- `ds41_engram_lead_start` runs after the history is committed and `pos` advanced, hashes against
+  a copy of the history, and starts one reader over both tables.
+- `ds41_engram_lead_take` joins that reader unconditionally and publishes the rows only if
+  `(token, history, pos)` all match.
+- A rejected speculative token, a rewind or a fork misses and falls back to the demand read. A
+  miss is never wrong, only unhelpful.
+- `ds41_graph_free` and `ds41_graph_reset` join first, so a reader never outlives its sequence.
+- The prompt-warm callers and image positions pass `NULL` and keep the demand read.
+- A failed allocation leaves `g->lead` NULL and the step falls through.
+
+## Why the earlier figures are withheld
+
+- A native pass on 2026-09-15 read EVERY arm above its control, including the arms with this lever
+  OFF, and its control read 9.17 to 9.46 t/s against 9.56 in a later pass.
+- An off arm cannot beat its own control by several percent because of a lever that is off. That
+  is a bad control, and those numbers stay unpublished rather than being dressed as a result.
+- `triple-draincut` carries the same session's fingerprint: its dormant arm reads +5.9 % against
+  its own control.
+
+## In the sealed attrib series, as one of seven
+
+- `DS4_V41_ENGRAM_LEAD_OFF=1` is in the seven-switch off block
+  (`2026-09-16-ATTRIB-PREREGISTERED-RULE.txt`), beside the hotlist write, the page-keep, the drain
+  sync, the pread pool and the Engram read threads.
+- All-off read -12.13 % against the clean tip; as-shipped -4.51 %; from the same brackets, so
+  `L = -7.62 pp` is the seven levers' joint contribution and its sign says they HELP.
+- That is the only session this switch has ever been in, and it names no single lever's share.
+- In `triple-all-fastest` the lever coexists with the read-threads reader: the lead read stays and
+  the miss path goes through `ds4_engram_read_batch`.
+- ⚠ The measured binary is `tb-afstack @dd82361a`, nine levers, on a line of history that is not
+  this branch's (`2026-09-16-CORRECTION-the-measured-stack-is-nine-levers-and-has-diverged.md`).
+
+## Owed
+
+- Both gates: greedy identity and the distribution ladder.
+- The lead-on against lead-off A/B, interleaved, on one host, in one session, with a control that
+  holds still.
+- The end-to-end A/B against the tip, and now against `triple-tip-2026-09-16`.
+- A genuinely cold long-prompt measurement, where the read is not already in page cache.
+- Files: `ds4.c` +126/-1, `speed-bench/v41_engram_lead_gb10.md` new.
