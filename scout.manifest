@@ -1,0 +1,36 @@
+# <claudes_code_comments>
+# ** WHAT THIS FILE IS **
+# The definition of branch triple-scout: triple-all-fastest's lever set (the new tip
+# 12997e9c8 plus triple-hitsfirst at 3e4773671, hitsfirst ON) and ONE stack-only commit on
+# top, the scout (README.md card: reads only, greedy-identical, DS4_CUDA_SCOUT ON, =0 off).
+# The line kinds are allfastest.manifest's; the machinery (build_stack.sh, stack_resolve.py,
+# stack_list_conflicts.py) is the same copy, so the branch is self-contained.
+#
+# ** DEFAULTS **
+# hitsfirst ON (the lever's own default) and the scout ON (cuda_scout_enabled in ds4_cuda.cu:
+# DS4_CUDA_SCOUT=0 turns it off). No default flip, no patch line.
+#
+# ** DERIVATION **
+#   base        git rev-parse triple-tip-2026-09-16          (12997e9c8)
+#   lever sha   git rev-parse triple-hitsfirst~1              (3e4773671, the code commit)
+#   local sha   the scout code commit on this branch, 894988224b2b51a31780f9b3f650b97313e24d63
+#               (ds4_cuda.cu, ds4_scout_logic.h, tests/test_scout_logic.c, Makefile - all on
+#               the build surface; its diff against its parent applies with zero conflict
+#               hunks because it was written on top of exactly this lever set)
+#
+# ** THE CHECK **
+#   bash build_stack.sh scout.manifest --check <HEAD of triple-scout>
+#   Build surface byte-identical, 2026-09-18 on a Mac. The full tree differs by README.md
+#   and this manifest, printed not hidden.
+#   NOT COMPILED FOR CUDA HERE. The spark build under the next round is the gate.
+# </claudes_code_comments>
+
+base        12997e9c84b39258f28781b808d18ea0069af2ac
+paths       *.c *.h *.cu *.cuh *.inc Makefile tests/ cuda/ speed-bench/*.c gguf-tools/
+lever-base  12997e9c84b39258f28781b808d18ea0069af2ac
+
+# --- the one lever ---------------------------------------------------------------------
+lever   triple-hitsfirst                3e477367150ff20d1b5b93dd28b20b82452bf941   on
+
+# --- the stack-only commit: the scout ---------------------------------------------------
+local   894988224b2b51a31780f9b3f650b97313e24d63   triple-scout-code
