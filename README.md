@@ -290,24 +290,35 @@ it rock.
   │             before the miss reads land, so a token does not stall on
   │             the slowest read in the batch
   │
-  │  LATEST     round 4 · 2026-09-17 · BEATS · +6.47 % (kept +7.93 %) ·
+  │  LATEST     round 8 · 2026-09-17 · BEATS · +12.31 % 4/4 (floor 10.69;
+  │             +11.54 with the cold first run excluded) ·
+  │             2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
+  │             round 4 · 2026-09-17 · BEATS · +6.47 % (kept +7.93 %) ·
   │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
   │
-  │  GEN        +6.47 % (kept +7.93 %)  floor 2.71 % (no-drop)  sign 4/4  n=4
-  │             raw: arm median 10.37 t/s vs tip median 9.65 t/s, gen_steady
-  │             at min across 4096/6144; the delta is each run against the
-  │             mean of its bracketing TIP runs, not against that median
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
-  │             bracket per cycle
-  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
-  │             native 24.89 MB .text · lean regime 4096/6144
-  │  PREFILL    reported, not a verdict: 83.47 t/s min-across median vs the
-  │             tip's 80.73 t/s, n=4. Round 4 makes no prefill verdict.
+  │  GEN        +12.31 %  floor 10.69 %  sign 4/4  n=4
+  │             sensitivity, cold first control run excluded: +11.54 % against a
+  │             7.17 % floor, still BEATS (post hoc, labelled as such)
+  │             raw: arm min-across median 10.34 t/s (10.49 · 9.43 · 10.38 ·
+  │             10.29) vs the tip's 8.96 t/s (8.61 cold · 9.53 · 8.87 · 9.49 ·
+  │             8.96). gen_steady at min across 4096/6144. The delta is each run
+  │             against its bracketing TIP runs, not against that median
+  │             ⚠ the box was not quiet: the five tip runs spanned 8.61 to 9.53
+  │             and four arm runs ended at load 3.2 to 4.0 with no vitest alive,
+  │             which is what widened the floor from round 4's 2.71 to 10.69
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 13:24-14:37Z · DGX Spark GB10 ·
+  │             native 24.89 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 86.55 t/s min-across median vs the
+  │             tip's 84.34 t/s, n=4. Round 8 makes no prefill verdict.
   │
-  │  VERDICT    POSITIVE - beats the new tip on both readings, +6.47 % no-drop
-  │             and +7.93 % kept, with all four repeats above +6.4 %. The
-  │             2026-09-15 solo win reproduces on the new tip, and bigger. The two
-  │             readings agree here, so nothing turns on the straggler rule.
+  │  VERDICT    POSITIVE - the only arm of round 8 to clear the floor, and the
+  │             only tree with two sealed wins and no sealed loss. Every one of
+  │             its four runs read above every one of the five control runs, so
+  │             the win does not depend on which control run is kept. By the
+  │             standing rule that the default follows the measured number, the
+  │             shipped default is now the new tip plus this one lever
+  │             (round 8 section 5), provisional on a quiet round 9
   │
   │  SWITCH     DS4_CUDA_HITS_FIRST=1 (default OFF in the stack; =0 is wait-then-launch)
   │             DS4_CUDA_HITS_FIRST_STAGED=0 keeps hits-first, single-stage read order
@@ -465,3 +476,22 @@ independent control each.
 - This answers the two items the Still open list below asks for: there is now a CUDA build at `3e477367` and a measurement on `triple-tip-2026-09-16`. The 4096 deficit inside the nine-lever stack is untouched by round 4, which measured this branch solo.
 
 Sealed rule `2026-09-17-R4-PREREGISTERED-RULE.txt` @`3914a3226`, result `2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md`, raw CSVs and runlog in `sweeps/r4/`.
+
+## Round 8, 2026-09-17: it beats again, through a floor four times wider
+
+- **Two sealed wins, no sealed loss.** Round 4: +6.47 %, 4/4, floor 2.71. Round 8: **+12.31 %,
+  4/4, floor 10.69**, and every one of its four runs (10.29 to 10.49) read above every one of the
+  five control runs (8.61 to 9.53). The cold-run sensitivity reads +11.54 % against a 7.17 % floor
+  and gives the same verdict. It is the only arm of the round to clear this floor.
+- **The default moved to this lever.** `triple-all-fastest` becomes the new tip plus hitsfirst,
+  built from a one-lever manifest (round 8 section 5). It is set now and provisional on round 9,
+  which re-measures hitsfirst, pool, winners, stack+hits and triple-all on a quiet box with the
+  warm-up run so the floor is the box's real floor.
+- ⚠ **Combining it with pool costs what each one wins.** `triple-winners` (pool + hitsfirst +
+  prefetch-pool) read 9.13 to 9.42, level with the tip, in this same session, while this branch
+  read 10.3 to 10.5 and pool's two clean runs read 10.5 to 10.65. The claim-ledger interaction is
+  the first suspect and is not proven by round 8.
+
+Sealed rule `2026-09-17-R8-PREREGISTERED-RULE.txt` @`c173ad6d7`, result
+`2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md`,
+raw CSVs and runlog in `sweeps/r8/`.
