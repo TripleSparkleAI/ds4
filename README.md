@@ -286,14 +286,26 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29
   │             is a candidate, so drafting switches itself off where it is not
   │             paying
   │
-  │  LATEST     never in a sealed round
+  │  LATEST     round 5 - 2026-09-17 - TIES - +3.83 % 4/4 under a 5.69 floor,
+  │             re-measure on a quiet box - 2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
   │
-  │  GEN        not measured
-  │  PREFILL    not measured
+  │  GEN        +3.83 %  floor 5.69 %  sign 4/4  n=4  (legacy rule +4.39, n=2)
+  │             raw: arm min-across median 9.75 t/s (9.88 / 9.74 / 9.76 / 9.65)
+  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
+  │             across 4096/6144, each run against its bracketing TIP runs
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
+  │             native 24.88 MB .text (tip 24.86 MB) - lean regime 4096/6144
+  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
+  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
+  │             that nothing clears it
+  │  PREFILL    reported, not a verdict: 88.63 t/s min-across median vs the
+  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
   │
-  │  VERDICT    NOT YET - no CUDA build of this branch exists. The only run is
-  │             `make test-draft-gamma`, a state trace with 0 failures and no
-  │             t/s anywhere in it
+  │  VERDICT    NOT YET - +3.83 % is the largest delta of the round and 4 of 4
+  │             positive, and it still does not clear this round's 5.69 % floor.
+  │             It would have cleared round 4's 2.71 % floor, so this is the one
+  │             arm round 5 leaves genuinely open. A re-run on a quiet box decides it
   │
   │  SWITCH     DS4_DRAFT_GAMMA_MODE=fixed|adaptive, default fixed. On fixed no
   │             controller is allocated and today's constant is returned
@@ -371,3 +383,9 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29
   A/B reads a win, that is a surprise and wants explaining before it is believed.
 - Files: `ds4.c`, `ds4_draft_gamma.c`, `ds4_draft_gamma.h`, `tests/test_draft_gamma.c`, `Makefile`,
   `.gitignore`. Pre-rebase base `21d323dfe`, pre-rebase code commit `ef6889465`.
+
+## Round 5, and the number this card now carries
+
+- **Round 5 built and ran this branch for the first time**: +3.83 % gen, 4 of 4 positive, and a TIES verdict only because the box was noisy. The `NOT YET` above is therefore about the instrument, not about the lever.
+- The new rule reads +3.83 at n=4; the sealed legacy rule reads +4.39 at n=2 and keeps that n where the result file says so. Both give TIES under the 5.69 % floor.
+- Its cycle-1 run waited 210 s at the load gate and started at load 1.61, which is one of the two contention events the result file names for this round.
