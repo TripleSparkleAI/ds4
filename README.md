@@ -279,25 +279,31 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-engram-prestage                               NOT YET
+  │  BRANCH     triple-engram-prestage                            WORTH ZERO
   │
   │  WHAT       moves the host-side Engram row lookup out of the forward pass
   │             into a prepare phase that runs before it, so the forward carries
   │             no disk read and no hash of its own
   │
-  │  LATEST     never in a sealed round. The arm lists of 2026-09-17-ROUND3-,
-  │             -R4- and -R5-PREREGISTERED-RULE.txt name this branch zero times,
-  │             DS4_ENGRAM_PRESTAGE appears in no 2026-09-16 series switch
-  │             block, and the switch is not in the stack. The one profile it
-  │             cites measures the SHIPPED path, not this branch
+  │  LATEST     round 6 · 2026-09-17 · TIES · -1.40 % ·
+  │             2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
   │
-  │  GEN        not measured
-  │  PREFILL    not measured
+  │  GEN        -1.40 %  floor 3.35 %  sign 0/3  n=3
+  │             raw: arm min-across median 9.54 t/s (9.62 · 9.50 · 9.57 · 9.52)
+  │             vs the tip's 9.69 t/s (9.67 · 9.56 · 9.88 · 9.70 kept, 9.45
+  │             contention-dropped; the result file's figure line reads 9.67).
+  │             gen_steady at min across 4096/6144. The delta is each run
+  │             against its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:12-11:58Z · DGX Spark GB10 ·
+  │             native 24.85 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 87.18 t/s min-across median vs the
+  │             tip's 89.16 t/s, n=4. Round 6 makes no prefill verdict.
   │
-  │  VERDICT    NOT YET, and it is a PRECONDITION rather than a payoff: the
-  │             prepare takes host I/O out of the forward but does not yet hide
-  │             it behind anything, so even a clean A/B would be expected to
-  │             read near zero
+  │  VERDICT    WORTH ZERO - inside the floor at -1.40 %, repeat range -2.8 to
+  │             -1.2 %, every repeat negative. That is what the card predicted
+  │             for a precondition that takes host I/O out of the forward
+  │             without hiding it behind anything. Both rules agree
   │
   │  SWITCH     DS4_ENGRAM_PRESTAGE=1 enables the prepare; unset or 0 is the
   │             shipped inline path. DS4_ENGRAM_PRESTAGE_DEBUG=1 names every
@@ -306,6 +312,15 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42
   │
   └──────────────────────────────────────────────────────────────────────
 ```
+
+## Round 6, and the prediction it confirms
+
+- Measured at last: **-1.40 % gen, 0 of 3, inside a 3.35 % floor**. The card's own VERDICT had said
+  a clean A/B "would be expected to read near zero", and it read near zero on the negative side.
+- Every repeat is negative, which is a sign pattern rather than a delta: the prepare phase is not
+  free, and nothing yet overlaps the read it moved.
+- The 12.04 % engram share below is still the size of the TARGET, not of any win. It remains
+  available to a branch that hides the read rather than relocating it.
 
 ## The cost it attacks
 
