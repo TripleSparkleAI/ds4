@@ -46,6 +46,7 @@
 #include "ds4_distributed.h"
 #include "ds4_image.h"
 #include "ds4_engram.h"
+#include "ds4_climbingfibre.h"
 #include "ds4_tp.h"
 #if !defined(DS4_NO_GPU) && !defined(DS4_ROCM_BUILD)
 #define DS4_HAS_DEEPSEEK41_GPU 1
@@ -1338,6 +1339,26 @@ typedef struct {
 } ds4_str;
 
 typedef ds4_tokens token_vec;
+
+#ifndef DS4_NO_GPU
+/*
+ * CLIMBINGFIBRE forward declarations.  The proposer (which consumes the cache)
+ * sits earlier in this file than the rejection sites (which feed it), so the two
+ * helpers are declared here and defined next to the accept/reject decision they
+ * belong to.  Both are no-ops unless DS4_CLIMBINGFIBRE=1 was set at session
+ * creation.
+ *
+ * climb_key builds the n-gram key for the position being predicted from an
+ * EXPLICIT prefix bound, never from "the current context", so a write-back lands
+ * on the right context even when the rejection is reported late.
+ * climb_record_rejection writes the labelled pair into the front cache and
+ * nothing else: no logit, no checkpoint, no tensor.
+ */
+static int climb_key(const token_vec *cp, int end, int pending,
+                     int32_t *key, int ngram);
+static void climb_record_rejection(ds4_session *s, int end, int pending,
+                                   int drafted, int actual);
+#endif
 
 typedef struct {
     const uint8_t *base;
@@ -59992,6 +60013,11 @@ struct ds4_session {
     ds4_kv_cache cpu_cache;
     ds4_cpu_decode_scratch cpu_scratch;
     token_vec checkpoint;
+    /* CLIMBINGFIBRE: the cheap front cache.  It is handed token ids and scalars
+     * and has no handle on this struct, this engine or any tensor, which is how
+     * "never modify the deep path" is guaranteed rather than promised.  NULL
+     * unless DS4_CLIMBINGFIBRE=1 was set at session create. */
+    ds4_climbingfibre *climbingfibre;
     ds4_vision_identity *checkpoint_images;
     size_t checkpoint_image_count;
     const ds4_vision_span *sync_images;
@@ -72922,6 +72948,12 @@ int ds4_session_create(ds4_session **out, ds4_engine *e, int ctx_size) {
         ds4_session_free(s);
         return 1;
     }
+    /* CLIMBINGFIBRE: the front cache.  Created HERE and only here, because the
+     * rejection sites that feed it live on the graph backends; a CPU session has
+     * no speculative path to learn from.  DS4_CLIMBINGFIBRE defaults OFF, and
+     * with it off create() allocates nothing, so a default run pays neither the
+     * memory nor the branch. */
+    s->climbingfibre = ds4_climbingfibre_create();
     *out = s;
     return 0;
 #endif
@@ -72948,6 +72980,11 @@ void ds4_session_free(ds4_session *s) {
 #ifndef DS4_NO_GPU
     ds4_session_print_dspark_stats(s);
 #endif
+    /* CLIMBINGFIBRE: free the front cache, printing the census if
+     * DS4_CLIMBINGFIBRE_STATS=1.  Nothing here can fail a session: the cache is
+     * a shortcut, and a shortcut that is unavailable is not an error. */
+    ds4_climbingfibre_free(s->climbingfibre);
+    s->climbingfibre = NULL;
     ds4_dist_session_free(s->distributed);
     if (ds4_session_is_cpu(s)) {
         kv_cache_free(&s->cpu_cache);
@@ -76752,6 +76789,36 @@ static bool ds4_session_prepare_dspark_draft_impl(ds4_session *s,
             s->dspark_last_confidence0 = confidence0;
             s->dspark_last_confidence0_valid = true;
         }
+        /* CLIMBINGFIBRE: fill a draft slot the engine left EMPTY.
+         *
+         * THE GUARD IS THE SAFETY PROPERTY.  The cache is consulted only when
+         * the engine produced no proposal of its own, so it can never displace,
+         * reorder or rewrite a proposal DSpark would have made; it can only turn
+         * "no speculation this step" into "one cheap guess that the ordinary
+         * verifier is free to refuse".  A miss leaves dspark_draft_valid false,
+         * which is byte-identical to this branch not existing.  Only the greedy
+         * path is touched: under a sampling request the committed tokens come
+         * from the sampler, and this branch stays out of it. */
+        if (!s->dspark_draft_valid &&
+            !stochastic_requested &&
+            ds4_climbingfibre_enabled(s->climbingfibre)) {
+            int32_t cf_key[DS4_CLIMBINGFIBRE_KEY_MAX];
+            const int cf_ngram = ds4_climbingfibre_ngram(s->climbingfibre);
+            int32_t cf_token = -1;
+            uint32_t cf_len = 0;
+            ds4_climbingfibre_tick(s->climbingfibre);
+            const int cf_nkey = climb_key(&s->checkpoint, (int)pos, token,
+                                          cf_key, cf_ngram);
+            if (cf_ngram > 0 &&
+                ds4_climbingfibre_propose(s->climbingfibre, cf_key, cf_nkey,
+                                          &cf_token, 1, &cf_len) &&
+                cf_len == 1) {
+                s->dspark_draft_tokens[0] = cf_token;
+                s->dspark_draft_len = 1;
+                s->dspark_draft_valid = true;
+                s->dspark_stochastic_draft = false;
+            }
+        }
         bool fake_argmax_ok = false;
         if (!s->dspark_draft_valid && fake_argmax_enabled) {
             s->dspark_draft_tokens[0] = sample_argmax(s->logits, DS4_N_VOCAB);
@@ -78825,6 +78892,57 @@ int ds4_sessions_eval_batch_with_prefill(
 }
 
 #ifndef DS4_NO_GPU
+/*
+ * CLIMBINGFIBRE - the accept/reject side of the speculative path.
+ *
+ * THE KEY IS BUILT AT THE VERIFY SITE, from the prefix that was actually
+ * verified, and NOT from "the current context".  That is what makes a write-back
+ * land on the right context even if the rejection is reported late, which is the
+ * case as soon as a drafter is allowed to run asynchronously beside verification
+ * (Saguaro, 2026 - see ds4_climbingfibre.h).  `end` is an exclusive index into
+ * the checkpoint's token array, so a caller can name a prefix that the checkpoint
+ * has since outrun with draft rows that will be rolled back.
+ *
+ * `pending` is the token whose eval is in flight at position `end`, or -1 when
+ * the checkpoint already holds it.  The key is the ngram token ids at positions
+ * [end - ngram, end), oldest first, zero-padded at the start of a run.
+ */
+static int climb_key(const token_vec *cp, int end, int pending,
+                     int32_t *key, int ngram) {
+    if (!cp || !key || ngram <= 0) return 0;
+    if (ngram > DS4_CLIMBINGFIBRE_KEY_MAX) ngram = DS4_CLIMBINGFIBRE_KEY_MAX;
+    if (end < 0) end = 0;
+    if (end > cp->len) end = cp->len;
+    const int total = end + (pending >= 0 ? 1 : 0);
+    for (int i = 0; i < ngram; i++) {
+        const int offset = total - ngram + i;
+        if (offset < 0) key[i] = 0;
+        else if (offset < end) key[i] = (int32_t)cp->v[offset];
+        else key[i] = (int32_t)pending;
+    }
+    return ngram;
+}
+
+/*
+ * Record one rejection pair.  This is a WRITE INTO THE FRONT CACHE AND NOTHING
+ * ELSE: no logit is touched, no token enters or leaves the checkpoint, no graph
+ * tensor is addressed, and there is no return value a caller could branch on.
+ * A rejected guess can therefore only make the shortcut better; it cannot change
+ * any output.  That is the safety property of this branch, and it is enforced by
+ * the module having no handle to change anything with.
+ */
+static void climb_record_rejection(ds4_session *s, int end, int pending,
+                                   int drafted, int actual) {
+    if (!s || !ds4_climbingfibre_enabled(s->climbingfibre)) return;
+    int32_t key[DS4_CLIMBINGFIBRE_KEY_MAX];
+    const int ngram = ds4_climbingfibre_ngram(s->climbingfibre);
+    if (ngram <= 0) return;
+    const int nkey = climb_key(&s->checkpoint, end, pending, key, ngram);
+    ds4_climbingfibre_learn(s->climbingfibre, key, nkey, drafted, actual);
+}
+#endif
+
+#ifndef DS4_NO_GPU
 static int ds4_session_eval_dspark_speculative_argmax(
         ds4_session *s,
         int          n_accept,
@@ -78966,6 +79084,14 @@ static int ds4_session_eval_dspark_speculative_argmax(
 
     const int target_top = sample_argmax(s->logits, DS4_N_VOCAB);
     if (target_top != drafts[0]) {
+        /* CLIMBINGFIBRE: THE labelled pair, and it costs nothing to collect
+         * because the verify was happening anyway.  The context is the checkpoint
+         * prefix ending at the position drafts[0] was predicted from, the draft
+         * is drafts[0], and the truth is the target's own argmax - the full
+         * model, which is the teacher.  Writing the pair back can improve the
+         * shortcut; it cannot touch the branch that is about to be taken. */
+        climb_record_rejection(s, (int)s->checkpoint.len, -1,
+                               drafts[0], target_top);
         if (stats_enabled) {
             s->dspark_stats.first_misses++;
             ds4_dspark_stats_note_len(s->dspark_stats.accepted_len_hist, 0);
@@ -79053,6 +79179,18 @@ static int ds4_session_eval_dspark_speculative_argmax(
             if (row_tops[i - 1] != drafts[i]) break;
             commit_drafts++;
         }
+    }
+
+    /* CLIMBINGFIBRE: the block's own rejection, again at zero marginal cost.
+     * The prefix is genuinely the target's continuation rather than the draft's,
+     * because indices 0..commit_drafts-1 all matched the target before the loop
+     * broke; so the pair is (the tokens up to start+commit_drafts, the draft that
+     * was refused, the token the target produced there).  The rollback that
+     * follows this block does not matter: the pair is already written down. */
+    if (ok && commit_drafts < draft_n) {
+        climb_record_rejection(s, start + commit_drafts, -1,
+                               drafts[commit_drafts],
+                               row_tops[commit_drafts - 1]);
     }
 
     /* The batched verifier and ordinary one-token decode execute the same
