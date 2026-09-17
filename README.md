@@ -286,30 +286,32 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-draincut                                      NOT YET
+  │  BRANCH     triple-draincut                                   WORTH ZERO
   │
   │  WHAT       reads the router's selected expert ids back on an event
   │             instead of a blocking cudaMemcpy, so the host no longer
   │             waits on the shared expert - 40 device drains per token
   │
-  │  LATEST     attrib series · 2026-09-16 · JOINT, NOT ATTRIBUTABLE: this
-  │             branch's switch is one of the SEVEN turned off together, and
-  │             the seven together are a net GAIN of +7.62 pp against their own
-  │             off state at min-across-frontiers, floor max 2.18, cleared 3.5x.
-  │             Nothing in that file says what THIS lever did
-  │             (2026-09-16-triple-all-fastest-attrib-SUMMARY-levers-attribution.txt)
-  │             ⚠ that arm is the NINE-lever binary at dd82361a, not this branch
+  │  LATEST     round 5 - 2026-09-17 - TIES - +1.48 % 3/4 under a 5.69 floor -
+  │             2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
   │
-  │  GEN        9.09 t/s  vs control 9.17  -0.9 %  floor 4.9 %  n=2
-  │             control = unpatched tip, interleaved, same native vintage
-  │             session = 2026-09-15 · DGX Spark GB10 · native 23.1 MB .text · unstamped
-  │  PREFILL    not measured
+  │  GEN        +1.48 %  floor 5.69 %  sign 3/4  n=4
+  │             raw: arm min-across median 9.62 t/s (9.88 / 9.59 / 9.33 / 9.64)
+  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
+  │             across 4096/6144, each run against its bracketing TIP runs
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
+  │             native 24.87 MB .text (tip 24.86 MB) - lean regime 4096/6144
+  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
+  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
+  │             that nothing clears it
+  │  PREFILL    reported, not a verdict: 87.52 t/s min-across median vs the
+  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
   │
-  │  VERDICT    NOT YET - no sealed round has measured this lever alone, and the
-  │             one solo pass does not resolve it: the engaged arm is -0.9 %
-  │             inside a 4.9 % floor while the DORMANT arm reads 9.71 vs the same
-  │             9.17 control, +5.9 %, which clears that floor in the direction
-  │             that says the control moved and not the lever
+  │  VERDICT    WORTH ZERO - +1.48 % at 3 of 4 inside a 5.69 % floor. The lever
+  │             is correct and the delta buys nothing measurable. It would sit inside
+  │             round 4's tighter 2.71 % floor as well, so a quieter box is unlikely
+  │             to change the word
   │
   │  SWITCH     ON by default. DS4_CUDA_SELECTED_DRAIN_SYNC=1 restores the
   │             blocking read - that is the OFF arm
@@ -382,3 +384,9 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29
   whole solo sample and its two arms disagree.
 - A measurement on the new tip. Nothing on this branch has been measured since the rebase.
 - The greedy-identical check re-run on the rebased tree. The sha above is from 2026-09-15.
+
+## Round 5, and the number this card now carries
+
+- **Round 5 is the first sealed round to measure this lever alone**: +1.48 % gen, 3 of 4 positive, TIES under a 5.69 % floor. The `NOT YET` this card used to carry is discharged.
+- That settles the solo pass the section above could not: the 2026-09-15 reading of -0.9 % engaged against +5.9 % dormant was a control that moved, and round 5's interleaved brackets replace it.
+- It is inside round 4's 2.71 % floor too, so unlike draft-gamma this arm is not left open by the noise.
