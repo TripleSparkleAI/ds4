@@ -490,7 +490,7 @@ first measurement of the ten-lever tree, and it has not been taken.
 One card per branch, the box copied from that branch's own README at its HEAD by
 `rebuild_index.py`, grouped by the status the card itself declares. Regenerate,
 never hand-edit: a hand-edited row drifts from the branch it describes.
-Regenerated 2026-09-17 12:12Z, 25 cards.
+Regenerated 2026-09-17 13:15Z, 26 cards.
 
 ## POSITIVELY MEASURED
 
@@ -705,6 +705,126 @@ Regenerated 2026-09-17 12:12Z, 25 cards.
 
 ## MEASURED CORRECT, WORTH ZERO ON THE CLOCK
 
+### triple-climbingfibre
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-climbingfibre                              WORTH ZERO
+  │
+  │  WHAT       a front cache in front of the frozen model that learns from the
+  │             speculative verifier's own REJECTIONS, online, with a retention
+  │             horizon. It proposes one draft token; it never injects anything
+  │
+  │  LATEST     round 5 - 2026-09-17 - TIES - +1.28 % 4/4 under a 5.69 floor -
+  │             2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
+  │
+  │  GEN        +1.28 %  floor 5.69 %  sign 4/4  n=4
+  │             raw: arm min-across median 9.58 t/s (9.11 / 9.83 / 9.52 / 9.64)
+  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
+  │             across 4096/6144, each run against its bracketing TIP runs
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
+  │             native 24.86 MB .text (tip 24.86 MB) - lean regime 4096/6144
+  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
+  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
+  │             that nothing clears it
+  │  PREFILL    reported, not a verdict: 83.08 t/s min-across median vs the
+  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
+  │
+  │  VERDICT    WORTH ZERO - +1.28 % at 4 of 4 inside a 5.69 % floor. The first
+  │             real A/B this branch has ever had against a control, and it says the
+  │             rejection-learned front cache costs nothing and buys nothing
+  │             measurable at this context and this batch shape
+  │
+  │  SWITCH     DS4_CLIMBINGFIBRE=1, default 0. Off allocates nothing, never
+  │             learns and never proposes
+  │             DS4_CLIMBINGFIBRE_HORIZON=session|day|week|forever|<steps>
+  │             _DECAY=hard|half|none · _NGRAM 4 · _CAP 16384
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-draincut
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-draincut                                   WORTH ZERO
+  │
+  │  WHAT       reads the router's selected expert ids back on an event
+  │             instead of a blocking cudaMemcpy, so the host no longer
+  │             waits on the shared expert - 40 device drains per token
+  │
+  │  LATEST     round 5 - 2026-09-17 - TIES - +1.48 % 3/4 under a 5.69 floor -
+  │             2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
+  │
+  │  GEN        +1.48 %  floor 5.69 %  sign 3/4  n=4
+  │             raw: arm min-across median 9.62 t/s (9.88 / 9.59 / 9.33 / 9.64)
+  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
+  │             across 4096/6144, each run against its bracketing TIP runs
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
+  │             native 24.87 MB .text (tip 24.86 MB) - lean regime 4096/6144
+  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
+  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
+  │             that nothing clears it
+  │  PREFILL    reported, not a verdict: 87.52 t/s min-across median vs the
+  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
+  │
+  │  VERDICT    WORTH ZERO - +1.48 % at 3 of 4 inside a 5.69 % floor. The lever
+  │             is correct and the delta buys nothing measurable. It would sit inside
+  │             round 4's tighter 2.71 % floor as well, so a quieter box is unlikely
+  │             to change the word
+  │
+  │  SWITCH     ON by default. DS4_CUDA_SELECTED_DRAIN_SYNC=1 restores the
+  │             blocking read - that is the OFF arm
+  │  OUTPUT     greedy-identical sha256 bb06e711bc498bb9 (2026-09-15, before the rebase)
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-engram-lead
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-engram-lead                                WORTH ZERO
+  │
+  │  WHAT       starts the Engram table read one token ahead of first use,
+  │             speculating on the current step's own argmax, so the read
+  │             overlaps the step instead of landing exposed inside it
+  │
+  │  LATEST     round 5 - 2026-09-17 - TIES - -1.04 % 1/4 under a 5.69 floor -
+  │             2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
+  │
+  │  GEN        -1.04 %  floor 5.69 %  sign 1/4  n=4
+  │             raw: arm min-across median 9.43 t/s (9.45 / 9.42 / 9.35 / 9.48)
+  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
+  │             across 4096/6144, each run against its bracketing TIP runs
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
+  │             native 24.86 MB .text (tip 24.86 MB) - lean regime 4096/6144
+  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
+  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
+  │             that nothing clears it
+  │  PREFILL    reported, not a verdict: 86.94 t/s min-across median vs the
+  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
+  │
+  │  VERDICT    WORTH ZERO - -1.04 % at 1 of 4 positive, the lowest delta and the
+  │             weakest sign of the round, and still inside a 5.69 % floor. Measured
+  │             correct and worth nothing. It is not carded NEGATIVE, because -1.04 %
+  │             does not clear the floor in either direction
+  │
+  │  SWITCH     DS4_V41_ENGRAM_LEAD_OFF - the lead is ON by default; set the
+  │             variable to anything to turn it off. Read once per process,
+  │             all-or-nothing
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
 ### triple-engram-prestage
 
 ```
@@ -881,23 +1001,26 @@ Regenerated 2026-09-17 12:12Z, 25 cards.
   │             actually lands, and hints WILLNEED over a layer's miss ranges
   │             on the buffered read path
   │
-  │  LATEST     attrib series · 2026-09-16 · JOINT, NOT ATTRIBUTABLE: this
-  │             branch's switch is one of the SEVEN turned off together, and
-  │             the seven together are a net GAIN of +7.62 pp against their own
-  │             off state at min-across-frontiers, floor max 2.18, cleared 3.5x.
-  │             Nothing in that file says what THIS lever did
-  │             (2026-09-16-triple-all-fastest-attrib-SUMMARY-levers-attribution.txt)
-  │             ⚠ that arm is the NINE-lever binary at dd82361a, not this branch
+  │  LATEST     round 5 - 2026-09-17 - TIES - +1.47 % 4/4 under a 5.69 floor -
+  │             2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
   │
-  │  GEN        9.62 t/s  vs control 9.56  +0.6 %  floor 4.9 %  n=2
-  │             control = unpatched tip, interleaved, same native vintage
-  │             session = 2026-09-15 · DGX Spark GB10 · native 23.1 MB .text · unstamped
-  │  PREFILL    not measured
+  │  GEN        +1.47 %  floor 5.69 %  sign 4/4  n=4
+  │             raw: arm min-across median 9.73 t/s (9.66 / 9.85 / 9.51 / 9.80)
+  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
+  │             across 4096/6144, each run against its bracketing TIP runs
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
+  │             native 24.86 MB .text (tip 24.86 MB) - lean regime 4096/6144
+  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
+  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
+  │             that nothing clears it
+  │  PREFILL    reported, not a verdict: 83.55 t/s min-across median vs the
+  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
   │
-  │  VERDICT    WORTH ZERO - the ordering repair is correct by the Linux
-  │             semantics and worth +0.6 % against a 4.9 % floor, which is
-  │             nothing. It buys a resident set that stops growing, and that
-  │             is an argument about memory, not a measured speed
+  │  VERDICT    WORTH ZERO - +1.47 % at 4 of 4 inside a 5.69 % floor, which is the
+  │             same word this card already carried from a different pass. The memory
+  │             argument is unchanged and is still an argument about the resident set,
+  │             not a measured speed
   │
   │  SWITCH     DS4_CUDA_KEEP_MODEL_PAGES=1 disables both drops
   │             DS4_CUDA_NO_EXPERT_READAHEAD=1 disables the hint
@@ -996,23 +1119,28 @@ Regenerated 2026-09-17 12:12Z, 25 cards.
   │             plain hash at the same address budget? Run on the committed
   │             track-3 token streams
   │
-  │  LATEST     granule run of record · 2026-09-16 · KILLED: the plain hash
-  │             wins 10 of 10 matched-entropy contrasts and 16 of 16
-  │             matched-byte contrasts, every one by more than the sealed
-  │             SESOI of 0.010; dDISCR -0.0414 to -0.2629 and -0.0294 to
-  │             -1.6357 (experiments/granule/MEASURED_GRANULE_sparse-expansion
-  │             -vs-plain-hash-discrimination_2026-09-16.md, run of record
-  │             @466ad0ed8, laptop CPU, 10.0 s wall)
-  │             ⚠ this is the branch's own prereg-sealed run, not one of the
-  │             named sealed rounds - no round has ever carried this branch
+  │  LATEST     round 5 - 2026-09-17 - TIES - -0.04 % 2/4 under a 5.69 floor -
+  │             2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
+  │             (the NEGATIVE word above stays, and is the branch's own offline
+  │             run of record on a different quantity: hash-vs-SDR discrimination)
   │
-  │  GEN        not measured - there is no engine code, no switch and no
-  │             binary on this branch, so the quantity does not exist for it
-  │  PREFILL    not measured - same reason
+  │  GEN        -0.04 %  floor 5.69 %  sign 2/4  n=4  (legacy rule +1.06)
+  │             raw: arm min-across median 9.51 t/s (9.74 / 9.01 / 9.50 / 9.52)
+  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
+  │             across 4096/6144, each run against its bracketing TIP runs
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
+  │             native 24.86 MB .text (tip 24.86 MB) - lean regime 4096/6144
+  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
+  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
+  │             that nothing clears it
+  │  PREFILL    reported, not a verdict: 85.98 t/s min-across median vs the
+  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
   │
-  │  VERDICT    NEGATIVE - killed by its own measurement. The expansion's
-  │             effective address space plateaus near 2^15 whatever it is
-  │             given, so it loses every contrast at matched budget
+  │  VERDICT    NEGATIVE - unchanged, and killed by its own offline measurement of
+  │             discrimination, not by round 5. The round's bench delta TIES: -0.04 %
+  │             at 2 of 4 inside a 5.69 % floor, which is the reading a branch whose
+  │             engine files match the tip should give
   │
   │  SWITCH     NONE - an offline experiment under experiments/granule/, no
   │             DS4_* knob exists and none is proposed
@@ -1106,36 +1234,6 @@ Regenerated 2026-09-17 12:12Z, 25 cards.
 
 ## NOT YET MEASURED
 
-### triple-climbingfibre
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-climbingfibre                                 NOT YET
-  │
-  │  WHAT       a front cache in front of the frozen model that learns from the
-  │             speculative verifier's own REJECTIONS, online, with a retention
-  │             horizon. It proposes one draft token; it never injects anything
-  │
-  │  LATEST     never in a sealed round
-  │
-  │  GEN        not measured
-  │  PREFILL    not measured
-  │
-  │  VERDICT    NOT YET - no CUDA build of this branch exists, so no arm has
-  │             ever run against a control. The only acceptance figures come
-  │             from a scripted 61-token target, +139 accepted tokens cold and
-  │             +0 with every entry poisoned, which is a mechanism check
-  │
-  │  SWITCH     DS4_CLIMBINGFIBRE=1, default 0. Off allocates nothing, never
-  │             learns and never proposes
-  │             DS4_CLIMBINGFIBRE_HORIZON=session|day|week|forever|<steps>
-  │             _DECAY=hard|half|none · _NGRAM 4 · _CAP 16384
-  │  OUTPUT     not re-run
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
 ### triple-draft-gamma
 
 ```
@@ -1148,91 +1246,32 @@ Regenerated 2026-09-17 12:12Z, 25 cards.
   │             is a candidate, so drafting switches itself off where it is not
   │             paying
   │
-  │  LATEST     never in a sealed round
+  │  LATEST     round 5 - 2026-09-17 - TIES - +3.83 % 4/4 under a 5.69 floor,
+  │             re-measure on a quiet box - 2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
   │
-  │  GEN        not measured
-  │  PREFILL    not measured
+  │  GEN        +3.83 %  floor 5.69 %  sign 4/4  n=4  (legacy rule +4.39, n=2)
+  │             raw: arm min-across median 9.75 t/s (9.88 / 9.74 / 9.76 / 9.65)
+  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
+  │             across 4096/6144, each run against its bracketing TIP runs
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
+  │             native 24.88 MB .text (tip 24.86 MB) - lean regime 4096/6144
+  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
+  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
+  │             that nothing clears it
+  │  PREFILL    reported, not a verdict: 88.63 t/s min-across median vs the
+  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
   │
-  │  VERDICT    NOT YET - no CUDA build of this branch exists. The only run is
-  │             `make test-draft-gamma`, a state trace with 0 failures and no
-  │             t/s anywhere in it
+  │  VERDICT    NOT YET - +3.83 % is the largest delta of the round and 4 of 4
+  │             positive, and it still does not clear this round's 5.69 % floor.
+  │             It would have cleared round 4's 2.71 % floor, so this is the one
+  │             arm round 5 leaves genuinely open. A re-run on a quiet box decides it
   │
   │  SWITCH     DS4_DRAFT_GAMMA_MODE=fixed|adaptive, default fixed. On fixed no
   │             controller is allocated and today's constant is returned
   │             Knobs: _ALPHA 0.2 · _UPDATE_INTERVAL 5 · _WARMUP 10 ·
   │             _DOWN_HYST -0.25 · _UP_HYST 0.0 · _CEILING 1.5 ·
   │             _MAX_STEPS 16 · _LOG=1
-  │  OUTPUT     not re-run
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
-### triple-draincut
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-draincut                                      NOT YET
-  │
-  │  WHAT       reads the router's selected expert ids back on an event
-  │             instead of a blocking cudaMemcpy, so the host no longer
-  │             waits on the shared expert - 40 device drains per token
-  │
-  │  LATEST     attrib series · 2026-09-16 · JOINT, NOT ATTRIBUTABLE: this
-  │             branch's switch is one of the SEVEN turned off together, and
-  │             the seven together are a net GAIN of +7.62 pp against their own
-  │             off state at min-across-frontiers, floor max 2.18, cleared 3.5x.
-  │             Nothing in that file says what THIS lever did
-  │             (2026-09-16-triple-all-fastest-attrib-SUMMARY-levers-attribution.txt)
-  │             ⚠ that arm is the NINE-lever binary at dd82361a, not this branch
-  │
-  │  GEN        9.09 t/s  vs control 9.17  -0.9 %  floor 4.9 %  n=2
-  │             control = unpatched tip, interleaved, same native vintage
-  │             session = 2026-09-15 · DGX Spark GB10 · native 23.1 MB .text · unstamped
-  │  PREFILL    not measured
-  │
-  │  VERDICT    NOT YET - no sealed round has measured this lever alone, and the
-  │             one solo pass does not resolve it: the engaged arm is -0.9 %
-  │             inside a 4.9 % floor while the DORMANT arm reads 9.71 vs the same
-  │             9.17 control, +5.9 %, which clears that floor in the direction
-  │             that says the control moved and not the lever
-  │
-  │  SWITCH     ON by default. DS4_CUDA_SELECTED_DRAIN_SYNC=1 restores the
-  │             blocking read - that is the OFF arm
-  │  OUTPUT     greedy-identical sha256 bb06e711bc498bb9 (2026-09-15, before the rebase)
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
-### triple-engram-lead
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-engram-lead                                   NOT YET
-  │
-  │  WHAT       starts the Engram table read one token ahead of first use,
-  │             speculating on the current step's own argmax, so the read
-  │             overlaps the step instead of landing exposed inside it
-  │
-  │  LATEST     attrib series · 2026-09-16 · JOINT, NOT ATTRIBUTABLE: this
-  │             branch's switch is one of the SEVEN turned off together, and
-  │             the seven together are a net GAIN of +7.62 pp against their own
-  │             off state at min-across-frontiers, floor max 2.18, cleared 3.5x.
-  │             Nothing in that file says what THIS lever did
-  │             (2026-09-16-triple-all-fastest-attrib-SUMMARY-levers-attribution.txt)
-  │             ⚠ that arm is the NINE-lever binary at dd82361a, not this branch
-  │
-  │  GEN        not measured
-  │  PREFILL    not measured
-  │
-  │  VERDICT    NOT YET - the lead-on against lead-off A/B has never been run
-  │             with a sound control. The 2026-09-15 pass that touched it had a
-  │             control that moved, and its numbers stay unpublished
-  │
-  │  SWITCH     DS4_V41_ENGRAM_LEAD_OFF - the lead is ON by default; set the
-  │             variable to anything to turn it off. Read once per process,
-  │             all-or-nothing
   │  OUTPUT     not re-run
   │
   └──────────────────────────────────────────────────────────────────────
@@ -1272,6 +1311,42 @@ Regenerated 2026-09-17 12:12Z, 25 cards.
   │             the pre-existing --ssd-streaming, --ssd-streaming-cold and
   │             --ssd-streaming-cache-experts N|NGB (ds4_help.c lines 174 and
   │             175 at HEAD)
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-winners
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-winners                                NOT YET
+  │
+  │  WHAT       the three levers round 4 measured as winners solo on the
+  │             new tip, stacked and nothing else: pool (+7.27 %), hitsfirst
+  │             (+6.47 %) and prefetch-pool (+2.28 %), with HITSFIRST ON.
+  │
+  │  LATEST     never in a sealed round
+  │
+  │  GEN        not measured
+  │  PREFILL    not measured
+  │
+  │  VERDICT    NOT YET - built 2026-09-17 from winners.manifest to answer
+  │             "why not combine pool and hitsfirst and prefetch-pool?"; the
+  │             amended round 7 carries it as an arm. Not compiled for CUDA
+  │             yet: assembled on a Mac, Metal make rc 0, the four lever test
+  │             binaries green. The first Spark build is the real gate.
+  │
+  │  SWITCH     DS4_CUDA_HITS_FIRST=0 turns hits-first off (ON here, the
+  │             lever's own default); DS4_CUDA_HITS_FIRST_STAGED=0 keeps it
+  │             single-stage
+  │             DS4_CUDA_FETCH_URING=0 falls back to the pread pool;
+  │             DS4_CUDA_STREAMING_EXPERT_PREAD_POOL=0 restores the serial path;
+  │             DS4_CUDA_FETCH_QD=<n> ring depth, default 64, clamped 8-512
+  │             DS4_CUDA_SSD_PREFETCH_POOL=0 or DS4_CUDA_SSD_PREFETCH_THREADS=1
+  │             reverts the prefetch pool; DS4_CUDA_SSD_PREFETCH_CHUNK_MB,
+  │             default 8, cap 64
   │  OUTPUT     not re-run
   │
   └──────────────────────────────────────────────────────────────────────
@@ -1440,14 +1515,26 @@ Regenerated 2026-09-17 12:12Z, 25 cards.
   │             expresses the cache budget as a split of one RAM pool across
   │             three consumers. An instrument and a bound, not a speed lever
   │
-  │  LATEST     never in a sealed round
+  │  LATEST     round 5 - 2026-09-17 - TIES - +1.17 % 3/4 under a 5.69 floor -
+  │             2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
   │
-  │  GEN        not measured
-  │  PREFILL    not measured
+  │  GEN        +1.17 %  floor 5.69 %  sign 3/4  n=4  (legacy rule +1.20)
+  │             raw: arm min-across median 9.66 t/s (9.72 / 9.60 / 9.40 / 9.74)
+  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
+  │             across 4096/6144, each run against its bracketing TIP runs
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
+  │             native 24.89 MB .text (tip 24.86 MB) - lean regime 4096/6144
+  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
+  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
+  │             that nothing clears it
+  │  PREFILL    reported, not a verdict: 89.49 t/s min-across median vs the
+  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
   │
-  │  VERDICT    TOOLING - nothing about t/s is claimed or owed here. The
-  │             default path is arithmetic-identical to before, which is an
-  │             argument and not a measurement. No CUDA build exists
+  │  VERDICT    TOOLING - still tooling, and now with a number that agrees. Round 5
+  │             reads +1.17 % at 3 of 4 inside a 5.69 % floor, which is exactly what an
+  │             instrument that changes no arithmetic on the default path should read.
+  │             Nothing about t/s is claimed or owed here
   │
   │  SWITCH     DS4_MEM_RESERVE_MIB=N default 512 · DS4_MEM_RESERVE_ENFORCE=1|0
   │             default 1 (a breach stops) · DS4_MEM_RESERVE_RECORD=FILE (one JSON
