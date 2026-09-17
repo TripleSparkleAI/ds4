@@ -490,7 +490,7 @@ first measurement of the ten-lever tree, and it has not been taken.
 One card per branch, the box copied from that branch's own README at its HEAD by
 `rebuild_index.py`, grouped by the status the card itself declares. Regenerate,
 never hand-edit: a hand-edited row drifts from the branch it describes.
-Regenerated 2026-09-16 16:30Z, 24 cards.
+Regenerated 2026-09-17 08:37Z, 24 cards.
 
 ## POSITIVELY MEASURED
 
@@ -541,30 +541,65 @@ Regenerated 2026-09-16 16:30Z, 24 cards.
   │             on by default and hits-first off, so one build exposes many
   │             arms through environment switches
   │
-  │  RESULT     gen t/s   as shipped vs clean tip  -4.51 % min-across   floor 1.0-1.5 % med
-  │                       (-8.63 / -3.75 / -5.38 at ctx 4096/6144/8192)   sign 0/7
-  │                       all seven switches OFF vs tip  -12.13 %  sign 0/8
-  │                       L = all-off minus as-shipped = -7.62 pp, 3.5x the floor
-  │                       + DS4_CUDA_HITS_FIRST=1 vs tip  -0.95 % min-across, sign 1/6
-  │                       (-4.23 / -0.57 / -0.76; only 4096 clears the floor)
-  │             prefill   as shipped vs tip +6.41 % min-across (5/7); +2.66 / +16.82 /
-  │                       +1.33 at 4096/6144/8192; secondary, does not offset gen
-  │             control = clean tip triple-antirez-tip-latest @e6d9d3b8, 9.70 gen t/s
-  │                       median, bracketing every arm repeat on both sides
-  │             session  2026-09-16 06:41-09:08Z, DGX Spark GB10, native .text
-  │                      23,148,652 B (tip 23,118,434 B), load 0.13-1.85, gpu 0-16 %,
-  │                      memavail 117 GB, 50 runs all rc=0, ctx 2048 discarded
-  │             earlier  +7.1 % over all-off (9.18 vs 8.57), floor 7.29 %: the noisy-box
-  │                      series before the 2026-09-16 runs, its own off state as control
+  │  RESULT     gen t/s   THREE READINGS OF THE STACK, ALL ON NINE-LEVER SHAS
+  │             1. attrib series, as shipped vs clean tip  -4.51 % min-across
+  │                (-8.63 / -3.75 / -5.38 at ctx 4096/6144/8192)  sign 0/7
+  │                floor med 1.0-1.5 %, max 2.2-4.1 %
+  │                (2026-09-16-triple-all-fastest-attrib-SUMMARY-levers-
+  │                 attribution.txt)
+  │             2. bisect round 1, the same tree re-measured at n=4
+  │                -4.35 % min-across, sign 0/4, floor med 0.52 / max 4.13
+  │                ⇒ the loss REPRODUCES within 0.16 points across sessions
+  │                (2026-09-16-BISECT-RESULT-one-comparator-carries-the-
+  │                 whole-loss.md)
+  │             3. round 1 + round 2, ONE COMPARATOR REVERTED (arm NOS1)
+  │                round 1  +3.69 % n=4, sign 4/4, floor max 4.13
+  │                round 2  +3.46 % n=8, sign 8/8, floor max 1.37, cleared
+  │                         2.5x; bands 9.83-10.04 vs tip 9.47-9.62, DISJOINT
+  │                ⇒ the revert BEATS the clean tip by the sealed rule
+  │                (2026-09-17-ROUND2-RESULT-the-revert-beats-the-tip.md)
+  │             all seven switches OFF vs tip  -12.13 % sign 0/8 (attrib)
+  │                and -13.02 % sign 0/4 (round 1) - the levers HELP either way
+  │             L = all-off minus as-shipped = -7.62 pp, 3.5x the floor
+  │             + DS4_CUDA_HITS_FIRST=1 vs tip  -0.95 % min-across, sign 1/6
+  │                (-4.23 / -0.57 / -0.76; only 4096 clears the floor)
+  │             prefill   as shipped vs tip +6.41 % min-across (5/7); +2.66 /
+  │                       +16.82 / +1.33; secondary, does not offset gen
+  │             control = clean tip triple-antirez-tip-latest @e6d9d3b8; its own
+  │                       baseline 9.70, round 1 brackets 9.65, round 2 9.57
+  │             session  attrib 2026-09-16 06:41-09:08Z, 50 runs; round 1
+  │                      2026-09-16, 41 runs, 3 lost to the OOM killer; round 2
+  │                      2026-09-17 15:06-16:30Z, 21 runs, zero lost.
+  │                      DGX Spark GB10, native .text 23.1 MB vintage
+  │             ⚠ EVERY NUMBER ABOVE DESCRIBES A NINE-LEVER BINARY that sits
+  │               off this branch's line of history (dd82361a / 8aa40a52 /
+  │               d1dd5ec2). THE TEN-LEVER TREE HAS NEVER BEEN MEASURED.
+  │               (2026-09-16-CORRECTION-the-measured-stack-is-nine-levers-
+  │                and-has-diverged.md)
   │
-  │  VERDICT    MEASURED LOSS to the tip
-  │             -4.51 %, 0 of 7 repeats at every frontier, 2.1x the in-run floor; the
-  │             seven switchable levers are EXONERATED (all-off loses -12.13 %, so they
-  │             are worth about +7.6 pp); the cause sits in the non-switchable diff
-  │             over the tip (ds4_cuda.cu +1256, ds4.c +174, ds4_engram.c +29,
-  │             ds4_gpu.h +9 lines) - the bisect is OWED and not run
+  │  VERDICT    THE DEFAULT WAS CHANGED TO THE MEASURED WINNER, AND THE NEW
+  │             DEFAULT IS UNMEASURED.
+  │             What was measured: the stack as it stood LOST to the tip by
+  │             -4.35 to -4.51 %, and one std::stable_sort comparator in
+  │             ds4_gpu_stream_expert_cache_prefetch carried the whole loss.
+  │             Reverting it moved the tree 8.04 points, from -4.35 % to
+  │             +3.69 %, and round 2 confirmed +3.46 % at n=8 with bands that
+  │             do not touch - the slowest reverted run beat the fastest tip
+  │             run by 0.21 t/s.
+  │             What followed: least-recently-routed became the shipped victim
+  │             order at dd189b2d7, under the standing rule that the default
+  │             follows the number and never a card's claim. The sweep-aware
+  │             reasoning is kept verbatim in the comment and
+  │             DS4_CUDA_PREFETCH_SWEEP_ORDER=1 restores it, so the losing arm
+  │             is still there to be re-measured.
+  │             ⚠ THIS TREE, WITH THIS DEFAULT, IS NOT MEASURED. Round 3 is
+  │             sealed (2026-09-17-ROUND3-PREREGISTERED-RULE.txt, arm FAST at
+  │             b17231fd) and has not been run. Nothing here is a number for
+  │             the ten-lever tree.
   │
-  │  SWITCH     ten levers, see the table; six real off switches, two knobs, two none
+  │  SWITCH     ten levers, see the table; six real off switches, two knobs,
+  │             two none. Plus DS4_CUDA_PREFETCH_SWEEP_ORDER=1, which restores
+  │             the measured-slower sweep-aware victim order (new at dd189b2d7)
   │  OUTPUT     not re-run
   │
   └──────────────────────────────────────────────────────────────────────
@@ -1082,15 +1117,40 @@ Regenerated 2026-09-16 16:30Z, 24 cards.
   │             squashed to one commit. No lever. Every other branch is
   │             measured against this one.
   │
-  │  RESULT     gen t/s   9.70 median (min 9.44, max 9.92, MAD 0.11)   n=16 of 18
-  │             prefill   84.06 median (79.13 - 87.19)                  n=16 of 18
+  │  RESULT     gen t/s   THREE READINGS OF ONE OBJECT, NOT A DISAGREEMENT
+  │             9.70 median (min 9.44, max 9.92, MAD 0.11)  n=16 of 18
+  │                the dedicated baseline session, 18 runs, sealed rule
+  │                (2026-09-16-triple-antirez-tip-latest-BASELINE.txt)
+  │             9.65 median   n=4 kept bracket runs
+  │                the bisect round 1 brackets, min-across-frontiers
+  │                (2026-09-16-BISECT-RESULT-one-comparator-carries-the-
+  │                 whole-loss.md)
+  │             9.57 median (band 9.47 - 9.62)  n=8 kept bracket runs
+  │                the round 2 brackets, min-across-frontiers
+  │                (2026-09-17-ROUND2-RESULT-the-revert-beats-the-tip.md)
+  │             ★ ALL THREE MEASURE THE SAME SHA, e6d9d3b8, on the same box
+  │               with the same argv. The spread 9.57 - 9.70 is 1.3 %, inside
+  │               this configuration's own floor, and the baseline session
+  │               already recorded a ~2.2 % drift between its own two passes.
+  │               ⇒ quote the level as ~9.6 - 9.8 and never treat a bracket
+  │               median as a re-baselining of the control.
+  │             ⚠ A DELTA IS ONLY EVER TAKEN AGAINST ITS OWN ROUND'S
+  │               BRACKETS, never against another round's absolute t/s.
+  │             prefill   84.06 median (79.13 - 87.19)   n=16 of 18
   │             control = this branch IS the control; nothing to compare against
-  │             session  2026-09-16 04:27-05:38Z, DGX Spark GB10, native .text
-  │                      23,118,434 B, box quiet by the harness gate (load < 2.0,
-  │                      memavail 117 GB, gpu < 50 %), ctx 2048 discarded
+  │             session  baseline 2026-09-16 04:27-05:38Z; round 1 2026-09-16;
+  │                      round 2 2026-09-17 15:06-16:30Z. DGX Spark GB10,
+  │                      native .text 23,118,434 B, box quiet by the harness
+  │                      gate (load < 2.0, memavail 117 GB, gpu < 50 %),
+  │                      ctx 2048 discarded
   │
   │  VERDICT    CONTROL
-  │             the zero point: 9.70 gen t/s, in-run floor median 1.0-1.5 %
+  │             the zero point: ~9.6 - 9.8 gen t/s at min-across-frontiers,
+  │             in-run floor median 1.0 - 1.5 %, max 2.2 - 4.1 %.
+  │             ⚠ THIS IS NO LONGER THE NEWEST TIP. triple-tip-2026-09-16
+  │             (upstream f39675195 + our PR carry) is the control for round 3
+  │             and after; this branch stays the control for every number
+  │             already taken against it.
   │
   │  SWITCH     NONE - no lever in this tree
   │  OUTPUT     not re-run
