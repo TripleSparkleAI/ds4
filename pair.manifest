@@ -1,0 +1,75 @@
+# <claudes_code_comments>
+# ** WHAT THIS FILE IS **
+# The definition of branch triple-pair: EXACTLY TWO of round 4's measured winners, and
+# nothing else:
+#     triple-pool           +7.27 %   3/4    the io_uring ring over the pread pool
+#     triple-hitsfirst      +6.47 %   4/4    launch the resident experts before the miss reads land
+# NO prefetch-pool. It answers the question rounds 8 and 9 left open about triple-winners
+# (pool + hitsfirst + prefetch-pool read level with the tip, then between its parts): is
+# prefetch-pool the lever that costs, or do pool and hitsfirst fight on their own? The line
+# kinds are stack.manifest's; the machinery is the same build_stack.sh / stack_resolve.py,
+# copied onto this branch so it is self-contained.
+#
+# ** DEFAULTS **
+# pool ON · hitsfirst ON (the lever's own default: DS4_CUDA_HITS_FIRST=0 turns it off).
+# No patch line, no local line: nothing here is code that no lever carries.
+#
+# ** DERIVATION **
+#   base      git rev-parse triple-tip-2026-09-16
+#   shas      the same two lever shas winners.manifest uses (triple-<name>~1, the code
+#             commit under each card commit; both branches are rebased onto the tip)
+#   resolve   pool applies clean on the tip. hitsfirst is applied second onto the pool tree,
+#             exactly as winners.manifest applies it, so its 16 conflict hunks are the same
+#             16 hunks winners decided on 2026-09-17 (lane WINNERS). Every decision below is
+#             winners' decision VERBATIM, and the hand files under stack.patches/pair/ are
+#             byte-identical copies of stack.patches/winners/hitsfirst-*. Proof, not
+#             assertion: the tree after this lever is byte-identical on the build surface to
+#             winners' own hitsfirst commit daf12336c (lane PAIR, 2026-09-18).
+#
+# ** THE RESOLUTION LEDGER - 16 hunks (hitsfirst): ours 5 · theirs 5 · hand 6 **
+#   (derive: grep '^resolve' | awk '{print $4}' | sed 's/:.*//' | sort | uniq -c)
+#   hitsfirst Makefile 00          list union: the hits-first test beside pool's two
+#   hitsfirst ds4_cuda.cu 05       pool's dispatch_start(pool,..) wrapper kept beside the staged
+#                                  entry points; both route to one staged body
+#   hitsfirst ds4_cuda.cu 08       hits-first's wait_stage wrapper + pool's whole io_uring ring
+#   hitsfirst ds4_cuda.cu 10       hits-first's miss mask + pool's claim ledger + stats_on gating
+#   hitsfirst ds4_cuda.cu 12       THE CLAIM-LEDGER HUNK, carried and NEEDED with hitsfirst ON:
+#                                  when hits-first takes the batch the pool owns the reads and
+#                                  cuda_hits_first_wait drops any slot whose bytes do not land,
+#                                  so every claim is committed there - or pool's RAII ledger
+#                                  would withdraw the slots on return while the reads are still
+#                                  in flight. It is the one pool+hitsfirst interaction in this
+#                                  tree, and the tree exists to measure it without prefetch-pool
+#   hitsfirst ds4_cuda.cu 13       ledger commit on the plain path + hits-first's stats gating
+#   ours on 00 02 03 09 11 keeps pool's ring and ledger where the lever's diff only re-contexted
+#   the tip; theirs on 01 04 06 07 14 is the hits-first staging the lever is.
+#
+# ** THE CHECK **
+#   bash build_stack.sh pair.manifest --check <HEAD of triple-pair>
+#   ⚠ NOT COMPILED FOR CUDA. Assembled on a Mac with no nvcc; `make` here builds the Metal
+#   target only, which never sees ds4_cuda.cu. The first Spark build is the real gate.
+# </claudes_code_comments>
+
+base        12997e9c84b39258f28781b808d18ea0069af2ac
+paths       *.c *.h *.cu *.cuh *.inc Makefile tests/ cuda/ speed-bench/*.c gguf-tools/
+lever-base  12997e9c84b39258f28781b808d18ea0069af2ac
+
+lever   triple-pool                     6371428b0357c1fe61abbe55c1c7b91c00cfa44a   on
+
+lever   triple-hitsfirst                3e477367150ff20d1b5b93dd28b20b82452bf941   on
+resolve Makefile 00 hand:pair/hitsfirst-Makefile-00.txt
+resolve ds4_cuda.cu 00 ours
+resolve ds4_cuda.cu 01 theirs
+resolve ds4_cuda.cu 02 ours
+resolve ds4_cuda.cu 03 ours
+resolve ds4_cuda.cu 04 theirs
+resolve ds4_cuda.cu 05 hand:pair/hitsfirst-ds4_cuda.cu-05.txt
+resolve ds4_cuda.cu 06 theirs
+resolve ds4_cuda.cu 07 theirs
+resolve ds4_cuda.cu 08 hand:pair/hitsfirst-ds4_cuda.cu-08.txt
+resolve ds4_cuda.cu 09 ours
+resolve ds4_cuda.cu 10 hand:pair/hitsfirst-ds4_cuda.cu-10.txt
+resolve ds4_cuda.cu 11 ours
+resolve ds4_cuda.cu 12 hand:pair/hitsfirst-ds4_cuda.cu-12.txt
+resolve ds4_cuda.cu 13 hand:pair/hitsfirst-ds4_cuda.cu-13.txt
+resolve ds4_cuda.cu 14 theirs
