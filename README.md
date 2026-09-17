@@ -287,7 +287,10 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42
   │             Measured second-best of all trees today at +6.50 %, and an arm
   │             of the amended round 7
   │
-  │  LATEST     round 6 · 2026-09-17 · BEATS · +6.50 % ·
+  │  LATEST     round 9 · 2026-09-17 · TIES · +7.02 % 3/4 under a 17.27 floor ·
+  │             median 10.11, and it reads with round 6 rather than round 8 ·
+  │             2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
+  │             round 6 · 2026-09-17 · BEATS · +6.50 % ·
   │             2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
   │             round 8 · 2026-09-17 · TIES · -0.98 % 1/4 under a 10.69 floor ·
   │             2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
@@ -318,6 +321,20 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42
   │             native 24.90 MB .text (tip 24.86 MB) · lean regime 4096/6144
   │             prefill round 8, reported not a verdict: 85.28 t/s min-across
   │             median vs the tip's 84.34 t/s, n=4
+  │
+  │             ─── round 9, TIES, and it settles which of the two rounds to read:
+  │             +7.02 %  floor 17.27 %  sign 3/4  n=4
+  │             raw: arm min-across median 10.11 t/s (9.14 to 10.29, spread 1.15)
+  │             vs the tip's 9.42 t/s (8.51 to 9.98). That is round 6's level, not
+  │             round 8's 9.10, so the disagreement resolves toward round 6
+  │             ⚠ the instrument sets that floor, not the arm: the five control
+  │             runs span 8.51 to 9.98 t/s because the page cache holds 2.9 GB of
+  │             an 81 GB model and the bench streams 842 MB/s from the NVMe, so
+  │             identical binaries swing about 8 % run to run
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 14:41-15:36Z · DGX Spark GB10 · native
+  │             24.90 MB .text (r9-all, 24,895,653; tip 24.86 MB) · lean regime
+  │             4096/6144 · quiet box, warm-up run discarded
   │
   │  VERDICT    POSITIVE - the only arm of round 6 to clear the floor, and it
   │             clears it at every repeat (+6.1 to +6.8 %). Both the sealed
@@ -447,3 +464,19 @@ ships.** It is kept above as a dated record of one arm of one series, and nowher
 Sealed rule `2026-09-17-R8-PREREGISTERED-RULE.txt` @`c173ad6d7`, result
 `2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md`,
 raw CSVs and runlog in `sweeps/r8/`.
+
+## Round 9, 2026-09-17: the quiet round reads with round 6
+
+- **The round-6-versus-round-8 disagreement resolves toward round 6.** On a quiet box with the
+  discarded warm-up run this tree reads **10.11 t/s, +7.02 %, sign 3 of 4**, beside round 6's
+  10.35 t/s and +6.50 % and against round 8's 9.10 t/s and -0.98 %. Round 8 was the noisier round
+  and this is the third reading.
+- **The raw-t/s drop of round 8 is now attributable to the box.** Round 6 read 10.24 to 10.39,
+  round 8 read 8.99 to 9.21, round 9 reads 9.14 to 10.29 on the same 24.90 MB binary vintage. The
+  tree did not change between them; the instrument did.
+- **It is still below the one-lever tree.** 10.11 against hitsfirst's 10.41, fourth of five arms,
+  with a spread of 1.15 against hitsfirst's 0.19. Six levers do not beat the one that wins.
+
+Sealed rule `2026-09-17-R9-PREREGISTERED-RULE.txt` @`60d1bd06a`, result
+`2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md`,
+raw CSVs and runlog in `sweeps/r9/`.
