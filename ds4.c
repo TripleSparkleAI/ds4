@@ -47,6 +47,7 @@
 #include "ds4_image.h"
 #include "ds4_engram.h"
 #include "ds4_tp.h"
+#include "ds4_draft_gamma.h"
 #if !defined(DS4_NO_GPU) && !defined(DS4_ROCM_BUILD)
 #define DS4_HAS_DEEPSEEK41_GPU 1
 #endif
@@ -60032,6 +60033,16 @@ struct ds4_session {
     bool dspark_sched_bypass;
     bool dspark_last_confidence0_valid;
     ds4_dspark_spec_stats dspark_stats;
+    /* Adaptive DSpark draft length (gamma): one EMA slot per active-lane
+     * bucket, fed the accept lengths this loop already computes. Lazily
+     * allocated so only the DSpark path carries it. */
+    ds4_draft_gamma_controller *draft_gamma;
+    uint32_t draft_gamma_lanes;
+    /* The mode is read from the environment ONCE per session.  In the default
+     * FIXED mode `draft_gamma` stays NULL for ever, so without this the mode
+     * lookup - a getenv and a strcmp - ran on every prepare and every verify
+     * note, per token, in the path that is meant to be preserved exactly. */
+    bool draft_gamma_mode_not_adaptive;
 #endif
     uint64_t mtp_probe_total;
     uint64_t mtp_probe_hit;
@@ -60212,9 +60223,68 @@ static void ds4_session_dspark_scheduler_reset(ds4_session *s) {
     s->dspark_sched_saved_ms = 0.0;
 }
 
+/*
+ * Today's draft length, and the ONE definition of it. It is the support
+ * model's GGUF `dspark.block_size` metadata (a hand-chosen constant baked into
+ * the checkpoint), capped by the static DS4_DSPARK_VERIFY_CAP override when
+ * that names something smaller and by DS4_DSPARK_MAX_BLOCK_SIZE at the loader.
+ * Nothing here reacts to what the run is actually achieving; that is the defect
+ * the adaptive controller addresses.
+ */
+static uint32_t ds4_session_dspark_fixed_gamma(const ds4_session *s) {
+    if (!s || !s->engine) return 0;
+    const ds4_dspark_weights *dw = &s->engine->dspark_weights;
+    const uint32_t verify_cap = ds4_dspark_env_u32(
+        "DS4_DSPARK_VERIFY_CAP",
+        ds4_session_dspark_rocm_gfx1151_fast_path(s) ? 5u : 0u);
+    return (verify_cap != 0u && verify_cap < dw->block_size)
+               ? verify_cap : dw->block_size;
+}
+
+/*
+ * The controller, lazily built on first use. In DS4_DRAFT_GAMMA_MODE=fixed
+ * (the default) this returns NULL and nothing is allocated, nothing is
+ * recorded and every query falls back to ds4_session_dspark_fixed_gamma(), so
+ * today's behaviour is preserved exactly.
+ */
+static ds4_draft_gamma_controller *ds4_session_draft_gamma(ds4_session *s) {
+    if (!s) return NULL;
+    if (s->draft_gamma) return s->draft_gamma;
+    if (s->draft_gamma_mode_not_adaptive) return NULL;
+    if (ds4_draft_gamma_mode_from_env() != DS4_DRAFT_GAMMA_MODE_ADAPTIVE) {
+        /* Remember the answer. The environment does not change under a running
+         * session, and this is the default path: it is asked on every prepare
+         * and every verify note. */
+        s->draft_gamma_mode_not_adaptive = true;
+        return NULL;
+    }
+    ds4_draft_gamma_controller *c = xmalloc(sizeof(*c));
+    ds4_draft_gamma_controller_init(c, "adaptive", NULL);
+    ds4_draft_gamma_controller_reset(c, ds4_session_dspark_fixed_gamma(s));
+    s->draft_gamma = c;
+    const ds4_draft_gamma_config *cfg = &c->slot[0].cfg;
+    fprintf(stderr,
+            "ds4: DSpark draft gamma controller engaged mode=adaptive "
+            "start=%u max_steps=%u alpha=%.2f update=%u warmup=%u "
+            "down_hyst=%.2f up_hyst=%.2f ceiling=%.2f\n",
+            (unsigned)ds4_session_dspark_fixed_gamma(s),
+            (unsigned)cfg->max_steps,
+            (double)cfg->ema_alpha,
+            (unsigned)cfg->update_interval,
+            (unsigned)cfg->warmup_batches,
+            (double)cfg->down_hysteresis,
+            (double)cfg->up_hysteresis,
+            (double)cfg->ceiling_coeff);
+    return c;
+}
+
 static void ds4_session_dspark_scheduler_begin_request(ds4_session *s) {
     if (!s) return;
     ds4_session_dspark_scheduler_reset(s);
+    if (s->draft_gamma) {
+        ds4_draft_gamma_controller_reset(s->draft_gamma,
+                                         ds4_session_dspark_fixed_gamma(s));
+    }
     s->dspark_sched_skip = 0;
     s->dspark_sched_lifetime_accepted = 0;
     s->dspark_sched_life_extra_ms = 0.0;
@@ -60249,7 +60319,36 @@ static void ds4_session_dspark_scheduler_note(
         uint32_t     accepted_drafts,
         bool         no_draft,
         double       extra_ms) {
-    if (!s || !ds4_dspark_scheduler_enabled(s)) return;
+    if (!s) return;
+    /*
+     * The draft-gamma controller is fed from EVERY cycle, whether or not the
+     * skip scheduler is enabled, because the accept length tau is produced by
+     * the same verify bookkeeping either way (this is the B2b tau_k feed, not
+     * a new measurement path). A no-draft cycle carries no evidence about
+     * acceptance, so it is not fed to the EMA - but it IS reported, because a
+     * no-draft cycle that the controller itself asked for is the only signal
+     * that its rest interval has passed. Without that report gamma 0 was
+     * absorbing: nothing drafts, so nothing observes, so nothing ever decides
+     * again, and the re-probe out of zero could not run (R5 finding G1).
+     */
+    {
+        ds4_draft_gamma_controller *gamma = ds4_session_draft_gamma(s);
+        if (gamma) {
+            if (!no_draft) {
+                ds4_draft_gamma_controller_observe(
+                    gamma,
+                    s->draft_gamma_lanes,
+                    accepted_drafts,
+                    ds4_session_dspark_fixed_gamma(s));
+            } else {
+                ds4_draft_gamma_controller_note_no_draft(
+                    gamma,
+                    s->draft_gamma_lanes,
+                    ds4_session_dspark_fixed_gamma(s));
+            }
+        }
+    }
+    if (!ds4_dspark_scheduler_enabled(s)) return;
     if (s->dspark_sched_skipped_cycle) {
         s->dspark_sched_skipped_cycle = false;
         return;
@@ -72481,6 +72580,19 @@ static void ds4_session_print_dspark_stats(const ds4_session *s) {
             draft_hist,
             accept_hist);
 }
+
+/* The adaptive draft-gamma controller's per-lane-bucket state, on request,
+ * so an A/B can see WHICH gamma each concurrency level landed on rather than
+ * only the end-to-end tokens/s. */
+static void ds4_session_print_draft_gamma(const ds4_session *s) {
+    if (!s || !s->draft_gamma) return;
+    const char *env = getenv("DS4_DRAFT_GAMMA_LOG");
+    if (!env || !env[0] || env[0] == '0') return;
+    char buf[1024];
+    ds4_draft_gamma_controller_dump(s->draft_gamma, buf, sizeof(buf));
+    fprintf(stderr, "ds4: %s lanes=%u\n", buf,
+            (unsigned)(s->draft_gamma_lanes ? s->draft_gamma_lanes : 1u));
+}
 #endif
 
 static bool ds4_session_tp_leader(const ds4_session *s) {
@@ -72947,6 +73059,9 @@ void ds4_session_free(ds4_session *s) {
     }
 #ifndef DS4_NO_GPU
     ds4_session_print_dspark_stats(s);
+    ds4_session_print_draft_gamma(s);
+    free(s->draft_gamma);
+    s->draft_gamma = NULL;
 #endif
     ds4_dist_session_free(s->distributed);
     if (ds4_session_is_cpu(s)) {
@@ -76382,9 +76497,44 @@ static bool ds4_session_prepare_dspark_draft_impl(ds4_session *s,
         const uint32_t verify_cap = ds4_dspark_env_u32(
             "DS4_DSPARK_VERIFY_CAP",
             ds4_session_dspark_rocm_gfx1151_fast_path(s) ? 5u : 0u);
-        const uint32_t proposal_cap =
+        const uint32_t fixed_gamma =
             verify_cap != 0 && verify_cap < dw->block_size ?
                 verify_cap : dw->block_size;
+        /*
+         * The draft length for this step. In DS4_DRAFT_GAMMA_MODE=fixed (the
+         * default) this is fixed_gamma and nothing below changes. In adaptive
+         * mode it is the controller's choice for this active-lane bucket, from
+         * an EMA of the accept lengths this loop already computes.
+         */
+        const uint32_t proposal_cap =
+            ds4_draft_gamma_controller_gamma(ds4_session_draft_gamma(s),
+                                             s->draft_gamma_lanes,
+                                             fixed_gamma);
+        if (proposal_cap == 0u && fixed_gamma != 0u) {
+            /* gamma -> 0 is a first-class state: for this active-lane bucket
+             * the controller has decided a draft is not worth the target-verify
+             * bandwidth it costs. Keep the draft ring consistent and draft
+             * nothing this step; the verify path records it as a no-draft
+             * cycle through ds4_draft_gamma_controller_note_no_draft(), which
+             * is what advances the controller's rest interval and lets the
+             * re-probe out of zero run. That report is the whole of the path
+             * back: with the no-draft cycle merely dropped, as it was before
+             * R5 finding G1, this state never ends. */
+            if (align_rocm) {
+                (void)metal_graph_dspark_cache_target_prefix(&s->graph,
+                                                             feature_pos);
+            }
+            (void)metal_graph_dspark_ring_maintain(&s->graph,
+                                                   &s->engine->mtp_model,
+                                                   dw,
+                                                   feature_pos);
+            if (probe_log) {
+                fprintf(stderr,
+                        "ds4: DSpark draft-gamma skip gamma=0 lanes=%u\n",
+                        (unsigned)s->draft_gamma_lanes);
+            }
+            return false;
+        }
         const bool stage0_ready = dspark_stage0_weights_ready(&s->graph, dw);
         const bool runtime_fused_stage0_setup =
             enabled && !fake_argmax_enabled && !probe_log;
@@ -78687,6 +78837,10 @@ int ds4_sessions_eval_batch(ds4_decode_item *items, int count,
         return 1;
     }
     if (count == 1) {
+#ifndef DS4_NO_GPU
+        /* Active-lane count for the draft-gamma controller's slot key. */
+        if (items[0].session) items[0].session->draft_gamma_lanes = 1u;
+#endif
         return ds4_session_eval(items[0].session, items[0].token, err, errlen);
     }
 
@@ -78729,6 +78883,14 @@ int ds4_sessions_eval_batch(ds4_decode_item *items, int count,
             return 1;
         }
     }
+
+#ifndef DS4_NO_GPU
+    /* Every member of this step sees the same active-lane count, which is the
+     * key the draft-gamma controller buckets its gamma per. */
+    for (int i = 0; i < count; i++) {
+        items[i].session->draft_gamma_lanes = (uint32_t)count;
+    }
+#endif
 
 #ifndef DS4_NO_GPU
     if (e->backend == DS4_BACKEND_CUDA) {
