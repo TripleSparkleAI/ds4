@@ -286,23 +286,28 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29
   │             plain hash at the same address budget? Run on the committed
   │             track-3 token streams
   │
-  │  LATEST     granule run of record · 2026-09-16 · KILLED: the plain hash
-  │             wins 10 of 10 matched-entropy contrasts and 16 of 16
-  │             matched-byte contrasts, every one by more than the sealed
-  │             SESOI of 0.010; dDISCR -0.0414 to -0.2629 and -0.0294 to
-  │             -1.6357 (experiments/granule/MEASURED_GRANULE_sparse-expansion
-  │             -vs-plain-hash-discrimination_2026-09-16.md, run of record
-  │             @466ad0ed8, laptop CPU, 10.0 s wall)
-  │             ⚠ this is the branch's own prereg-sealed run, not one of the
-  │             named sealed rounds - no round has ever carried this branch
+  │  LATEST     round 5 - 2026-09-17 - TIES - -0.04 % 2/4 under a 5.69 floor -
+  │             2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
+  │             (the NEGATIVE word above stays, and is the branch's own offline
+  │             run of record on a different quantity: hash-vs-SDR discrimination)
   │
-  │  GEN        not measured - there is no engine code, no switch and no
-  │             binary on this branch, so the quantity does not exist for it
-  │  PREFILL    not measured - same reason
+  │  GEN        -0.04 %  floor 5.69 %  sign 2/4  n=4  (legacy rule +1.06)
+  │             raw: arm min-across median 9.51 t/s (9.74 / 9.01 / 9.50 / 9.52)
+  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
+  │             across 4096/6144, each run against its bracketing TIP runs
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
+  │             native 24.86 MB .text (tip 24.86 MB) - lean regime 4096/6144
+  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
+  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
+  │             that nothing clears it
+  │  PREFILL    reported, not a verdict: 85.98 t/s min-across median vs the
+  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
   │
-  │  VERDICT    NEGATIVE - killed by its own measurement. The expansion's
-  │             effective address space plateaus near 2^15 whatever it is
-  │             given, so it loses every contrast at matched budget
+  │  VERDICT    NEGATIVE - unchanged, and killed by its own offline measurement of
+  │             discrimination, not by round 5. The round's bench delta TIES: -0.04 %
+  │             at 2 of 4 inside a 5.69 % floor, which is the reading a branch whose
+  │             engine files match the tip should give
   │
   │  SWITCH     NONE - an offline experiment under experiments/granule/, no
   │             DS4_* knob exists and none is proposed
@@ -373,3 +378,9 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29
 - Data: `granule_results.json`, `granule_run_of_record.log`.
 - ⚠ Nothing here has been re-run on the Spark and nothing needs to be: the experiment is CPU only
   and its verdict does not depend on the box.
+
+## Round 5, and the number this card now carries
+
+- **Round 5 carried this branch as a bench arm and the bench delta TIES**: -0.04 % gen, 2 of 4 positive, inside a 5.69 % floor. The legacy rule reads +1.06 on the same runs, and both are ties.
+- That is a different quantity from the word in the box. NEGATIVE stands on the branch's own sealed offline run, which killed the sparse expansion on discrimination at matched budget; round 5 measured t/s, which this branch was never expected to move.
+- A binary was built for it at 24.86 MB .text, the tip's own size to two decimals, so a tie is the honest expectation and is what the four repeats read.
