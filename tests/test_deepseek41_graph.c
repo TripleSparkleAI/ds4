@@ -858,6 +858,126 @@ done:
     return rc;
 }
 
+/* An Engram layout small enough to build by hand, shaped like the real one. */
+static ds4_engram_layout prestage_layout(uint32_t *map, uint32_t entries) {
+    for (uint32_t i = 0; i < entries; i++) map[i] = i / 2;
+    ds4_engram_layout l = {.token_map = map, .vocab_size = entries,
+                           .compressed_vocab_size = entries / 2, .pad_id = 1};
+    for (int layer = 0; layer < DS4_ENGRAM_LAYERS; layer++) {
+        for (int j = 0; j < DS4_ENGRAM_NGRAM; j++)
+            l.multipliers[layer][j] = 35184372088831ull - 2 * (j + 4 * layer);
+        for (int j = 0; j < DS4_ENGRAM_COLS; j++) {
+            l.primes[layer][j] = 16000057;
+            l.rows[layer] += l.primes[layer][j];
+        }
+    }
+    return l;
+}
+
+/* An image position skips both Engram reads and still marks the prepared rows
+ * ready, so the buffer ds41_graph_step publishes can be one that nothing ever
+ * wrote. On the first decoded position after alloc that is whatever the
+ * allocator last had there. The demand path publishes g->rows, which lives
+ * inside the graph ds41_graph_alloc memsets, so it is zero there. No Metal and
+ * no model: the graph is built by hand, both table fds are -1 so any read
+ * would fail loudly, and the position is inside an image span. */
+static int check_engram_prestage_zeroed(const char *self) {
+    int rc = 1;
+    /* Leftover bytes are only leftover if the allocator leaves them, and both
+     * platform allocators take that instruction only at process start, so the
+     * test re-runs itself once with the fill on. Without it a fresh large
+     * block arrives zeroed from the kernel and this cannot fail whatever the
+     * allocation does. */
+    if (self && !getenv("DS4_PRESTAGE_SCRIBBLE")) {
+        char *const argv[] = {(char *)(uintptr_t)self,
+                              (char *)"--engram-prestage-zeroed", NULL};
+        if (setenv("MallocScribble", "1", 1) == 0 &&
+            setenv("MALLOC_PERTURB_", "165", 1) == 0 &&
+            setenv("DS4_PRESTAGE_SCRIBBLE", "1", 1) == 0)
+            execv(self, argv);
+        fprintf(stderr, "could not re-exec with the allocator fill on\n");
+        return 1;
+    }
+    enum { POISON_BLOCKS = 16 };
+    const size_t bytes = 2u * sizeof(float[DS4_ENGRAM_COLS * DS4_ENGRAM_DIM]);
+    void *poison[POISON_BLOCKS] = {0};
+    unsigned char *witness = NULL;
+    uint32_t *map = NULL;
+    ds4_vision_span image = {0};
+    ds41_gpu_graph *g = calloc(1, sizeof(*g));
+    REQUIRE(g);
+    map = calloc(256, sizeof(*map));
+    REQUIRE(map);
+
+    /* Dirty blocks of exactly this size and hand them all back, so the next
+     * two allocations of the same size come off a cache holding poison. One
+     * block on its own is often returned to the OS and comes back zeroed. */
+    for (int i = 0; i < POISON_BLOCKS; i++) {
+        poison[i] = malloc(bytes);
+        REQUIRE(poison[i]);
+        memset(poison[i], 0xA5, bytes);
+    }
+    for (int i = 0; i < POISON_BLOCKS; i++) { free(poison[i]); poison[i] = NULL; }
+
+    g->prestage_rows = ds41_prestage_alloc();
+    REQUIRE(g->prestage_rows);
+    /* THE VACUITY CONTROL, taken from the same arena in the same breath: a
+     * plain allocation of the same size. If it comes back clean, this
+     * allocator hands out zeroed pages here and the assertion below could not
+     * have failed, so the case is skipped BY NAME rather than counted. No
+     * memset on prestage_rows: the point is what the allocation left, and a
+     * memset would be testing the memset. */
+    witness = malloc(bytes);
+    REQUIRE(witness);
+    size_t witness_dirty = 0;
+    for (size_t i = 0; i < bytes; i++) witness_dirty += witness[i] != 0;
+    if (!witness_dirty) {
+        puts("V4.1 Engram prestage rows at an unread image position: SKIPPED "
+             "(this allocator returns zeroed blocks, so the case cannot fail)");
+        rc = 0;
+        goto done;
+    }
+
+    image.token_start = 0;
+    image.embedding.token_count = 4;
+    g->valid = true;
+    g->ctx = 64;
+    g->pos = 0;
+    g->images = &image;
+    g->image_count = 1;
+    g->table[0].fd = g->table[1].fd = -1; /* a read would fail, so none happens */
+    g->engram = prestage_layout(map, 256);
+    ds4_engram_history_reset(&g->history);
+    REQUIRE(ds41_image_at(g, g->pos) != NULL);
+    REQUIRE(ds41_graph_prepare_inputs(g, 3));
+    /* The prepare marks the rows usable without having read them: that is the
+     * shape of the defect, and it is asserted rather than assumed. */
+    REQUIRE(g->prestage_ready);
+    REQUIRE(ds41_graph_engram_ready(g, 3));
+    for (uint32_t table = 0; table < 2; table++) {
+        for (size_t i = 0; i < DS4_ENGRAM_COLS * DS4_ENGRAM_DIM; i++) {
+            if (g->prestage_rows[table][i] != 0.0f) {
+                fprintf(stderr,
+                    "prepared row %u float %zu is %g at an image position "
+                    "(%zu of %zu witness bytes were poison)\n",
+                    table, i, (double)g->prestage_rows[table][i],
+                    witness_dirty, bytes);
+                goto done;
+            }
+        }
+    }
+    printf("V4.1 Engram prestage rows are zero at an unread image position: PASS "
+           "(arena poisoned, %zu of %zu witness bytes dirty)\n", witness_dirty, bytes);
+    rc = 0;
+done:
+    for (int i = 0; i < POISON_BLOCKS; i++) free(poison[i]);
+    free(witness);
+    if (g) free(g->prestage_rows);
+    free(g);
+    free(map);
+    return rc;
+}
+
 static int check_wide_prefill(const char *path, const char *prompt_path,
                               bool cancel_only, bool decoder_cancel, const char *control_env) {
     ds4_engine *engine = NULL;
@@ -1920,6 +2040,8 @@ int main(int argc, char **argv) {
         return check_vision_encoder(argv[2], argv[3], argv[4]);
     if (argc == 2 && !strcmp(argv[1], "--engram-ready"))
         return check_engram_prefetch_ready();
+    if (argc == 2 && !strcmp(argv[1], "--engram-prestage-zeroed"))
+        return check_engram_prestage_zeroed(argv[0]);
     /* Isolate scheduling from matrix-kernel rounding in the byte-exact
      * row/layer/residency comparisons. --long-sessions and --thread-sessions
      * exercise the default matrix path and require exact snapshot restoration;
@@ -2026,7 +2148,7 @@ int main(int argc, char **argv) {
                         "--prefill-alias-fallback PROMPT_FILE | "
                         "--sweep-partitions PROMPT_FILE | "
                         "--deferred-decoder PROMPT_FILE | "
-                        "--decoder-suffix PROMPT_FILE | --session-accounting | --memory-plan | "
+                        "--decoder-suffix PROMPT_FILE | --session-accounting | --memory-plan | --engram-prestage-zeroed | "
                         "RENDERED_PROMPT [GENERATE])\n", argv[0]);
         return 2;
     }

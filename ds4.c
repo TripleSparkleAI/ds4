@@ -40192,6 +40192,17 @@ typedef struct {
     uint32_t (*prefill_ids)[2][DS4_ENGRAM_COLS];
     ds4_engram_table table[2];
     float rows[2][DS4_ENGRAM_COLS * DS4_ENGRAM_DIM];
+    /* Engram prestage (DS4_ENGRAM_PRESTAGE=1).  The host-side row lookup the
+     * next forward needs, done in a prepare phase before that forward starts,
+     * so the forward itself touches no disk.  This is a separate 48 KiB host
+     * buffer rather than rows[] so a prepare may later overlap a step already
+     * in flight; with the switch off nothing here is read or written.  The
+     * prepared rows carry the (token, history, pos) they were read under and
+     * the forward publishes them only when all three match. */
+    float (*prestage_rows)[DS4_ENGRAM_COLS * DS4_ENGRAM_DIM];
+    ds4_engram_history prestage_history;
+    uint32_t prestage_token, prestage_pos;
+    bool prestage_ready;
     ds4_gpu_tensor *window[40];
     ds4_gpu_tensor *compressed[4], *index_cache[4];
     ds4_gpu_tensor *previous_kv[4], *previous_score[4];
@@ -40210,6 +40221,21 @@ static bool ds41_read_array(const ds4_model *m, const char *key, uint32_t type,
     if (!model_get_array(m, key, &arr) || arr.type != type || arr.len != count) return false;
     ds4_cursor c = cursor_at(m, arr.data_pos);
     return cursor_read(&c, out, bytes);
+}
+
+/* The prepare buffer, ZEROED and not merely allocated.  An image position is
+ * the reason: ds41_graph_prepare_inputs skips both table reads there and still
+ * marks the rows ready, so ds41_graph_step publishes this buffer to the GPU
+ * without anything ever having written it.  On the demand path the same
+ * position publishes g->rows, which lives inside the graph that
+ * ds41_graph_alloc memsets, so it is zero on the first step and the previous
+ * token's finite values afterwards.  calloc is what makes the two paths agree
+ * byte for byte instead of putting whatever the allocator handed back --
+ * possibly a NaN pattern, which survives a suppression that multiplies --
+ * into the Engram matmul.  Named so a test can allocate the same way the
+ * graph does without standing up Metal. */
+static float (*ds41_prestage_alloc(void))[DS4_ENGRAM_COLS * DS4_ENGRAM_DIM] {
+    return calloc(2u, sizeof(float[DS4_ENGRAM_COLS * DS4_ENGRAM_DIM]));
 }
 
 static void ds41_graph_free(ds41_gpu_graph *g) {
@@ -40247,6 +40273,7 @@ static void ds41_graph_free(ds41_gpu_graph *g) {
     free(g->token_map);
     free(g->prefill_ids);
     free(g->rows_view);
+    free(g->prestage_rows);
     ds4_gpu_tensor_free(g->prefill_tokens);
     memset(g, 0, sizeof(*g));
     g->table[0].fd = g->table[1].fd = -1;
@@ -40275,6 +40302,8 @@ static uint64_t ds41_graph_bytes(uint32_t ctx) {
 #undef DS41_CARRY_COUNT
     /* Reserve view objects and the bounded host hash-ID array as well. */
     floats += (uint64_t)g->prefill_cap * 512u;
+    /* Engram prestage holds one host-side pair of decoded rows. */
+    floats += (uint64_t)2u * DS4_ENGRAM_COLS * DS4_ENGRAM_DIM;
     if (g->carry_cap > g->prefill_cap)
         floats += (uint64_t)(g->carry_cap - g->prefill_cap) * 2u * DS4_ENGRAM_COLS;
     /* Expert-major matrix kernels use one bounded packed activation buffer. */
@@ -40300,6 +40329,10 @@ static ds4_context_memory ds41_graph_memory(uint32_t ctx) {
 static void ds41_graph_reset(ds41_gpu_graph *g) {
     g->pos = 0;
     g->valid = true;
+    /* A rewind or a restored checkpoint moves pos and rebuilds the history, so
+     * any prepared rows are stale the moment either changes. The (token,
+     * history, pos) match in the forward is the guard; this is the cheap half. */
+    g->prestage_ready = false;
     ds4_engram_history_reset(&g->history);
     /* Valid lengths, not zeroed storage, determine cache visibility. Each
      * partial pair is overwritten by its even-position token before use. */
@@ -40322,9 +40355,11 @@ static DS4_MAYBE_UNUSED bool ds41_graph_alloc(ds41_gpu_graph *g, const ds4_model
     g->token_map = malloc((size_t)DS4_N_VOCAB * sizeof(uint32_t));
     g->prefill_ids = malloc((size_t)(g->carry_cap ? g->carry_cap : g->prefill_cap) *
                             sizeof(*g->prefill_ids));
+    g->prestage_rows = ds41_prestage_alloc();
     g->rows_view = calloc(g->prefill_cap, sizeof(*g->rows_view));
     g->prefill_tokens = ds4_gpu_tensor_alloc((uint64_t)g->prefill_cap * sizeof(int32_t));
-    if (!g->token_map || !g->prefill_ids || !g->rows_view || !g->prefill_tokens) goto fail;
+    if (!g->token_map || !g->prefill_ids || !g->prestage_rows || !g->rows_view ||
+        !g->prefill_tokens) goto fail;
     g->engram.token_map = g->token_map;
     g->engram.vocab_size = DS4_N_VOCAB;
     g->engram.compressed_vocab_size = required_u32(m, "deepseek41.engram.compressed_vocab_size");
@@ -41257,14 +41292,93 @@ static bool ds41_moe_batch(ds41_gpu_graph *g, const ds4_model *m,
         ds41_sum_partial_batch(g, b->routed, il, count);
 }
 
+/* Engram prestage (DS4_ENGRAM_PRESTAGE).
+ *
+ * The decode step's host-side row lookup is two blocking preads of 24 rows
+ * each, serialised in front of the whole step, and it is fully exposed: the
+ * read finishes before ds4_gpu_begin_commands() is reached, so no GPU work
+ * overlaps any of it.  This phase does that lookup before the forward starts,
+ * leaving the forward with no disk I/O and no hash work of its own.
+ *
+ * The row ids are a pure function of the token and the rolling history
+ * (ds4_engram_hash reads the token id and a three-entry tail, no activation
+ * and no layer output), so the prepare is exact.  Nothing is speculated: the
+ * caller does not guess the next token, it prepares the token it already has.
+ * The prepared rows carry the (token, history, pos) they were read under, and
+ * the forward uses them only when all three match what it is asked for.
+ *
+ * DS4_ENGRAM_PRESTAGE=1 enables the phase; unset or 0 keeps the lookup inline
+ * in the forward, byte for byte the unpatched path.  */
+
+static bool ds41_engram_prestage_enabled(void) {
+    const char *s = getenv("DS4_ENGRAM_PRESTAGE");
+    if (!s || !*s) return false;
+    return s[0] != '0' &&
+        strcmp(s, "off") != 0 && strcmp(s, "OFF") != 0 &&
+        strcmp(s, "no") != 0 && strcmp(s, "NO") != 0 &&
+        strcmp(s, "false") != 0 && strcmp(s, "FALSE") != 0;
+}
+
+static bool ds41_engram_prestage_debug(void) {
+    const char *s = getenv("DS4_ENGRAM_PRESTAGE_DEBUG");
+    return s && *s && s[0] != '0';
+}
+
+/* Were these exact rows prepared for this exact step? */
+static bool ds41_graph_engram_ready(const ds41_gpu_graph *g, int token) {
+    return g->prestage_ready && g->prestage_token == (uint32_t)token &&
+        g->prestage_pos == g->pos &&
+        memcmp(&g->prestage_history, &g->history, sizeof(g->history)) == 0;
+}
+
+/* The prepare phase.  Runs the whole host-side row lookup for the step the
+ * caller is about to take and parks the rows.  A caller that invokes this
+ * before the forward is what makes the forward host-free. */
+static bool ds41_graph_prepare_inputs(ds41_gpu_graph *g, int token) {
+    if (!g || !g->valid || !g->prestage_rows || g->pos >= g->ctx ||
+        token < 0 || (uint32_t)token >= DS4_N_VOCAB) return false;
+    ds4_engram_history next_history = g->history;
+    uint32_t ids[2][DS4_ENGRAM_COLS];
+    if (!ds41_hash_tokens(g, &next_history, &token, 1, &ids[0][0])) return false;
+    for (uint32_t i = 0; !ds41_image_at(g, g->pos) && i < 2; i++) {
+        if (!ds4_engram_read(&g->table[i], ids[i], DS4_ENGRAM_COLS, g->prestage_rows[i]))
+            return false;
+    }
+    g->prestage_history = next_history;
+    g->prestage_token = (uint32_t)token;
+    g->prestage_pos = g->pos;
+    g->prestage_ready = true;
+    return true;
+}
+
 static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model *m,
                                              const ds4_weights *w, int token, float *logits) {
     if (!g || !g->valid || g->pos >= g->ctx || token < 0 || (uint32_t)token >= DS4_N_VOCAB) return false;
-    uint32_t ids[2][DS4_ENGRAM_COLS];
-    ds4_engram_history next_history = g->history;
-    if (!ds41_hash_tokens(g, &next_history, &token, 1, &ids[0][0])) return false;
-    for (uint32_t i = 0; !ds41_image_at(g, g->pos) && i < 2; i++) {
-        if (!ds4_engram_read(&g->table[i], ids[i], DS4_ENGRAM_COLS, g->rows[i])) return false;
+    ds4_engram_history next_history;
+    const float (*rows)[DS4_ENGRAM_COLS * DS4_ENGRAM_DIM] = g->rows;
+    /* A graph with no prepare buffer keeps the demand read rather than failing,
+     * so the switch is strictly additive and can never make a step that worked
+     * stop working. */
+    if (ds41_engram_prestage_enabled() && g->prestage_rows) {
+        /* Prepare inputs, then forward.  A miss (a rejected token, a rewind, a
+         * fork: anything that moved pos or rebuilt the history since the
+         * prepare) is not an error, it is a demand read, so the step is never
+         * wrong -- but it is host work inside the forward, so count it. */
+        if (!ds41_graph_engram_ready(g, token)) {
+            if (ds41_engram_prestage_debug())
+                fprintf(stderr, "ds4: Engram prestage miss at pos %u (token %d)\n",
+                        g->pos, token);
+            if (!ds41_graph_prepare_inputs(g, token)) return false;
+        }
+        next_history = g->prestage_history;
+        rows = g->prestage_rows;
+    } else {
+        uint32_t ids[2][DS4_ENGRAM_COLS];
+        next_history = g->history;
+        if (!ds41_hash_tokens(g, &next_history, &token, 1, &ids[0][0])) return false;
+        for (uint32_t i = 0; !ds41_image_at(g, g->pos) && i < 2; i++) {
+            if (!ds4_engram_read(&g->table[i], ids[i], DS4_ENGRAM_COLS, g->rows[i])) return false;
+        }
     }
     const float initial_pre[] = {1, 0, 0, 0};
     if (!ds4_gpu_tensor_write(g->pre, 0, initial_pre, sizeof(initial_pre)) ||
@@ -41284,7 +41398,7 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model 
             ok = metal_graph_stream_map_layer(m, w, il) && ds4_gpu_begin_commands();
         if (ok && ds41_engram_layer(il)) {
             const uint32_t i = il == 1 ? 0 : 1;
-            ok = ds4_gpu_tensor_write(g->engram_rows, 0, g->rows[i], sizeof(g->rows[i]));
+            ok = ds4_gpu_tensor_write(g->engram_rows, 0, rows[i], sizeof(rows[i]));
         }
         if (ok) {
 #if !defined(__APPLE__) && !defined(DS4_ROCM_BUILD)
@@ -76971,6 +77085,13 @@ static int ds4_session_eval_internal(ds4_session *s, int token, bool probe_mtp,
     ds4_engine *e = s->engine;
 #ifdef DS4_HAS_DEEPSEEK41_GPU
     if (ds4_session_is_ds41(s)) {
+        /* The Engram prepare phase, invoked before the forward.  With
+         * DS4_ENGRAM_PRESTAGE off this is a no-op and the forward does its own
+         * lookup exactly as before; with it on the row read completes here so
+         * the forward that follows has no disk I/O of its own.  A failure is
+         * not special-cased: the forward re-runs the same lookup and reports. */
+        if (ds41_engram_prestage_enabled())
+            (void)ds41_graph_prepare_inputs(&s->ds41_graph, token);
         if (!s->ds41_graph_ready ||
             (!s->checkpoint_valid && s->checkpoint.len != 0) ||
             s->ds41_graph.pos != (uint32_t)s->checkpoint.len ||
