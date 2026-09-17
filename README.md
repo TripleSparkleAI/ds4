@@ -490,9 +490,54 @@ first measurement of the ten-lever tree, and it has not been taken.
 One card per branch, the box copied from that branch's own README at its HEAD by
 `rebuild_index.py`, grouped by the status the card itself declares. Regenerate,
 never hand-edit: a hand-edited row drifts from the branch it describes.
-Regenerated 2026-09-17 11:29Z, 25 cards.
+Regenerated 2026-09-17 12:12Z, 25 cards.
 
 ## POSITIVELY MEASURED
+
+### triple-all
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-all                                          POSITIVE
+  │
+  │  WHAT       six lever branches stacked in series: the pread pool, the
+  │             event-gated selected-expert readback, the cache reserve knob,
+  │             the hot list seed, the staged page-drop order and hits-first.
+  │             Measured second-best of all trees today at +6.50 %, and an arm
+  │             of the amended round 7
+  │
+  │  LATEST     round 6 · 2026-09-17 · BEATS · +6.50 % ·
+  │             2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
+  │
+  │  GEN        +6.50 %  floor 3.35 %  sign 3/3  n=3
+  │             raw: arm min-across median 10.35 t/s (10.31 · 10.24 · 10.38 ·
+  │             10.39) vs the tip's 9.69 t/s (9.67 · 9.56 · 9.88 · 9.70 kept,
+  │             9.45 contention-dropped; the result file's figure line reads
+  │             9.67). gen_steady at min across 4096/6144. The delta is each
+  │             run against its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:12-11:58Z · DGX Spark GB10 ·
+  │             native 24.90 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 86.30 t/s min-across median vs the
+  │             tip's 89.16 t/s, n=4. Round 6 makes no prefill verdict.
+  │
+  │  VERDICT    POSITIVE - the only arm of round 6 to clear the floor, and it
+  │             clears it at every repeat (+6.1 to +6.8 %). Both the sealed
+  │             legacy rule and the new rule give this verdict, so nothing
+  │             turns on the straggler rule
+  │
+  │  SWITCH     the six levers' own switches, verified present in this tree's
+  │             diff: DS4_CUDA_STREAMING_EXPERT_PREAD_POOL and _PREAD_THREADS,
+  │             DS4_CUDA_SELECTED_DRAIN_SYNC, DS4_CUDA_EXPERT_CACHE_MARGIN_GB,
+  │             DS4_CUDA_EXPERT_HOTLIST_WRITE, DS4_CUDA_NO_EXPERT_READAHEAD,
+  │             DS4_CUDA_HITS_FIRST and _HITS_FIRST_STAGED
+  │  OUTPUT     not re-run. A greedy sha was recorded on a prior card and is
+  │             withheld here: it was taken before this rebase, on a tree this
+  │             branch is no longer on
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
 
 ### triple-all-fastest-newtip
 
@@ -660,6 +705,45 @@ Regenerated 2026-09-17 11:29Z, 25 cards.
 
 ## MEASURED CORRECT, WORTH ZERO ON THE CLOCK
 
+### triple-engram-prestage
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-engram-prestage                            WORTH ZERO
+  │
+  │  WHAT       moves the host-side Engram row lookup out of the forward pass
+  │             into a prepare phase that runs before it, so the forward carries
+  │             no disk read and no hash of its own
+  │
+  │  LATEST     round 6 · 2026-09-17 · TIES · -1.40 % ·
+  │             2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
+  │
+  │  GEN        -1.40 %  floor 3.35 %  sign 0/3  n=3
+  │             raw: arm min-across median 9.54 t/s (9.62 · 9.50 · 9.57 · 9.52)
+  │             vs the tip's 9.69 t/s (9.67 · 9.56 · 9.88 · 9.70 kept, 9.45
+  │             contention-dropped; the result file's figure line reads 9.67).
+  │             gen_steady at min across 4096/6144. The delta is each run
+  │             against its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:12-11:58Z · DGX Spark GB10 ·
+  │             native 24.85 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 87.18 t/s min-across median vs the
+  │             tip's 89.16 t/s, n=4. Round 6 makes no prefill verdict.
+  │
+  │  VERDICT    WORTH ZERO - inside the floor at -1.40 %, repeat range -2.8 to
+  │             -1.2 %, every repeat negative. That is what the card predicted
+  │             for a precondition that takes host I/O out of the forward
+  │             without hiding it behind anything. Both rules agree
+  │
+  │  SWITCH     DS4_ENGRAM_PRESTAGE=1 enables the prepare; unset or 0 is the
+  │             shipped inline path. DS4_ENGRAM_PRESTAGE_DEBUG=1 names every
+  │             demand-read miss. Read per call, not latched
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
 ### triple-engram-read-threads
 
 ```
@@ -702,6 +786,86 @@ Regenerated 2026-09-17 11:29Z, 25 cards.
   │             0 clamps to one reader, the serial path.
   │  OUTPUT     not re-run (the previous revision's gates bb06e711bc498bb9 /
   │             2f2dd7f89d107bbc / 652dcda32c176cab belong to that revision)
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-hippocampal-warmset
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-hippocampal-warmset                        WORTH ZERO
+  │
+  │  WHAT       gives the persisted expert hot list a longer horizon: carried
+  │             free inside a day, halved once per day boundary, promoted to a
+  │             durable set when a (layer, expert) pair is demanded on three
+  │             distinct days
+  │
+  │  LATEST     round 6 · 2026-09-17 · TIES · -1.54 % ·
+  │             2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
+  │
+  │  GEN        -1.54 %  floor 3.35 %  sign 0/3  n=3
+  │             raw: arm min-across median 9.57 t/s (9.76 · 9.48 · 9.38 · 9.66)
+  │             vs the tip's 9.69 t/s (9.67 · 9.56 · 9.88 · 9.70 kept, 9.45
+  │             contention-dropped; the result file's figure line reads 9.67).
+  │             gen_steady at min across 4096/6144. The delta is each run
+  │             against its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:12-11:58Z · DGX Spark GB10 ·
+  │             native 24.89 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 83.97 t/s min-across median vs the
+  │             tip's 89.16 t/s, n=4. Round 6 makes no prefill verdict.
+  │
+  │  VERDICT    WORTH ZERO - inside the floor at -1.54 %, repeat range -3.5 to
+  │             -1.3 %, every repeat negative. The largest negative of the three
+  │             tied arms, and still inside the floor. Both rules agree
+  │
+  │  SWITCH     DS4_WARMSET_TIER=session|day, default session, which IS
+  │             today's behaviour: one file, halved at every load
+  │             DS4_WARMSET_DAYS 3 · _MAX <n> · _DIR <dir> · _PROFILE=1
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-lfu-offsetkey
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-lfu-offsetkey                              WORTH ZERO
+  │
+  │  WHAT       ports upstream NeutronStar's host expert cache: byte ranges
+  │             keyed by FILE OFFSET, a 16-way table, a per-slot uses counter
+  │             halved every 4096 inserts. Three arms out of one binary isolate
+  │             the eviction POLICY on one structure
+  │
+  │  LATEST     round 6 · 2026-09-17 · TIES · -0.20 % ·
+  │             2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
+  │
+  │  GEN        -0.20 %  floor 3.35 %  sign 1/3  n=3
+  │             raw: arm min-across median 9.71 t/s (9.52 · 9.85 · 9.64 · 9.77)
+  │             vs the tip's 9.69 t/s (9.67 · 9.56 · 9.88 · 9.70 kept, 9.45
+  │             contention-dropped; the result file's figure line reads 9.67).
+  │             gen_steady at min across 4096/6144. The delta is each run
+  │             against its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:12-11:58Z · DGX Spark GB10 ·
+  │             native 24.87 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 85.90 t/s min-across median vs the
+  │             tip's 89.16 t/s, n=4. Round 6 makes no prefill verdict.
+  │
+  │  VERDICT    WORTH ZERO - inside the floor, with a repeat range of -0.8 to
+  │             +2.4 % and one repeat of three positive. The CUDA build that
+  │             was owed here exists and ran; the policy costs nothing and
+  │             buys nothing on this tip. Both rules give this verdict
+  │
+  │  SWITCH     DS4_EXPERT_CACHE_MODE=hotlist|offsetkey|offsetkey-lru, default
+  │             hotlist, in which the cache is inert: it never allocates, probes
+  │             or inserts. DS4_CUDA_HOST_EXPERT_CACHE_GB=<GiB> sizes it; unset,
+  │             it takes the configured expert-cache byte size
+  │  OUTPUT     not re-run. Residency changes WHEN a byte arrives, never WHICH
   │
   └──────────────────────────────────────────────────────────────────────
 ```
@@ -942,45 +1106,6 @@ Regenerated 2026-09-17 11:29Z, 25 cards.
 
 ## NOT YET MEASURED
 
-### triple-all
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-all                                           NOT YET
-  │
-  │  WHAT       six lever branches stacked in series: the pread pool, the
-  │             event-gated selected-expert readback, the cache reserve knob,
-  │             the hot list seed, the staged page-drop order and hits-first.
-  │             A reference tree, never a submission, and SUPERSEDED
-  │
-  │  LATEST     never in a sealed round, and it will not be in one. The arm
-  │             lists of 2026-09-17-ROUND3-, -R4- and -R5-PREREGISTERED-RULE.txt
-  │             name this branch zero times, and a word-bounded search for
-  │             triple-all not followed by -fastest returns 0 lines across every
-  │             2026-09-16 and 2026-09-17 result and rule file. Its successor
-  │             triple-all-fastest-newtip is round 4's ALLFASTESTNE arm
-  │
-  │  GEN        not measured. No arm of this tree has ever been built or run
-  │  PREFILL    not measured
-  │
-  │  VERDICT    NOT YET and SUPERSEDED - the work moved to triple-all-fastest
-  │             and then to triple-all-fastest-newtip, which carries these six
-  │             plus four more AND the round-2 comparator revert as its default.
-  │             Read that branch; this one is kept as a record
-  │
-  │  SWITCH     the six levers' own switches, verified present in this tree's
-  │             diff: DS4_CUDA_STREAMING_EXPERT_PREAD_POOL and _PREAD_THREADS,
-  │             DS4_CUDA_SELECTED_DRAIN_SYNC, DS4_CUDA_EXPERT_CACHE_MARGIN_GB,
-  │             DS4_CUDA_EXPERT_HOTLIST_WRITE, DS4_CUDA_NO_EXPERT_READAHEAD,
-  │             DS4_CUDA_HITS_FIRST and _HITS_FIRST_STAGED
-  │  OUTPUT     not re-run. A greedy sha was recorded on a prior card and is
-  │             withheld here: it was taken before this rebase, on a tree this
-  │             branch is no longer on
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
 ### triple-climbingfibre
 
 ```
@@ -1109,103 +1234,6 @@ Regenerated 2026-09-17 11:29Z, 25 cards.
   │             variable to anything to turn it off. Read once per process,
   │             all-or-nothing
   │  OUTPUT     not re-run
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
-### triple-engram-prestage
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-engram-prestage                               NOT YET
-  │
-  │  WHAT       moves the host-side Engram row lookup out of the forward pass
-  │             into a prepare phase that runs before it, so the forward carries
-  │             no disk read and no hash of its own
-  │
-  │  LATEST     never in a sealed round. The arm lists of 2026-09-17-ROUND3-,
-  │             -R4- and -R5-PREREGISTERED-RULE.txt name this branch zero times,
-  │             DS4_ENGRAM_PRESTAGE appears in no 2026-09-16 series switch
-  │             block, and the switch is not in the stack. The one profile it
-  │             cites measures the SHIPPED path, not this branch
-  │
-  │  GEN        not measured
-  │  PREFILL    not measured
-  │
-  │  VERDICT    NOT YET, and it is a PRECONDITION rather than a payoff: the
-  │             prepare takes host I/O out of the forward but does not yet hide
-  │             it behind anything, so even a clean A/B would be expected to
-  │             read near zero
-  │
-  │  SWITCH     DS4_ENGRAM_PRESTAGE=1 enables the prepare; unset or 0 is the
-  │             shipped inline path. DS4_ENGRAM_PRESTAGE_DEBUG=1 names every
-  │             demand-read miss. Read per call, not latched
-  │  OUTPUT     not re-run
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
-### triple-hippocampal-warmset
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-hippocampal-warmset                           NOT YET
-  │
-  │  WHAT       gives the persisted expert hot list a longer horizon: carried
-  │             free inside a day, halved once per day boundary, promoted to a
-  │             durable set when a (layer, expert) pair is demanded on three
-  │             distinct days
-  │
-  │  LATEST     never in a sealed round
-  │
-  │  GEN        not measured
-  │  PREFILL    not measured
-  │
-  │  VERDICT    NOT YET - no CUDA build of this branch exists, so `session`
-  │             has never been run against `day` on a box. The only runs are
-  │             host tests of the rules, and the default tier reproduces
-  │             today's behaviour exactly
-  │
-  │  SWITCH     DS4_WARMSET_TIER=session|day, default session, which IS
-  │             today's behaviour: one file, halved at every load
-  │             DS4_WARMSET_DAYS 3 · _MAX <n> · _DIR <dir> · _PROFILE=1
-  │  OUTPUT     not re-run
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
-### triple-lfu-offsetkey
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-lfu-offsetkey                                 NOT YET
-  │
-  │  WHAT       ports upstream NeutronStar's host expert cache: byte ranges
-  │             keyed by FILE OFFSET, a 16-way table, a per-slot uses counter
-  │             halved every 4096 inserts. Three arms out of one binary isolate
-  │             the eviction POLICY on one structure
-  │
-  │  LATEST     never in a sealed round. The arm lists of
-  │             2026-09-17-ROUND3-, -R4- and -R5-PREREGISTERED-RULE.txt name
-  │             this branch zero times, and no 2026-09-16 series switch block
-  │             contains DS4_EXPERT_CACHE_MODE. The only numbers this branch
-  │             holds are its own host-side harness, below
-  │
-  │  GEN        not measured
-  │  PREFILL    not measured
-  │
-  │  VERDICT    NOT YET - a CUDA build and the three-arm sweep are owed. What
-  │             exists is a 36-assertion host harness of the eviction block,
-  │             all passing, including one window where LFU and LRU disagree
-  │
-  │  SWITCH     DS4_EXPERT_CACHE_MODE=hotlist|offsetkey|offsetkey-lru, default
-  │             hotlist, in which the cache is inert: it never allocates, probes
-  │             or inserts. DS4_CUDA_HOST_EXPERT_CACHE_GB=<GiB> sizes it; unset,
-  │             it takes the configured expert-cache byte size
-  │  OUTPUT     not re-run. Residency changes WHEN a byte arrives, never WHICH
   │
   └──────────────────────────────────────────────────────────────────────
 ```
