@@ -490,42 +490,168 @@ first measurement of the ten-lever tree, and it has not been taken.
 One card per branch, the box copied from that branch's own README at its HEAD by
 `rebuild_index.py`, grouped by the status the card itself declares. Regenerate,
 never hand-edit: a hand-edited row drifts from the branch it describes.
-Regenerated 2026-09-17 10:15Z, 25 cards.
+Regenerated 2026-09-17 11:07Z, 25 cards.
 
 ## POSITIVELY MEASURED
+
+### triple-all-fastest-newtip
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-all-fastest-newtip                     POSITIVE
+  │
+  │  WHAT       the ten-lever stack REBUILT ON THE NEW TIP from its manifest:
+  │             base triple-tip-2026-09-16 (12997e9c8), one commit per lever
+  │             in stack-on-newtip.manifest order, every conflict hunk decided
+  │             on purpose and recorded, so build_stack.sh reproduces this
+  │             tree from the manifest alone. Nine levers on, hits-first off,
+  │             victim order used-ascending (the measured default).
+  │
+  │  LATEST     round 4 · 2026-09-17 · BEATS · +4.65 % (kept +6.87 %) ·
+  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
+  │
+  │  GEN        +4.65 % (kept +6.87 %)  floor 2.71 % (no-drop)  sign 4/4  n=4
+  │             raw: arm median 10.14 t/s vs tip median 9.65 t/s, gen_steady
+  │             at min across 4096/6144; the delta is each run against the
+  │             mean of its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
+  │             bracket per cycle
+  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
+  │             native 24.94 MB .text · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 136.25 t/s min-across median vs the
+  │             tip's 80.73 t/s, n=4. Round 4 makes no prefill verdict.
+  │
+  │  VERDICT    POSITIVE - beats the new tip on both readings, +4.65 % no-drop and
+  │             +6.87 % kept, sign 4 of 4. First measurement of this tree, and it
+  │             compiled first time at 24.94 MB .text, which refuted prediction P4.
+  │             ⚠ It ships the WRONG SIDE of both levers round 4 measured solo:
+  │             prefill-readahead-order ON at -11.38 % solo, and hits-first OFF at
+  │             +6.47 % solo. Nothing here attributes the stack's number to any
+  │             lever; the seal forbids it. ROUND 7 asks the question directly.
+  │
+  │  SWITCH     ten levers, see the table below; plus
+  │             DS4_CUDA_PREFETCH_SWEEP_ORDER=1 restores the sweep-aware order
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
 
 ### triple-hitsfirst
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-hitsfirst                                    POSITIVE
+  │  BRANCH     triple-hitsfirst                              POSITIVE
   │
   │  WHAT       launches gate/up/down for the experts already resident
   │             before the miss reads land, so a token does not stall on
   │             the slowest read in the batch
   │
-  │  LATEST     attrib phase 2 · 2026-09-16 · LOSES AT 4096, TIES ELSEWHERE:
-  │             -4.23 % at ctx 4096, sign 0/6, floor 2.89 %, cleared 1.5x;
-  │             -0.57 / -0.76 / -0.95 % at 6144 / 8192 / min, all inside it;
-  │             min-vs-min 9.55 vs 9.55 = +0.00 %
-  │             (2026-09-16-triple-all-fastest-attrib-hits-first-on.txt)
-  │             ⚠ that arm is the NINE-lever binary at dd82361a, not this branch
-  │             round 3 is measuring this branch now: in flight, unresolved
+  │  LATEST     round 4 · 2026-09-17 · BEATS · +6.47 % (kept +7.93 %) ·
+  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
   │
-  │  GEN        10.35 t/s  vs control 9.56  +8.3 %  floor 4.9 %  n=2
-  │             control = unpatched tip, interleaved, same native vintage
-  │             session = 2026-09-15 · DGX Spark GB10 · native 23.1 MB .text · unstamped
-  │  PREFILL    not measured
+  │  GEN        +6.47 % (kept +7.93 %)  floor 2.71 % (no-drop)  sign 4/4  n=4
+  │             raw: arm median 10.37 t/s vs tip median 9.65 t/s, gen_steady
+  │             at min across 4096/6144; the delta is each run against the
+  │             mean of its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
+  │             bracket per cycle
+  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
+  │             native 24.89 MB .text · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 83.47 t/s min-across median vs the
+  │             tip's 80.73 t/s, n=4. Round 4 makes no prefill verdict.
   │
-  │  VERDICT    POSITIVE - the only solo generation delta in the five-branch
-  │             series that cleared its own floor, +8.3 % against 4.9 % at n=2.
-  │             In the stack it ties the tip at three readings of four and loses
-  │             -4.23 % at 4096. The repair ca5232d40 is unmeasured everywhere.
+  │  VERDICT    POSITIVE - beats the new tip on both readings, +6.47 % no-drop
+  │             and +7.93 % kept, with all four repeats above +6.4 %. The
+  │             2026-09-15 solo win reproduces on the new tip, and bigger. The two
+  │             readings agree here, so nothing turns on the straggler rule.
   │
   │  SWITCH     DS4_CUDA_HITS_FIRST=1 (default OFF in the stack; =0 is wait-then-launch)
   │             DS4_CUDA_HITS_FIRST_STAGED=0 keeps hits-first, single-stage read order
   │  OUTPUT     greedy-identical sha256 bb06e711bc498bb9
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-pool
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-pool                                   POSITIVE
+  │
+  │  WHAT       serves expert reads from a parallel SSD pool instead of one
+  │             serial reader, with an io_uring O_DIRECT ring in front of the
+  │             pool so queue depth is a switch, not the worker count.
+  │
+  │  LATEST     round 4 · 2026-09-17 · BEATS · +7.27 % (kept +7.75 %) ·
+  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
+  │
+  │  GEN        +7.27 % (kept +7.75 %)  floor 2.71 % (no-drop)  sign 3/4  n=4
+  │             raw: arm median 10.39 t/s vs tip median 9.65 t/s, gen_steady
+  │             at min across 4096/6144; the delta is each run against the
+  │             mean of its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
+  │             bracket per cycle
+  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
+  │             native 24.89 MB .text · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 87.25 t/s min-across median vs the
+  │             tip's 80.73 t/s, n=4. Round 4 makes no prefill verdict.
+  │
+  │  VERDICT    POSITIVE - beats the new tip on both readings, +7.27 % no-drop and
+  │             +7.75 % kept. ⚠ The first run of the round read 9.24 t/s, below the
+  │             tip, and the next three read 10.34 to 10.47. The kept reading drops
+  │             that run as a straggler; the no-drop reading keeps it and still wins.
+  │             A cold io_uring ring on a first run and a straggler look identical
+  │             here, and THIS ROUND CANNOT TELL THEM APART. The next round starts warm.
+  │
+  │  SWITCH     DS4_CUDA_FETCH_QD=<n> ring queue depth, default 64, clamped 8-512
+  │             DS4_CUDA_FETCH_URING=0 falls back to the pread pool
+  │             DS4_CUDA_FETCH_BUFFERED=1 forces buffered reads
+  │             DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS=<n> pool workers, default 8, cap 16
+  │             DS4_CUDA_STREAMING_EXPERT_PREAD_POOL=0 restores the serial path
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-prefetch-pool
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-prefetch-pool                          POSITIVE
+  │
+  │  WHAT       cuts the prefill read-ahead into chunked tasks for a pool of
+  │             readers with their own pinned buffers and upload streams;
+  │             the single reader stays as the fallback when the pool declines
+  │
+  │  LATEST     round 4 · 2026-09-17 · PARTIAL · +2.28 % (kept +2.28 %) ·
+  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
+  │
+  │  GEN        +2.28 % (kept +2.28 %)  floor 2.71 % (no-drop)  sign 3/3  n=3
+  │             raw: arm median 9.87 t/s vs tip median 9.65 t/s, gen_steady
+  │             at min across 4096/6144; the delta is each run against the
+  │             mean of its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
+  │             bracket per cycle
+  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
+  │             native 24.87 MB .text · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 138.67 t/s min-across median vs the
+  │             tip's 80.73 t/s, n=3. Round 4 makes no prefill verdict.
+  │
+  │  VERDICT    POSITIVE, PARTIAL - the kept reading calls it BEATS on a single
+  │             survivor against a 0.21 % floor; the no-drop reading's +2.28 % TIES
+  │             a 2.71 % floor. Sign 3 of 3, one run dropped for box contention
+  │             (load 3.28 at the end of r4_prefetchpool_2, not the straggler rule).
+  │             Read it as a small real positive that THIS round cannot clear its
+  │             floor with. It needs repeats, not a new design.
+  │
+  │  SWITCH     DS4_CUDA_SSD_PREFETCH_CHUNK_MB, default 8, cap 64; 0 is ignored,
+  │             so the chunking has no off arm. DS4_CUDA_SSD_PREFETCH_POOL=0 or
+  │             DS4_CUDA_SSD_PREFETCH_THREADS=1 reverts the whole pool
+  │  OUTPUT     greedy-identical sha256 2f2dd7f89d107bbc (33,527 bytes, 12 runs)
   │
   └──────────────────────────────────────────────────────────────────────
 ```
@@ -537,32 +663,34 @@ Regenerated 2026-09-17 10:15Z, 25 cards.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-engram-read-threads                         WORTH ZERO
+  │  BRANCH     triple-engram-read-threads                  WORTH ZERO
   │
   │  WHAT       takes the DECODE step's Engram read off the batch machinery:
   │             one token now goes straight to the serial reader, with no
   │             malloc, no qsort and no pool dispatch. The wide PREFILL read
   │             keeps the one-wave rule the branch was named for.
   │
-  │  LATEST     round 1 bisect · 2026-09-16 · NOT IT: the RT arm is this same
-  │             decode revert, made on the nine-lever stack at dd82361a, and it
-  │             read -6.07 % against the clean tip where the stack as shipped
-  │             read -4.35 %, so |D_RT - D_STACK| = 1.72, inside the 4.13 %
-  │             floor, and the sealed rule reports no direction
-  │             (2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md)
-  │             round 3 is measuring this branch now: in flight, unresolved
+  │  LATEST     round 4 · 2026-09-17 · TIES · -1.39 % (kept +0.31 %) ·
+  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
   │
-  │  GEN        not measured on this revision, which has never been built for
-  │             CUDA. The RT arm above measured the revert on another tree.
-  │  PREFILL    not measured. The one-wave prefill read has never run.
+  │  GEN        -1.39 % (kept +0.31 %)  floor 2.71 % (no-drop)  sign 1/4  n=4
+  │             raw: arm median 9.60 t/s vs tip median 9.65 t/s, gen_steady
+  │             at min across 4096/6144; the delta is each run against the
+  │             mean of its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
+  │             bracket per cycle
+  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
+  │             native 24.86 MB .text · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 82.62 t/s min-across median vs the
+  │             tip's 80.73 t/s, n=4. Round 4 makes no prefill verdict.
   │
-  │  VERDICT    WORTH ZERO - correct, tested, and worth nothing on the clock.
-  │             The decode fast path is right: it takes a malloc, a qsort and a
-  │             broadcast to 32 parked workers off the critical path, and a
-  │             counter proves the pool never wakes. The bisect put that same
-  │             revert 1.72 points from the stack against the one comparator's
-  │             8.04, a factor of 4.7. A fix can be right, well tested, and buy
-  │             nothing. OWED: the one-wave PREFILL read, the untested half.
+  │  VERDICT    WORTH ZERO - confirmed on the new tip, with its own CUDA build at
+  │             last. The no-drop reading is -1.39 % at sign 1 of 4, inside a 2.71 %
+  │             floor: TIES. ⚠ The kept reading says +0.31 % BEATS on one surviving
+  │             run against a floor that two dropped TIP controls shrank to
+  │             0.21 %, and where the two readings disagree the no-drop column
+  │             is the one to quote (result section 3).
+  │             NOT IT at round 1, not it here. OWED: the one-wave PREFILL read.
   │
   │  SWITCH     ⚠ NEITHER KNOB REACHES THE DECODE READ ANY MORE. Both govern
   │             the wide prefill read only, where the defaults are unchanged.
@@ -727,6 +855,89 @@ Regenerated 2026-09-17 10:15Z, 25 cards.
   └──────────────────────────────────────────────────────────────────────
 ```
 
+### triple-hotlist
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-hotlist                                NEGATIVE
+  │
+  │  WHAT       seeds the next session's SSD expert cache from the previous
+  │             run's demand, so the opening tokens start WARM. A warm-up
+  │             device, not a selection device.
+  │
+  │  LATEST     round 4 · 2026-09-17 · LOSES · -2.73 % (kept -3.34 %) ·
+  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
+  │
+  │  GEN        -2.73 % (kept -3.34 %)  floor 2.71 % (no-drop)  sign 0/4  n=4
+  │             raw: arm median 9.42 t/s vs tip median 9.65 t/s, gen_steady
+  │             at min across 4096/6144; the delta is each run against the
+  │             mean of its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
+  │             bracket per cycle
+  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
+  │             native 24.90 MB .text · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 82.25 t/s min-across median vs the
+  │             tip's 80.73 t/s, n=4. Round 4 makes no prefill verdict.
+  │
+  │  VERDICT    NEGATIVE - loses on both readings, -2.73 % no-drop and -3.34 % kept,
+  │             sign 0 of 4: not one repeat read above the tip. The victim-walk
+  │             repair costs on this tip. The two readings agree, so nothing here
+  │             turns on the straggler rule. The 2026-09-15 solo -1.9 %, which sat
+  │             inside its own floor and decided nothing, is superseded by this.
+  │
+  │  SWITCH     DS4_CUDA_EXPERT_HOTLIST_WRITE=<file> (0 disables the writer)
+  │             DS4_CUDA_EXPERT_HOTLIST_DECAY=none|halve|quarter|eighth|shift:<n>, default halve
+  │             DS4_CUDA_EXPERT_HOTLIST_ROLLING=1 runs the mine/score measurement
+  │             DS4_METAL_DISABLE_STREAMING_EXPERT_HOTLIST=1 disables seeding
+  │  OUTPUT     greedy-identical sha256 bb06e711bc498bb9 (three gate runs, one sha)
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### triple-prefill-readahead-order
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-prefill-readahead-order                NEGATIVE
+  │
+  │  WHAT       reorders the prefill read-ahead's victim choice and holds the
+  │             earliest layers of the scan, so the experts decode needs first
+  │             are the last ones evicted: the prefill hit list survives into
+  │             decode. Residency policy only, no byte of cache added.
+  │
+  │  LATEST     round 4 · 2026-09-17 · LOSES · -11.38 % (kept -11.38 %) ·
+  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
+  │
+  │  GEN        -11.38 % (kept -11.38 %)  floor 2.71 % (no-drop)  sign 0/4  n=4
+  │             raw: arm median 8.55 t/s vs tip median 9.65 t/s, gen_steady
+  │             at min across 4096/6144; the delta is each run against the
+  │             mean of its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
+  │             bracket per cycle
+  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
+  │             native 24.88 MB .text · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 86.34 t/s min-across median vs the
+  │             tip's 80.73 t/s, n=4. Round 4 makes no prefill verdict.
+  │
+  │  VERDICT    NEGATIVE - loses by eleven percent, -11.38 % on BOTH readings, sign
+  │             0 of 4, every repeat between -9.7 and -13.3. THE LARGEST LOSS THIS
+  │             PROJECT HAS MEASURED ON ANY LEVER. The two readings are identical,
+  │             so the straggler rule does not enter into it. Holding the earliest
+  │             layers of the prefill scan buys residency and pays for it in decode
+  │             throughput, and the price is four times the floor.
+  │
+  │  SWITCH     DS4_PREFILL_READAHEAD_HOLD, default on; =0 (off/no/false)
+  │             restores upstream exactly. DS4_CUDA_SSD_PREFETCH_STATS=1 counts
+  │             only. The off switch is new: the previous revision reordered
+  │             unconditionally and could not be measured against itself.
+  │  OUTPUT     not re-run; expected output-invariant, residency changes when a
+  │             byte arrives and never which byte
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
 ## NOT YET MEASURED
 
 ### triple-all
@@ -764,44 +975,6 @@ Regenerated 2026-09-17 10:15Z, 25 cards.
   │  OUTPUT     not re-run. A greedy sha was recorded on a prior card and is
   │             withheld here: it was taken before this rebase, on a tree this
   │             branch is no longer on
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
-### triple-all-fastest-newtip
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-all-fastest-newtip                            NOT YET
-  │
-  │  WHAT       the ten-lever stack REBUILT ON THE NEW TIP from its manifest:
-  │             base triple-tip-2026-09-16 (12997e9c8), one commit per lever
-  │             in stack-on-newtip.manifest order, every conflict hunk decided
-  │             on purpose and recorded, so build_stack.sh reproduces this
-  │             tree from the manifest alone. Nine levers on, hits-first off,
-  │             victim order used-ascending (the measured default).
-  │
-  │  LATEST     never in a sealed round
-  │             round 3 (2026-09-17-ROUND3-PREREGISTERED-RULE.txt) measures the
-  │             OLD-base stack at b17231fd, not this tree. This tree has never
-  │             been compiled for CUDA: it was assembled on a Mac with no nvcc.
-  │
-  │  GEN        not measured
-  │  PREFILL    not measured
-  │
-  │  VERDICT    NOT YET. The one number that shaped this tree is inherited,
-  │             not earned here: on the OLD base the sweep-aware victim
-  │             comparator in ds4_gpu_stream_expert_cache_prefetch cost
-  │             -4.35 % and reverting it alone gave +3.46 % vs the clean tip
-  │             (round 2, n=8, sign 8/8, bands disjoint). So used-ascending is
-  │             the default here too, with DS4_CUDA_PREFETCH_SWEEP_ORDER=1
-  │             restoring the losing order. Whether that carries onto this
-  │             base is a measurement, not an inference.
-  │
-  │  SWITCH     ten levers, see the table below; plus
-  │             DS4_CUDA_PREFETCH_SWEEP_ORDER=1 restores the sweep-aware order
-  │  OUTPUT     not re-run
   │
   └──────────────────────────────────────────────────────────────────────
 ```
@@ -1001,39 +1174,6 @@ Regenerated 2026-09-17 10:15Z, 25 cards.
   └──────────────────────────────────────────────────────────────────────
 ```
 
-### triple-hotlist
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-hotlist                                        NOT YET
-  │
-  │  WHAT       seeds the next session's SSD expert cache from the previous
-  │             run's demand, so the opening tokens start WARM. A warm-up
-  │             device, not a selection device.
-  │
-  │  LATEST     never in a sealed round
-  │             round 3 is measuring this branch now: in flight, unresolved
-  │
-  │  GEN        9.38 t/s  vs control 9.56  -1.9 %  floor 3.3-4.9 %  n=2
-  │             control = this branch's writer off, interleaved, same native build
-  │             session = 2026-09-16 · DGX Spark · native 23.1 MB .text · load/gpu unstamped
-  │  PREFILL    not measured
-  │
-  │  VERDICT    NOT YET - the seeding arm's -1.9 % sits inside its own floor, so
-  │             it decides nothing, and the lever as re-scoped, a warm cache over
-  │             the first 64 tokens, has never been measured at all. The repair
-  │             44bc5398c has no CUDA build behind it.
-  │
-  │  SWITCH     DS4_CUDA_EXPERT_HOTLIST_WRITE=<file> (0 disables the writer)
-  │             DS4_CUDA_EXPERT_HOTLIST_DECAY=none|halve|quarter|eighth|shift:<n>, default halve
-  │             DS4_CUDA_EXPERT_HOTLIST_ROLLING=1 runs the mine/score measurement
-  │             DS4_METAL_DISABLE_STREAMING_EXPERT_HOTLIST=1 disables seeding
-  │  OUTPUT     greedy-identical sha256 bb06e711bc498bb9 (three gate runs, one sha)
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
 ### triple-lfu-offsetkey
 
 ```
@@ -1064,108 +1204,6 @@ Regenerated 2026-09-17 10:15Z, 25 cards.
   │             or inserts. DS4_CUDA_HOST_EXPERT_CACHE_GB=<GiB> sizes it; unset,
   │             it takes the configured expert-cache byte size
   │  OUTPUT     not re-run. Residency changes WHEN a byte arrives, never WHICH
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
-### triple-pool
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-pool                                           NOT YET
-  │
-  │  WHAT       serves expert reads from a parallel SSD pool instead of one
-  │             serial reader, with an io_uring O_DIRECT ring in front of the
-  │             pool so queue depth is a switch, not the worker count.
-  │
-  │  LATEST     never in a sealed round
-  │             round 3 is measuring this branch now: in flight, unresolved.
-  │             Its build in that round, 2026-09-17, is the first CUDA compile
-  │             this branch has ever had.
-  │
-  │  GEN        not measured
-  │  PREFILL    not measured
-  │
-  │  VERDICT    NOT YET, and further back than most. The io_uring engine had no
-  │             build behind it until round 3 compiled it, and the last A/B this
-  │             branch holds describes the pthread-only pool, a fetch engine the
-  │             tree no longer has, so it is superseded and off this card.
-  │
-  │  SWITCH     DS4_CUDA_FETCH_QD=<n> ring queue depth, default 64, clamped 8-512
-  │             DS4_CUDA_FETCH_URING=0 falls back to the pread pool
-  │             DS4_CUDA_FETCH_BUFFERED=1 forces buffered reads
-  │             DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS=<n> pool workers, default 8, cap 16
-  │             DS4_CUDA_STREAMING_EXPERT_PREAD_POOL=0 restores the serial path
-  │  OUTPUT     not re-run
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
-### triple-prefetch-pool
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-prefetch-pool                                  NOT YET
-  │
-  │  WHAT       cuts the prefill read-ahead into chunked tasks for a pool of
-  │             readers with their own pinned buffers and upload streams;
-  │             the single reader stays as the fallback when the pool declines
-  │
-  │  LATEST     never in a sealed round
-  │             round 3 is measuring this branch now: in flight, unresolved
-  │
-  │  GEN        not measured
-  │  PREFILL    not measured as a delta. The device probe holds an instrument
-  │             counter, not a result: wait per layer 398.0 ms at one reader to
-  │             196.5 ms at four (speed-bench/v41_cuda_prefetch_pool_gb10.md,
-  │             2026-09-15). It has no tokens/s or percent figure behind it.
-  │
-  │  VERDICT    NOT YET - in the 2026-09-15 pass every arm read above its
-  │             control, the OFF arms included, so that pass measures a bad
-  │             control and not a lever, and it is withheld.
-  │
-  │  SWITCH     DS4_CUDA_SSD_PREFETCH_CHUNK_MB, default 8, cap 64; 0 is ignored,
-  │             so the chunking has no off arm. DS4_CUDA_SSD_PREFETCH_POOL=0 or
-  │             DS4_CUDA_SSD_PREFETCH_THREADS=1 reverts the whole pool
-  │  OUTPUT     greedy-identical sha256 2f2dd7f89d107bbc (33,527 bytes, 12 runs)
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
-### triple-prefill-readahead-order
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-prefill-readahead-order                        NOT YET
-  │
-  │  WHAT       reorders the prefill read-ahead's victim choice and holds the
-  │             earliest layers of the scan, so the experts decode needs first
-  │             are the last ones evicted: the prefill hit list survives into
-  │             decode. Residency policy only, no byte of cache added.
-  │
-  │  LATEST     never in a sealed round
-  │             round 3 is measuring this branch now: in flight, unresolved
-  │
-  │  GEN        not measured. A 2026-09-15 native pass exists on the Spark and
-  │             is WITHHELD, because its off arms beat their own control and an
-  │             off arm IS the control.
-  │  PREFILL    not measured
-  │
-  │  VERDICT    NOT YET - it needs a clean interleaved A/B of both arms from a
-  │             Spark build. The number it has to move is in this card's own tip
-  │             instrumentation below: the first 32 decode tokens miss 32.22
-  │             experts/token at hit rate 0.8658 on the unpatched tip, against a
-  │             steady state of 9.16 at 0.9618.
-  │
-  │  SWITCH     DS4_PREFILL_READAHEAD_HOLD, default on; =0 (off/no/false)
-  │             restores upstream exactly. DS4_CUDA_SSD_PREFETCH_STATS=1 counts
-  │             only. The off switch is new: the previous revision reordered
-  │             unconditionally and could not be measured against itself.
-  │  OUTPUT     not re-run; expected output-invariant, residency changes when a
-  │             byte arrives and never which byte
   │
   └──────────────────────────────────────────────────────────────────────
 ```
