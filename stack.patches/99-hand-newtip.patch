@@ -1,0 +1,114 @@
+diff --git a/ds4_cuda.cu b/ds4_cuda.cu
+index 201c7d3a4..4ced76d5b 100644
+--- a/ds4_cuda.cu
++++ b/ds4_cuda.cu
+@@ -259,11 +259,43 @@ static bool cuda_stream_prefill_readahead_hold_off_value(const char *v) {
+     return true;
+ }
+ 
++/* THE SWEEP-AWARE ORDER IS OFF BY DEFAULT. IT WAS MEASURED AND IT LOST.
++ *
++ * This switch gates the whole read-ahead victim arm: the sweep-aware
++ * comparator in ds4_gpu_stream_expert_cache_prefetch and the held band it
++ * carries. The reasoning beside that comparator is preserved because it is
++ * not obviously wrong - it argues that a layer ahead of the sweep is re-read
++ * on the way past anyway, so losing it costs one prefetch rather than the
++ * opening. Two sealed rounds on the DGX Spark say the argument does not
++ * survive contact with this cache size and this prompt:
++ *
++ *   the stack carrying this order, against the clean tip .... -4.35 %
++ *   the same stack with ONLY this comparator reverted ....... +3.46 %
++ *                                                            --------
++ *   one comparator, and the bands do not touch: the slowest reverted
++ *   run beat the fastest tip run by 0.21 t/s, 8 repeats of 8.
++ *
++ * Round 1: 2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md
++ * Round 2: 2026-09-17-ROUND2-RESULT-the-revert-beats-the-tip.md
++ * Round 1 measured +3.69 at n=4, round 2 +3.46 at n=8 on a cleared box.
++ * ⚠ Both rounds measured the comparator ALONE, on the old base, before the
++ * lever grew the held band; the band has never been measured in a stack.
++ *
++ * So the default is the tip's least-recently-routed order: with the switch
++ * off `victims` is sorted by `used` ascending and no slot is held.
++ * DS4_CUDA_PREFETCH_SWEEP_ORDER=1 restores the sweep-aware arm, so the A/B
++ * stays runnable from one binary and the losing arm is not deleted. The
++ * lever's own name, DS4_PREFILL_READAHEAD_HOLD=1, turns the same arm on. */
+ static bool cuda_stream_prefill_readahead_hold(void) {
+     static int on = -1;
+-    if (on < 0)
+-        on = cuda_stream_prefill_readahead_hold_off_value(
+-                 getenv("DS4_PREFILL_READAHEAD_HOLD")) ? 0 : 1;
++    if (on < 0) {
++        const char *sweep = getenv("DS4_CUDA_PREFETCH_SWEEP_ORDER");
++        const char *hold = getenv("DS4_PREFILL_READAHEAD_HOLD");
++        on = 0;
++        if (sweep && sweep[0] == '1') on = 1;
++        if (hold && *hold && !cuda_stream_prefill_readahead_hold_off_value(hold)) on = 1;
++        if (cuda_stream_prefill_readahead_hold_off_value(hold)) on = 0;
++    }
+     return on != 0;
+ }
+ 
+@@ -2741,10 +2773,11 @@ static int cuda_expert_pread_task_run(const cuda_pread_pool *pool,
+             return 0;
+         }
+         /* A private direct read never entered the page cache, so there is
+-         * nothing to drop; antirez's serial reader skips the same call. */
+-        if (!pool->no_fadvise) cuda_model_drop_file_pages(t->offset + copied, n);
++         * nothing for fadvise to drop; the mmap advice still applies.  Keep
++         * pagecache's order: zap our PTEs first, then drop the cache. */
+         cuda_model_discard_source_pages(t->model_map, t->model_size,
+                                         t->offset + copied, n);
++        if (!pool->no_fadvise) cuda_model_drop_file_pages(t->offset + copied, n);
+         copied += n;
+     }
+     return 1;
+@@ -28585,16 +28618,19 @@ static int cuda_expert_cache_stats_enabled(void) {
+ }
+ static int cuda_hits_first_enabled(void) {
+     static int cached = -1;
+-    /* On by default.  DS4_CUDA_HITS_FIRST=0 disables it and restores the plain
+-     * wait-for-every-miss order, which is the A/B arm the numbers below come
+-     * from.  The two orders are bit-identical: only when the gate/up kernel of
+-     * a resident expert runs changes, never what it computes. */
+-    if (cached < 0) { const char *e = getenv("DS4_CUDA_HITS_FIRST"); cached = !(e && e[0] == '0'); }
++    /* OFF by default in the stacked tree.  This lever measured a NULL solo, and
++     * the reason is structural rather than a bad implementation: the decode
++     * path's shared-expert kernels already occupy the window it wanted to fill.
++     * It is kept compiled in so the A/B stays reproducible - DS4_CUDA_HITS_FIRST=1
++     * turns it on for a run.  The two orders are bit-identical: only when the
++     * gate/up kernel of a resident expert runs changes, never what it computes. */
++    if (cached < 0) { const char *e = getenv("DS4_CUDA_HITS_FIRST"); cached = (e && e[0] != '0'); }
+     return cached;
+ }
+ static int cuda_hits_first_staged_enabled(void) {
+     static int cached = -1;
+-    if (cached < 0) { const char *e = getenv("DS4_CUDA_HITS_FIRST_STAGED"); cached = !(e && e[0] == '0'); }
++    /* Same default as the primary order: off unless asked for. */
++    if (cached < 0) { const char *e = getenv("DS4_CUDA_HITS_FIRST_STAGED"); cached = (e && e[0] != '0'); }
+     return cached;
+ }
+ /* Finish a hits-first load: wait for the pool, then the same per-miss
+@@ -29733,11 +29769,12 @@ static int cuda_stream_selected_cache_begin_load(
+         }
+         if (cuda_expert_cache_stats_enabled() && g_stream_expert_lookups &&
+             g_stream_expert_lookups / 4000u != (g_stream_expert_lookups - unique.size()) / 4000u)
+-            fprintf(stderr, "ds4: [expert-cache] %llu lookups, hit_rate=%.3f, resident=%zu/%zu, evictions=%llu, read %.1f s\n",
++            fprintf(stderr, "ds4: [expert-cache] %llu lookups, hit_rate=%.3f, resident=%zu/%zu, evictions=%llu, read %.1f s, armed_readbacks=%llu\n",
+                     (unsigned long long)g_stream_expert_lookups,
+                     (double)g_stream_expert_hits / (double)g_stream_expert_lookups,
+                     g_stream_expert_by_gate.size(), g_stream_expert_slots.size(),
+-                    (unsigned long long)g_stream_expert_evictions, g_stream_expert_sec_read);
++                    (unsigned long long)g_stream_expert_evictions, g_stream_expert_sec_read,
++                    (unsigned long long)g_selected_readback_taken);
+         g_stream_prefill_ids = remap;
+         g_stream_prefill_slots = slots;
+         for (auto &id : remap) id = slots[id];
+@@ -30211,6 +30248,7 @@ extern "C" int ds4_gpu_stream_expert_cache_prefetch(
+         pool.file_size = p.file_size;
+         pool.no_fadvise = p.direct_fd >= 0;
+         if (cuda_pread_pool_dispatch_start(&pool, p.tasks.data(), (uint32_t)p.tasks.size())) {
++            g_stream_prefetch_stats.started++;   /* a pooled start is a start */
+             p.pooled = true;
+             p.active = true;
+             return 1;

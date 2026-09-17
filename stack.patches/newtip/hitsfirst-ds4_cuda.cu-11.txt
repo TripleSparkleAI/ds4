@@ -1,0 +1,95 @@
+        /* Buffered path only (a no-op under O_DIRECT): let the kernel start
+         * every miss's read before the first pread waits on it. */
+        for (size_t i = 0; i < unique.size(); i++) {
+            if (slots[i] >= 0) continue;
+            const uint64_t e = (uint32_t)unique[i];
+            cuda_model_readahead_range(table->gate_offset + e * table->gate_expert_bytes,
+                                       table->gate_expert_bytes);
+            cuda_model_readahead_range(table->up_offset + e * table->gate_expert_bytes,
+                                       table->gate_expert_bytes);
+            cuda_model_readahead_range(table->down_offset + e * table->down_expert_bytes,
+                                       table->down_expert_bytes);
+        }
+        /* The miss set is only ever read inside the hits-first block below,
+         * which requires slot_count <= 8, so a mask carries it and no heap
+         * allocation happens on any path - including the all-hit path, which
+         * used to allocate a vector it never read. */
+        uint64_t miss_mask = 0;
+        cuda_stream_upload_batch uploads;
+        /* Every claim below is provisional until its bytes land.  The ledger
+         * withdraws whatever is still provisional on ANY exit from here, so
+         * the mid-loop `victim == UINT32_MAX` return, an upload failure and a
+         * thrown exception can no longer leave a gate pointing at a slot that
+         * was never written.  See ds4_expert_claims.h. */
+        ds4_expert_claim_ledger<std::vector<cuda_stream_expert_slot>,
+                                std::unordered_map<uint64_t, uint32_t> >
+            claims(g_stream_expert_slots, g_stream_expert_by_gate);
+        const int stats_on = cuda_expert_cache_stats_enabled();
+        const double t_read0 = stats_on ? cuda_wall_sec() : 0.0;
+        /* ONE VICTIM PASS FOR THE WHOLE BATCH.
+         *
+         * The policy is unchanged - least-recently-used first, ties to the
+         * lowest slot index, never a prefetch-held slot, never a slot this
+         * batch has stamped - and ds4_expert_victim_scan is proved against a
+         * transcription of the per-miss loop in tests/test_hotcache.c.
+         *
+         * What changed is the COST.  The per-miss loop's only early exit fired
+         * on an EMPTY slot, and seeding the cache at startup fills every free
+         * slot, so from the first token there are no empty slots and every
+         * missed expert walked the whole slot vector, on every routed layer,
+         * on every token.  The seed stays (the presence of an entry is the
+         * large axis, WIKI/theory/167); the walk becomes one pass per batch.
+         *
+         * The protection mask is built only while a prefetch is in flight.
+         * The reader's active flag cannot change inside this function -
+         * cuda_stream_prefetch_before_load ran at the top and nothing below
+         * starts a reader - so one read of it is sound for the whole batch. */
+        /* Loop-invariant for every victim scan below: derive it once. */
+        const ds4_prefill_hold_band hold_band = cuda_stream_prefill_hold_band(*table);
+        uint32_t n_misses = 0;
+        for (size_t i = 0; i < unique.size(); i++) if (slots[i] < 0) n_misses++;
+        std::vector<uint32_t> victims(n_misses);
+        /* One skip mask serves both levers that own this scan: 1 = protected
+         * by an in-flight prefetch (hotlist's mask), 2 = inside the prefill
+         * hold band (readahead-order's pass-0 exclusion). Pass 0 skips both;
+         * pass 1, reached only when pass 0 ran out, opens the held slots and
+         * closes everything else, so a held expert is surrendered only when
+         * there is no unheld candidate at all - readahead-order's two-pass
+         * rule, run through hotlist's one-pass scan. With the hold switch off
+         * the band is off, pass 1 is unreachable, and this is hotlist's scan. */
+        std::vector<unsigned char> skip_mask;
+        const int prefetch_active = n_misses && cuda_stream_prefetch_active();
+        if (n_misses && (prefetch_active || hold_band.on)) {
+            skip_mask.assign(g_stream_expert_slots.size(), 0);
+            for (size_t j = 0; j < g_stream_expert_slots.size(); j++) {
+                const auto &slot = g_stream_expert_slots[j];
+                if (prefetch_active && cuda_stream_prefetch_protects(slot)) skip_mask[j] = 1;
+                else if (ds4_prefill_hold_slot_held(&hold_band, slot.gate, slot.used)) skip_mask[j] = 2;
+            }
+        }
+        uint32_t n_victims = n_misses
+            ? ds4_expert_victim_scan(g_stream_expert_slots.data(),
+                                     sizeof(cuda_stream_expert_slot),
+                                     offsetof(cuda_stream_expert_slot, used),
+                                     (uint32_t)g_stream_expert_slots.size(),
+                                     skip_mask.empty() ? NULL : skip_mask.data(),
+                                     n_misses, stamp, victims.data(), NULL)
+            : 0;
+        if (n_victims < n_misses && hold_band.on) {
+            for (size_t j = 0; j < skip_mask.size(); j++)
+                skip_mask[j] = skip_mask[j] == 2 ? 0 : 1;
+            n_victims += ds4_expert_victim_scan(g_stream_expert_slots.data(),
+                                                sizeof(cuda_stream_expert_slot),
+                                                offsetof(cuda_stream_expert_slot, used),
+                                                (uint32_t)g_stream_expert_slots.size(),
+                                                skip_mask.data(),
+                                                n_misses - n_victims, stamp,
+                                                victims.data() + n_victims, NULL);
+        }
+        uint32_t next_victim = 0;
+        for (size_t i = 0; i < unique.size(); i++) {
+            g_stream_expert_lookups++;
+            if (slots[i] >= 0) { g_stream_expert_hits++; continue; }
+            ds4_hitsfirst_miss_set(&miss_mask, i);
+            if (next_victim >= n_victims) return 0;
+            const uint32_t victim = victims[next_victim++];

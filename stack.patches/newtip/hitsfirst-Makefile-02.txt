@@ -1,0 +1,4 @@
+tests/test_prefill_hold: tests/test_prefill_hold.c ds4_prefill_hold.h
+	$(CC) $(CFLAGS) -I. -o $@ $< $(LDLIBS)
+
+tests/test_hitsfirst_logic: tests/test_hitsfirst_logic.c ds4_hitsfirst_logic.h

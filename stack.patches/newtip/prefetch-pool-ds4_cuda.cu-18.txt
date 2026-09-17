@@ -1,0 +1,30 @@
+static int cuda_pread_pool_dispatch_start_staged(cuda_pread_pool *pool,
+                                                 cuda_expert_pread_task *tasks,
+                                                 uint32_t n_tasks,
+                                                 uint32_t stage_boundary);
+static int cuda_pread_pool_dispatch_start(cuda_pread_pool *pool,
+                                          cuda_expert_pread_task *tasks,
+                                          uint32_t n_tasks) {
+    return cuda_pread_pool_dispatch_start_staged(pool, tasks, n_tasks, 0);
+}
+static int cuda_expert_pread_pool_dispatch_start(cuda_expert_pread_task *tasks, uint32_t n_tasks) {
+    return cuda_pread_pool_dispatch_start_staged(&g_expert_pread, tasks, n_tasks, 0);
+}
+static int cuda_expert_pread_pool_dispatch_start_staged(cuda_expert_pread_task *tasks,
+                                                        uint32_t n_tasks,
+                                                        uint32_t stage_boundary) {
+    return cuda_pread_pool_dispatch_start_staged(&g_expert_pread, tasks, n_tasks, stage_boundary);
+}
+static int cuda_pread_pool_dispatch_start_staged(cuda_pread_pool *pool,
+                                                 cuda_expert_pread_task *tasks,
+                                                 uint32_t n_tasks,
+                                                 uint32_t stage_boundary) {
+    if (!tasks || n_tasks <= 1) return 0;
+    if (g_model_fd < 0) return 0;
+    /* One resolution, two uses.  The pool is persistent and takes the
+     * UNCLAMPED limit, so a first batch of two tasks cannot pin it at two
+     * threads for the run; this batch takes the clamped count. */
+    const uint32_t limit = cuda_pread_pool_limit(pool);
+    uint32_t n_workers = ds4_pread_pool_workers(limit, n_tasks);
+    if (n_workers == 0) return 0;
+    if (!cuda_pread_pool_init(pool, limit)) return 0;

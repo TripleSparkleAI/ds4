@@ -1,0 +1,11 @@
+ * The io_uring ring below is pressed before the pool on the same batch.
+ * The pool stays the fallback and the engine that runs when the ring is
+ * off, absent from the build, or unable to stage the batch.
+ *
+ * A pool may instead be handed PRIVATE file descriptors, which the SSD
+ * read-ahead does: its batch runs while the foreground computes, so a worker
+ * must not read a descriptor the foreground can close underneath it, and a
+ * rejected direct read must not disable O_DIRECT for the demand path.
+ * ------------------------------------------------------------------------ */
+
+#define DS4_CUDA_EXPERT_PREAD_MAX 32u

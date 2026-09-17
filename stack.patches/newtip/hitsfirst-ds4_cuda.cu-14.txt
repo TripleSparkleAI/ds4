@@ -1,0 +1,10 @@
+                if (t3[0].ok && t3[1].ok && t3[2].ok) {
+                    claims.commit(task_victim[m]);   /* the bytes are there */
+                    continue;
+                }
+                all_ok = 0;   /* uncommitted: the ledger withdraws it */
+            }
+            if (stats_on) g_stream_expert_sec_read += cuda_wall_sec() - t_read0;
+            if (!all_ok) return 0;
+        }
+        if (cuda_expert_cache_stats_enabled() && g_stream_expert_lookups &&

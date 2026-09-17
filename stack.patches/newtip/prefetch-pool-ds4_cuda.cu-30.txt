@@ -1,0 +1,50 @@
+/* The read-ahead can decline a layer for a dozen reasons and used to do it
+ * silently, so "it prefetched" and "it did nothing at all" looked identical
+ * from outside. These only count; nothing here changes a decision. */
+static struct {
+    uint64_t asked;          /* calls that reached the function          */
+    uint64_t refused_early;  /* declined by the entry guard              */
+    uint64_t no_victims;     /* ran out of evictable slots mid-reserve   */
+    uint64_t cancelled;      /* any other throw on the way to the thread */
+    uint64_t started;        /* reader threads actually launched         */
+    uint64_t published;      /* finishes that published their slots      */
+    uint64_t dropped;        /* finishes that threw their slots away     */
+    uint64_t slots_published;
+} g_stream_prefetch_stats;
+
+static bool cuda_stream_prefetch_stats_on(void) {
+    static int on = -1;
+    if (on < 0) on = getenv("DS4_CUDA_SSD_PREFETCH_STATS") != NULL ? 1 : 0;
+    return on != 0;
+}
+
+static void cuda_stream_prefetch_stats_report(void) {
+    if (!cuda_stream_prefetch_stats_on()) return;
+    const auto &st = g_stream_prefetch_stats;
+    const double rate = st.asked ? (double)st.started / (double)st.asked : 0.0;
+    fprintf(stderr,
+            "ds4: CUDA SSD read-ahead: asked=%llu started=%llu (%.1f%%) "
+            "refused_early=%llu no_victims=%llu cancelled=%llu "
+            "published=%llu dropped=%llu slots=%llu\n",
+            (unsigned long long)st.asked, (unsigned long long)st.started,
+            100.0 * rate,
+            (unsigned long long)st.refused_early,
+            (unsigned long long)st.no_victims,
+            (unsigned long long)st.cancelled,
+            (unsigned long long)st.published,
+            (unsigned long long)st.dropped,
+            (unsigned long long)st.slots_published);
+}
+
+/* Task size for the pooled read-ahead, which is also the per-worker staging
+ * size the pool allocates.  Pinned cost is threads * (this + 2 * align). */
+static uint64_t cuda_stream_prefetch_chunk_bytes(void) {
+    uint64_t mb = 8;
+    const char *env = getenv("DS4_CUDA_SSD_PREFETCH_CHUNK_MB");
+    if (env && env[0]) {
+        char *end = NULL;
+        unsigned long long v = strtoull(env, &end, 10);
+        if (end != env && v > 0) mb = (uint64_t)v;
+    }
+    if (mb > 64) mb = 64;
+    return mb * 1048576ull;

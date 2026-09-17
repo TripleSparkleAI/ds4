@@ -1,0 +1,209 @@
+# <claudes_code_comments>
+# ** THE LINE KINDS ** are the same as stack.manifest's; that file carries the full legend and
+# this one does not repeat it. One kind is NEW here:
+# resolve <file> <NN> hand:<file>   the hunk is replaced by the RECORDED text of
+#                                   stack.patches/<file>. Used only where neither side nor
+#                                   their concatenation is a program, because two levers
+#                                   rewrote one region and the merge is a third text. The
+#                                   file is data in the tree; the build still reproduces
+#                                   from the manifest alone. stack_resolve.py implements it.
+#
+# ** WHAT THIS FILE IS **
+# The SAME ten levers, on the CURRENT tip instead of the stack's own 2026-09-15 base, WITH
+# EVERY CONFLICT DECIDED. It is the definition of branch triple-all-fastest-newtip, whose
+# history mirrors this file one commit per lever. The 2026-09-17 survey (61 hunks, no
+# decisions) is kept beside it as stack-on-newtip.conflicts.txt with every ??? replaced.
+#
+# ** WHY THE LEVER BASES DIFFER, AND IT IS NOT UNTIDINESS **
+# Six lever branches were rebased onto triple-tip-2026-09-16 on 2026-09-17 and, when the
+# survey was cut, four were not:
+#     git merge-base --is-ancestor triple-tip-2026-09-16 triple-<name>
+#         yes  pool hotlist engram-read-threads prefill-readahead-order hitsfirst prefetch-pool
+#         no   margin draincut pagecache engram-lead        (at survey time)
+# So the six are diffed against the new tip and carry only their own code, while the four are
+# diffed against the old lever base 06cd63786 and applied forward. Each lever is diffed
+# against the tree it was written on. That is what the repeated lever-base line is for.
+# ⚠ SINCE THE SURVEY the four have been rebased too, and their live heads diff against the tip
+# to the SAME code as their backup heads diff against the old base for draincut, pagecache and
+# engram-lead (142 / 96 / 181 lines either way). triple-margin's live head does NOT: it carries
+# 5a3bd4b1d "fix(mem-reserve): OBSERVE by default, split the two margins, drop the per-token
+# sampler" (2026-09-16 20:53), 1,592 lines against the tip where the backup lever is 31. THIS
+# STACK CARRIES THE MANIFEST'S 31-LINE MARGIN, NOT THE REPAIR. Named here so the omission is a
+# decision for the navigator, never a silent one.
+#
+# ** DERIVATION **
+#   base        git rev-parse triple-tip-2026-09-16
+#   six shas    git rev-parse triple-<name>~1         (the code commit under each card commit;
+#                                                      code-identical to the live head, 0 diff)
+#   four shas   git rev-parse backup/triple-<name>     (pre-rebase heads, on the old base)
+#   order       README.md's own "How this tree was built" figure, unchanged
+#   defaults    carried across from stack.manifest unchanged: hits-first off, the rest on
+#   resolve     decided one hunk at a time, 2026-09-17, lane STACKTIP, by reading both sides and
+#               the lever's own live branch. The rule: where a hunk conflicts, the rebased live
+#               branch's version of that region is usually right, because it carries the lever's
+#               2026-09-16 repair; where two repairs rewrite one region, a hand: file merges
+#               them and the commit message on the branch says how.
+#
+# ** THE RESOLUTION LEDGER, by kind - 63 hunks (the survey said 61; prefetch-pool meets 33
+#    ds4_cuda.cu hunks on a properly resolved tree, not 31 on a theirs-throughout one) **
+#   ours 15 · theirs 19 · both 9 · hand 20   (derive: grep '^resolve' | awk '{print $4}')
+#   The twenty hand merges, grouped, and why each is a third text:
+#     hotlist ds4_cuda.cu 00           pool's task-building loop vs hotlist's one-pass victim scan
+#     readahead-order Makefile 00      a backslash-continued list: the union of two lists
+#     readahead-order ds4_cuda.cu 00   hotlist's scan vs readahead-order's two-pass held-band LRU
+#                                      -> the two-pass rule run through the scan's skip mask
+#     hitsfirst Makefile 00 02 03 05   list unions; 02 is two build rules that would share a recipe
+#     hitsfirst ds4_cuda.cu 06         staged dispatch + the pool-level unstaged wrapper
+#     hitsfirst ds4_cuda.cu 09         the io_uring ring + the stage-wait wrapper
+#     hitsfirst ds4_cuda.cu 11         the begin_load preamble of three levers + hits-first's mask
+#     hitsfirst ds4_cuda.cu 13         the hits-first block + settling the claim ledger (NEW
+#                                      interaction: pool's RAII ledger would withdraw slots the
+#                                      pool is still reading into; cuda_hits_first_wait owns
+#                                      that failure path)
+#     hitsfirst ds4_cuda.cu 14         ledger commits + hits-first's stats gating
+#     prefetch-pool Makefile 01 02     list unions
+#     prefetch-pool ds4_cuda.cu 01     both comment paragraphs; the ceiling stays 32u
+#     prefetch-pool ds4_cuda.cu 05     private-fd pool + the zero-arg enabled() the ring calls
+#     prefetch-pool ds4_cuda.cu 06     private descriptors + pool's once-per-fd rejection check
+#     prefetch-pool ds4_cuda.cu 13     stage_done broadcast + pool-aware task_run + drained_at
+#     prefetch-pool ds4_cuda.cu 18     staged entry points + the unclamped-limit worker count
+#     prefetch-pool ds4_cuda.cu 30     `both` lost stats_report's closing brace; the hand file
+#                                      is ours + "}" + theirs
+#
+# ** THE OLD HAND ASSEMBLY, RE-DERIVED - what stack.patches/99-hand-assembly.patch's 12 hunks
+#    became on this base **
+#   DROPPED, superseded by a lever or a resolution:
+#     the ds4.c Engram decode read     engram-read-threads' own repair routes a one-token
+#                                      batch to the serial reader; the hunk resolves OURS
+#     the readahead call at begin_load pagecache's own loop, resolve BOTH at pagecache 00
+#     DS4_CUDA_EXPERT_PREAD_MAX 32->16 refused: ds4_pread_pool_config.h static_asserts 32
+#     task_run(pool, ctx, t)           prefetch-pool 13 (hand)
+#     drained_at stamp                 prefetch-pool 13 (hand)
+#     cuda_pread_pool_dispatch_start   hitsfirst 06 (hand)
+#     five comment rewordings          cosmetic; not carried
+#   CARRIED, in stack.patches/99-hand-newtip.patch, because no lever provides them:
+#     hits-first default on -> off     the manifest's `off`; both enabled() functions
+#     armed_readbacks on the stats line  draincut's counter, printed by nobody otherwise
+#     discard-then-drop in task_run    pagecache's order; the lever drops first and the
+#                                      trailing context line cannot be moved by a hunk choice
+#   NEW, same patch:
+#     pooled read-ahead start counted  readahead-order counts thread starts; prefetch-pool
+#                                      added a second start path that counted nothing
+#     THE VICTIM ORDER DEFAULT         dd189b2d7's SHAPE, not its diff: the live
+#                                      readahead-order already gates its whole arm (the sweep
+#                                      comparator AND the held band) behind
+#                                      cuda_stream_prefill_readahead_hold(), default ON. The
+#                                      patch flips that default OFF and adds
+#                                      DS4_CUDA_PREFETCH_SWEEP_ORDER=1 as the on switch beside
+#                                      the lever's own DS4_PREFILL_READAHEAD_HOLD. With it off
+#                                      `victims` is sorted by `used` ascending, the measured
+#                                      default. ⚠ JUDGEMENT CALL: the switch takes the held band
+#                                      down with the comparator, because the lever gates both
+#                                      on one flag; the band alone has never been measured.
+#   NOT CARRIED: local dd189b2d7 as a `local` line. Its diff does not apply here (the region
+#   was rewritten by the lever's repair); recorded above as shape, applied by the patch.
+#
+# ** THE CHECK **
+#   bash build_stack.sh stack-on-newtip.manifest --check <HEAD of triple-all-fastest-newtip>
+#   ⚠ NOT COMPILED FOR CUDA. Assembled on a Mac with no nvcc; `make` here builds the Metal
+#   target only, which never sees ds4_cuda.cu. The first Spark build is the real gate.
+# </claudes_code_comments>
+
+base        12997e9c84b39258f28781b808d18ea0069af2ac
+
+paths       *.c *.h *.cu *.cuh *.inc Makefile tests/ cuda/ speed-bench/*.c gguf-tools/
+
+# --- the five that went on together first -----------------------------------------------
+lever-base  12997e9c84b39258f28781b808d18ea0069af2ac
+lever   triple-pool                     1b80adae32259be2fdec975ad8daf08c1e5ecdf4   on
+
+lever-base  06cd63786ce39f92910ba3ecf193b6d53c18af26
+lever   triple-margin                   4c0750872a1f08e5fd4afd986c256062e25ff74d   on
+lever   triple-draincut                 e108fd71f4f8f49a957485d84eef673ea2fd6a2d   on
+lever   triple-pagecache                a17de28c342edd9baffb8a3e685b5551ae5379be   on
+resolve ds4_cuda.cu 00 both
+
+lever-base  12997e9c84b39258f28781b808d18ea0069af2ac
+lever   triple-hotlist                  ce886cddba135754e32484c1f6ced6b4be0449b5   on
+resolve ds4_cuda.cu 00 hand:newtip/hotlist-ds4_cuda.cu-00.txt
+
+# --- the two Engram levers ---------------------------------------------------------------
+lever-base  06cd63786ce39f92910ba3ecf193b6d53c18af26
+lever   triple-engram-lead              42ff8f9043b2934229f17f96f66a2aad867e5bd0   on
+
+lever-base  12997e9c84b39258f28781b808d18ea0069af2ac
+lever   triple-engram-read-threads      37b2962a7ad60f1a130bd63057df3894b7b20b72   on
+resolve ds4.c 00 ours
+
+# --- the read-ahead order. ⚠ it HAS an off switch now: DS4_PREFILL_READAHEAD_HOLD, and the
+#     patch below makes off the default (see THE VICTIM ORDER DEFAULT above) ---------------
+lever   triple-prefill-readahead-order  f552eb3c15b2e572c908a02da35ed688c34b6bc5   on
+resolve Makefile 00 hand:newtip/readahead-order-Makefile-00.txt
+resolve ds4_cuda.cu 00 hand:newtip/readahead-order-ds4_cuda.cu-00.txt
+
+# --- hits-first: compiled in, default off (the flip is in the patch) ---------------------
+lever   triple-hitsfirst                c5eb891aabec98bf411b0a4f5039a2c4fb5abdfd   off
+resolve Makefile 00 hand:newtip/hitsfirst-Makefile-00.txt
+resolve Makefile 01 both
+resolve Makefile 02 hand:newtip/hitsfirst-Makefile-02.txt
+resolve Makefile 03 hand:newtip/hitsfirst-Makefile-03.txt
+resolve Makefile 04 both
+resolve Makefile 05 hand:newtip/hitsfirst-Makefile-05.txt
+resolve ds4_cuda.cu 00 both
+resolve ds4_cuda.cu 01 ours
+resolve ds4_cuda.cu 02 theirs
+resolve ds4_cuda.cu 03 ours
+resolve ds4_cuda.cu 04 ours
+resolve ds4_cuda.cu 05 theirs
+resolve ds4_cuda.cu 06 hand:newtip/hitsfirst-ds4_cuda.cu-06.txt
+resolve ds4_cuda.cu 07 theirs
+resolve ds4_cuda.cu 08 theirs
+resolve ds4_cuda.cu 09 hand:newtip/hitsfirst-ds4_cuda.cu-09.txt
+resolve ds4_cuda.cu 10 ours
+resolve ds4_cuda.cu 11 hand:newtip/hitsfirst-ds4_cuda.cu-11.txt
+resolve ds4_cuda.cu 12 ours
+resolve ds4_cuda.cu 13 hand:newtip/hitsfirst-ds4_cuda.cu-13.txt
+resolve ds4_cuda.cu 14 hand:newtip/hitsfirst-ds4_cuda.cu-14.txt
+resolve ds4_cuda.cu 15 theirs
+
+# --- the prefetch pool, the tenth lever --------------------------------------------------
+lever   triple-prefetch-pool            dd72115ee5b8cdcf6de5594520016156a1a3406e   on
+resolve Makefile 00 both
+resolve Makefile 01 hand:newtip/prefetch-pool-Makefile-01.txt
+resolve Makefile 02 hand:newtip/prefetch-pool-Makefile-02.txt
+resolve ds4_cuda.cu 00 both
+resolve ds4_cuda.cu 01 hand:newtip/prefetch-pool-ds4_cuda.cu-01.txt
+resolve ds4_cuda.cu 02 theirs
+resolve ds4_cuda.cu 03 theirs
+resolve ds4_cuda.cu 04 ours
+resolve ds4_cuda.cu 05 hand:newtip/prefetch-pool-ds4_cuda.cu-05.txt
+resolve ds4_cuda.cu 06 hand:newtip/prefetch-pool-ds4_cuda.cu-06.txt
+resolve ds4_cuda.cu 07 ours
+resolve ds4_cuda.cu 08 theirs
+resolve ds4_cuda.cu 09 theirs
+resolve ds4_cuda.cu 10 theirs
+resolve ds4_cuda.cu 11 theirs
+resolve ds4_cuda.cu 12 theirs
+resolve ds4_cuda.cu 13 hand:newtip/prefetch-pool-ds4_cuda.cu-13.txt
+resolve ds4_cuda.cu 14 theirs
+resolve ds4_cuda.cu 15 theirs
+resolve ds4_cuda.cu 16 theirs
+resolve ds4_cuda.cu 17 theirs
+resolve ds4_cuda.cu 18 hand:newtip/prefetch-pool-ds4_cuda.cu-18.txt
+resolve ds4_cuda.cu 19 theirs
+resolve ds4_cuda.cu 20 theirs
+resolve ds4_cuda.cu 21 ours
+resolve ds4_cuda.cu 22 ours
+resolve ds4_cuda.cu 23 theirs
+resolve ds4_cuda.cu 24 ours
+resolve ds4_cuda.cu 25 both
+resolve ds4_cuda.cu 26 ours
+resolve ds4_cuda.cu 27 ours
+resolve ds4_cuda.cu 28 ours
+resolve ds4_cuda.cu 29 ours
+resolve ds4_cuda.cu 30 hand:newtip/prefetch-pool-ds4_cuda.cu-30.txt
+resolve ds4_cuda.cu 31 both
+resolve ds4_cuda.cu 32 both
+
+# --- the hand hunks that survive re-derivation, and the victim-order default --------------
+patch   stack.patches/99-hand-newtip.patch   hand-newtip-5-hunks

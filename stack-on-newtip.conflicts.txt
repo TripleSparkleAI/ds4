@@ -1,0 +1,125 @@
+# THE NEW-TIP CONFLICT LIST - 61 hunks surveyed 2026-09-17 (lane MANIFEST), 63 DECIDED
+# 2026-09-17 (lane STACKTIP). Every ??? below is now a decision, copied from
+# stack-on-newtip.manifest, which is the authority; this file is the survey's record.
+#
+# Produced by:  bash build_stack.sh stack-on-newtip.manifest --survey
+# The survey counted 31 prefetch-pool hunks in ds4_cuda.cu on a theirs-throughout tree;
+# on the properly resolved tree the lever meets 33, so the decided list below is longer
+# than the survey's by two and its anchors are the manifest's, not the survey's.
+# Six of the ten levers conflict; four apply clean. Three files carry all of it.
+#
+#   lever                           file          hunks
+#   triple-pool                     -                 0   clean
+#   triple-margin                   -                 0   clean
+#   triple-draincut                 -                 0   clean
+#   triple-pagecache                ds4_cuda.cu       1
+#   triple-hotlist                  ds4_cuda.cu       1
+#   triple-engram-lead              -                 0   clean
+#   triple-engram-read-threads      ds4.c             1
+#   triple-prefill-readahead-order  Makefile          1
+#   triple-prefill-readahead-order  ds4_cuda.cu       1
+#   triple-hitsfirst                Makefile          6
+#   triple-hitsfirst                ds4_cuda.cu      16
+#   triple-prefetch-pool            Makefile          3
+#   triple-prefetch-pool            ds4_cuda.cu      31
+#                                                  ----
+#                                                    61
+#
+# The Makefile hunks are a different animal from the .cu ones and should be decided
+# first: they are test-binary rules for the six pure headers the 2026-09-16 repair lanes
+# added (ds4_prefill_hold.h, ds4_hitsfirst_logic.h, ds4_hotcache.h and siblings). Two
+# levers each add their own rule in the same place, so the answer is almost certainly
+# both for every one of the ten. They are listed as ??? anyway, because almost certainly
+# is what a guess sounds like.
+#
+# The ds4_cuda.cu hunks between hits-first and prefetch-pool are the real work: both
+# levers rewrite the pread pool's staging and both were repaired independently on
+# 2026-09-16, so the conflict is now larger than the 30 hunks the old base needed.
+
+
+  triple-pool
+
+  triple-margin
+
+  triple-draincut
+
+  triple-pagecache
+    resolve ds4_cuda.cu 00 both
+
+  triple-hotlist
+    resolve ds4_cuda.cu 00 hand:newtip/hotlist-ds4_cuda.cu-00.txt
+
+  triple-engram-lead
+
+  triple-engram-read-threads
+    resolve ds4.c 00 ours
+
+  triple-prefill-readahead-order
+    resolve Makefile 00 hand:newtip/readahead-order-Makefile-00.txt
+    resolve ds4_cuda.cu 00 hand:newtip/readahead-order-ds4_cuda.cu-00.txt
+
+  triple-hitsfirst
+    resolve Makefile 00 hand:newtip/hitsfirst-Makefile-00.txt
+    resolve Makefile 01 both
+    resolve Makefile 02 hand:newtip/hitsfirst-Makefile-02.txt
+    resolve Makefile 03 hand:newtip/hitsfirst-Makefile-03.txt
+    resolve Makefile 04 both
+    resolve Makefile 05 hand:newtip/hitsfirst-Makefile-05.txt
+    resolve ds4_cuda.cu 00 both
+    resolve ds4_cuda.cu 01 ours
+    resolve ds4_cuda.cu 02 theirs
+    resolve ds4_cuda.cu 03 ours
+    resolve ds4_cuda.cu 04 ours
+    resolve ds4_cuda.cu 05 theirs
+    resolve ds4_cuda.cu 06 hand:newtip/hitsfirst-ds4_cuda.cu-06.txt
+    resolve ds4_cuda.cu 07 theirs
+    resolve ds4_cuda.cu 08 theirs
+    resolve ds4_cuda.cu 09 hand:newtip/hitsfirst-ds4_cuda.cu-09.txt
+    resolve ds4_cuda.cu 10 ours
+    resolve ds4_cuda.cu 11 hand:newtip/hitsfirst-ds4_cuda.cu-11.txt
+    resolve ds4_cuda.cu 12 ours
+    resolve ds4_cuda.cu 13 hand:newtip/hitsfirst-ds4_cuda.cu-13.txt
+    resolve ds4_cuda.cu 14 hand:newtip/hitsfirst-ds4_cuda.cu-14.txt
+    resolve ds4_cuda.cu 15 theirs
+
+  triple-prefetch-pool
+    resolve Makefile 00 both
+    resolve Makefile 01 hand:newtip/prefetch-pool-Makefile-01.txt
+    resolve Makefile 02 hand:newtip/prefetch-pool-Makefile-02.txt
+    resolve ds4_cuda.cu 00 both
+    resolve ds4_cuda.cu 01 hand:newtip/prefetch-pool-ds4_cuda.cu-01.txt
+    resolve ds4_cuda.cu 02 theirs
+    resolve ds4_cuda.cu 03 theirs
+    resolve ds4_cuda.cu 04 ours
+    resolve ds4_cuda.cu 05 hand:newtip/prefetch-pool-ds4_cuda.cu-05.txt
+    resolve ds4_cuda.cu 06 hand:newtip/prefetch-pool-ds4_cuda.cu-06.txt
+    resolve ds4_cuda.cu 07 ours
+    resolve ds4_cuda.cu 08 theirs
+    resolve ds4_cuda.cu 09 theirs
+    resolve ds4_cuda.cu 10 theirs
+    resolve ds4_cuda.cu 11 theirs
+    resolve ds4_cuda.cu 12 theirs
+    resolve ds4_cuda.cu 13 hand:newtip/prefetch-pool-ds4_cuda.cu-13.txt
+    resolve ds4_cuda.cu 14 theirs
+    resolve ds4_cuda.cu 15 theirs
+    resolve ds4_cuda.cu 16 theirs
+    resolve ds4_cuda.cu 17 theirs
+    resolve ds4_cuda.cu 18 hand:newtip/prefetch-pool-ds4_cuda.cu-18.txt
+    resolve ds4_cuda.cu 19 theirs
+    resolve ds4_cuda.cu 20 theirs
+    resolve ds4_cuda.cu 21 ours
+    resolve ds4_cuda.cu 22 ours
+    resolve ds4_cuda.cu 23 theirs
+    resolve ds4_cuda.cu 24 ours
+    resolve ds4_cuda.cu 25 both
+    resolve ds4_cuda.cu 26 ours
+    resolve ds4_cuda.cu 27 ours
+    resolve ds4_cuda.cu 28 ours
+    resolve ds4_cuda.cu 29 ours
+    resolve ds4_cuda.cu 30 hand:newtip/prefetch-pool-ds4_cuda.cu-30.txt
+    resolve ds4_cuda.cu 31 both
+    resolve ds4_cuda.cu 32 both
+
+  patch   stack.patches/99-hand-newtip.patch   hand-newtip-5-hunks
+
+DECIDED. Every hunk above carries a choice; the build stops on none of them.
