@@ -6,6 +6,7 @@
  * .cu compilation units).
  */
 #include "ds4_gpu_args.h"
+#include "ds4_mem_reserve.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -14,7 +15,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define DS4_GPU_ARGS_DEFAULT_SAFETY_MARGIN ((size_t)512 * 1024 * 1024)
+/*
+ * The per-device reserve used to be a constant right here
+ * (DS4_GPU_ARGS_DEFAULT_SAFETY_MARGIN, 512 MiB). It is now named by
+ * DS4_GPU_SAFETY_MARGIN_MIB and read through
+ * ds4_gpu_safety_margin_bytes_from_env() in ds4_mem_reserve.c, whose default
+ * is that same 512 MiB, so an invocation that sets nothing behaves exactly as
+ * before. It is NOT the host memory floor: DS4_MEM_RESERVE_MIB is whole-node
+ * MemAvailable checked at runtime, this is per-device VRAM subtracted at
+ * placement time, and for one revision a single variable set both.
+ */
 
 /* Helper: copy at most outlen-1 bytes of msg into out and NUL-terminate. */
 static void errbuf_set(char *out, size_t outlen, const char *msg) {
@@ -111,7 +121,13 @@ int parse_gpu_vram_arg(const char     *vram_arg,
     *out_skip_cuda = false;
     /* Caller zeroed *out — just confirm. */
     out->n_gpus = 0;
-    out->safety_margin_bytes = DS4_GPU_ARGS_DEFAULT_SAFETY_MARGIN;
+    /* The PER-DEVICE VRAM margin, under its own name. This used to construct
+     * a ds4_mem_reserve and take the HOST memory floor
+     * (DS4_MEM_RESERVE_MIB), so one variable set two unrelated quantities
+     * and an invalid value warned twice per run. Unset, this is the same
+     * 512 MiB the removed DS4_GPU_ARGS_DEFAULT_SAFETY_MARGIN constant
+     * carried, so every existing placement is byte-identical. */
+    out->safety_margin_bytes = (size_t)ds4_gpu_safety_margin_bytes_from_env();
 
     /* Parse devices_arg first so we have the filter when handling "auto". */
     long dev_list[DS4_MAX_GPUS] = {0};

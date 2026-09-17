@@ -7,6 +7,7 @@
 #include <stdio.h>
 
 #include "ds4_ssd.h"
+#include "ds4_mem_reserve.h"
 
 /* Public engine boundary.
  *
@@ -243,6 +244,13 @@ int ds4_engine_create_with_gpu_config(ds4_engine **out,
                                        const ds4_engine_options *opt,
                                        const struct ds4_gpu_config *gpu_cfg);
 void ds4_engine_close(ds4_engine *e);
+
+/* Live OS memory reserve for this engine's run: the FLOOR in force from
+ * DS4_MEM_RESERVE_MIB, its authorization, the floor ladder, and the observed
+ * minimum with the phase it happened in, once that is recorded. NULL-safe.
+ * A results writer can hand this to ds4_mem_reserve_record_json() so a
+ * result file carries the observation instead of only the engine's stderr. */
+const ds4_mem_reserve *ds4_engine_mem_reserve(const ds4_engine *e);
 void ds4_engine_summary(ds4_engine *e);
 int ds4_engine_vocab_size(ds4_engine *e);
 uint32_t ds4_engine_prefill_chunk(ds4_engine *e);

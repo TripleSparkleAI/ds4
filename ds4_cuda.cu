@@ -27189,9 +27189,25 @@ static int cuda_stream_selected_cache_begin_load(
             if (cudaDeviceGetAttribute(&integrated, cudaDevAttrIntegrated, g_gpu[0].device_id) == cudaSuccess &&
                 integrated && ds4_linux_nonmovable_memory(&host_available))
                 free_bytes = (size_t)std::min(host_available, (uint64_t)total_bytes);
-            const uint64_t reserve = UINT64_C(8) << 30;
+            /* The reserve is what the KV cache, the staging pool and the
+             * streaming reads' page cache still need after the slots take
+             * theirs.  8 GiB is the default; a shared box can raise it and
+             * an idle one lower it with DS4_CUDA_EXPERT_CACHE_MARGIN_GB. */
+            uint64_t reserve_gb = 8;
+            if (const char *e = getenv("DS4_CUDA_EXPERT_CACHE_MARGIN_GB")) {
+                char *end = NULL;
+                const unsigned long v = strtoul(e, &end, 10);
+                if (end != e && *end == '\0' && v <= 120) reserve_gb = v;
+            }
+            const uint64_t reserve = reserve_gb << 30;
             const uint64_t available = free_bytes > reserve ? free_bytes - reserve : 0;
             capacity = std::min(capacity, available / expert_bytes);
+            if (getenv("DS4_CUDA_EXPERT_CACHE_STATS"))
+                fprintf(stderr,
+                        "ds4: [expert-cache] sizing: free %.2f GiB (integrated=%d host nonmovable %.2f GiB), reserve %llu GiB, budget %llu slots\n",
+                        (double)free_bytes / 1073741824.0, integrated,
+                        (double)host_available / 1073741824.0,
+                        (unsigned long long)reserve_gb, (unsigned long long)capacity);
             if (capacity < unique.size()) {
                 fprintf(stderr, "ds4: CUDA SSD cache cannot stage %zu experts with system headroom\n",
                         unique.size());

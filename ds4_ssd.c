@@ -77,6 +77,26 @@ uint32_t ds4_ssd_cache_experts_for_byte_budget(uint64_t bytes,
     return (uint32_t)experts;
 }
 
+/*
+ * The cache budget is a SPLIT of one pool of RAM across three consumers, not
+ * a maximum to push.
+ *
+ * Three consumers draw on the same physical RAM: the engine (resident expert)
+ * tier, the pinned host tier, and the kernel page cache that backs the
+ * memory-mapped Engram tables. A bigger engine cache past a point is SLOWER
+ * because it steals page cache from those tables:
+ *   - our own knee result, WIKI/theory/48-decode-speedup-levers.md section 8:
+ *     on the Spark the lever is hot-expert prediction, "NOT BIGGER CACHE (THE
+ *     KNEE PROVED SIZE ISN'T IT)";
+ *   - a separately measured negative result on another rig: raising its
+ *     pinned host tier above 72 GiB on a 125.7 GiB box is slower for exactly
+ *     that reason (research/v41-flash-landscape/08-rtx-cards/CODE.md:279-285).
+ * So DS4_SSD_AUTO_CACHE_PCT is the engine tier's SHARE, the page cache gets an
+ * explicit floor of its own (DS4_SSD_PAGECACHE_FLOOR_PCT), and whatever is
+ * left is the pinned host tier plus the transient prefill budget. Raising the
+ * engine share past 100 minus the floor is refused rather than granted,
+ * because that is the direction the measurements say is slower.
+ */
 static uint64_t ds4_ssd_auto_cache_percent(uint32_t default_percent) {
     const char *env = getenv("DS4_SSD_AUTO_CACHE_PCT");
     if (env && env[0]) {
@@ -92,17 +112,35 @@ static uint64_t ds4_ssd_auto_cache_percent(uint32_t default_percent) {
                 "using default\n",
                 env);
     }
-    /*
-     * Decode on the ROCm streaming path is SSD-bandwidth bound: every routed
-     * expert miss is a random NVMe read, so a larger resident expert cache is
-     * the biggest decode-throughput lever.  BUT the expert cache lives in the
-     * same physical RAM as the OS on a unified-memory APU, and transient
-     * spikes (pinned read/upload staging, the prefill headroom, cache growth)
-     * ride on top of the steady-state plan.  Pushing the split too high runs
-     * the machine out of RAM and trips the Linux OOM killer.  80% was measured
-     * safe here; opt into more only deliberately via DS4_SSD_AUTO_CACHE_PCT.
-     */
     return default_percent;
+}
+
+/* The kernel page cache's own share of the pool. Default 10 percent, which is
+ * a no-op beside the 80 percent engine share in use today and only binds when
+ * someone raises DS4_SSD_AUTO_CACHE_PCT past 100 minus this. */
+#define DS4_SSD_PAGECACHE_FLOOR_DEFAULT_PCT 10u
+#define DS4_SSD_PAGECACHE_FLOOR_MIN_PCT 1u
+#define DS4_SSD_PAGECACHE_FLOOR_MAX_PCT 40u
+
+static uint64_t ds4_ssd_pagecache_floor_percent(void) {
+    const char *env = getenv("DS4_SSD_PAGECACHE_FLOOR_PCT");
+    if (env && env[0]) {
+        errno = 0;
+        char *end = NULL;
+        unsigned long v = strtoul(env, &end, 10);
+        if (end != env && *end == '\0' && errno == 0 &&
+            v >= DS4_SSD_PAGECACHE_FLOOR_MIN_PCT &&
+            v <= DS4_SSD_PAGECACHE_FLOOR_MAX_PCT) {
+            return (uint64_t)v;
+        }
+        fprintf(stderr,
+                "ds4: invalid DS4_SSD_PAGECACHE_FLOOR_PCT=%s (want %u..%u); "
+                "using default %u\n",
+                env, DS4_SSD_PAGECACHE_FLOOR_MIN_PCT,
+                DS4_SSD_PAGECACHE_FLOOR_MAX_PCT,
+                DS4_SSD_PAGECACHE_FLOOR_DEFAULT_PCT);
+    }
+    return DS4_SSD_PAGECACHE_FLOOR_DEFAULT_PCT;
 }
 
 bool ds4_ssd_auto_cache_plan(uint64_t            recommended_bytes,
@@ -118,9 +156,50 @@ bool ds4_ssd_auto_cache_plan(uint64_t            recommended_bytes,
         default_percent < 50 || default_percent > 95) return false;
 
     const uint64_t pct = ds4_ssd_auto_cache_percent(default_percent);
-    out->model_target_bytes =
+    const uint64_t floor_pct = ds4_ssd_pagecache_floor_percent();
+
+    /* The engine tier's share of the pool... */
+    uint64_t target_bytes =
         recommended_bytes > UINT64_MAX / pct ?
             UINT64_MAX : (recommended_bytes * pct) / 100ull;
+
+    /* ...beside the page-cache floor, which is held apart rather than
+     * competed for. When the two would oversubscribe the pool, the engine tier
+     * gives way: this is the direction both measurements call slower. */
+    const uint64_t floor_bytes =
+        recommended_bytes > UINT64_MAX / floor_pct ?
+            UINT64_MAX : (recommended_bytes * floor_pct) / 100ull;
+    const uint64_t engine_cap = recommended_bytes > floor_bytes ?
+        recommended_bytes - floor_bytes : 0;
+    if (target_bytes > engine_cap) {
+        out->clamped_by_pagecache_floor = true;
+        fprintf(stderr,
+                "ds4: SSD streaming cache split: engine tier %llu%% plus "
+                "page-cache floor %llu%% would oversubscribe the pool; "
+                "engine tier capped to %llu%% (%.2f GiB of %.2f GiB)\n",
+                (unsigned long long)pct,
+                (unsigned long long)floor_pct,
+                (unsigned long long)(100ull > floor_pct ? 100ull - floor_pct : 0ull),
+                (double)engine_cap / (1024.0 * 1024.0 * 1024.0),
+                (double)recommended_bytes / (1024.0 * 1024.0 * 1024.0));
+        target_bytes = engine_cap;
+    }
+    out->pool_bytes = recommended_bytes;
+    out->engine_tier_pct = (uint32_t)pct;
+    out->pagecache_floor_pct = (uint32_t)floor_pct;
+    out->pagecache_floor_bytes = floor_bytes;
+    out->host_tier_bytes = target_bytes + floor_bytes < recommended_bytes ?
+        recommended_bytes - target_bytes - floor_bytes : 0;
+    if (out->host_tier_bytes == 0) {
+        fprintf(stderr,
+                "ds4: SSD streaming cache split leaves the pinned host tier "
+                "no room (engine tier %llu%% + page-cache floor %llu%% of the "
+                "pool); the next streaming spike has nowhere to go\n",
+                (unsigned long long)pct,
+                (unsigned long long)floor_pct);
+    }
+
+    out->model_target_bytes = target_bytes;
     if (model_limit_bytes != 0 && out->model_target_bytes > model_limit_bytes)
         out->model_target_bytes = model_limit_bytes;
     if (out->model_target_bytes > non_routed_bytes) {

@@ -173,10 +173,12 @@ static void print_model_runtime(FILE *fp, const help_colors *c,
     opt(fp, c, "--ssd-streaming", "Metal/CUDA/ROCm: opt in to SSD-backed model streaming instead of full residency.");
     opt(fp, c, "--ssd-streaming-cold", "SSD streaming: skip default popularity-based expert-cache preload.");
     opt(fp, c, "--ssd-streaming-cache-experts N|NGB", "SSD streaming cache target. N requests dynamic expert slots; NGB also reserves two full prefill layers. Either may be reduced to fit the model, graph, context, and backend working set.");
+    para(fp, c, "The cache budget is a split of one pool of RAM, not a size to push: the engine tier (DS4_SSD_AUTO_CACHE_PCT, default 80) and the kernel page cache (DS4_SSD_PAGECACHE_FLOOR_PCT, default 10) each hold a share of the recommended working set, and the pinned host tier gets the remainder. A bigger engine cache past that point is slower because it evicts the memory-mapped Engram table pages, so an engine share above 100 minus the floor is capped rather than granted.");
     opt(fp, c, "--ssd-streaming-full-layers N", "GLM Metal streaming: keep the first N routed layers fully resident. Default: auto from NGB expert budget; use 0 to disable.");
     opt(fp, c, "--ssd-streaming-preload-experts N", "SSD streaming: upfront popularity preload count. DeepSeek auto-seeds by default; GLM demand-fills unless N is explicit.");
     opt(fp, c, "--simulate-used-memory NGB", "Diagnostic: lock N GiB before model load to simulate a smaller-memory machine.");
     opt(fp, c, "--prefill-chunk N", "Graph prefill chunk size. Default: CUDA TP 2048; PRO long prompts 8192; others 4096.");
+    para(fp, c, "Memory reserve: DS4_MEM_RESERVE_MIB sets the whole-node OS memory floor in MiB (default 512). It is OBSERVE-ONLY by default: the floor, its authorization and the observed minimum are logged, and DS4_MEM_RESERVE_RECORD=FILE appends them so a result file can carry them. DS4_MEM_RESERVE_ENFORCE=1 turns the floor into a stop threshold that fails a prefill or decode below it; DS4_MEM_RESERVE_SAMPLE_STEADY=1 samples the decode path without stopping it. With neither set the decode loop does not read /proc/meminfo at all. The floor is a stop threshold, not a free-memory guarantee, and it is NOT the per-device VRAM placement margin - that is DS4_GPU_SAFETY_MARGIN_MIB (default 512 MiB), a different unit for a different budget.");
     if (full) {
         if (tool == DS4_HELP_EVAL || tool == DS4_HELP_BENCH) {
             opt(fp, c, "--mtp-model FILE", "External MTP or DSpark support GGUF.");

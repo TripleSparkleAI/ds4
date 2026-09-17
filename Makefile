@@ -26,8 +26,8 @@ DS4_DSPARK_SUPPORT ?= gguf/DeepSeek-V4-Flash-DSpark-support-0731.gguf
 
 ifeq ($(UNAME_S),Darwin)
 METAL_LDLIBS := $(LDLIBS) -framework Foundation -framework Metal
-CORE_OBJS = ds4.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_metal.o ds4_layer_pack.o ds4_engram.o
-CPU_CORE_OBJS = ds4_cpu.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_layer_pack.o
+CORE_OBJS = ds4.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_mem_reserve.o ds4_metal.o ds4_layer_pack.o ds4_engram.o
+CPU_CORE_OBJS = ds4_cpu.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_mem_reserve.o ds4_layer_pack.o
 else
 CFLAGS += -D_GNU_SOURCE -fno-finite-math-only
 CUDA_HOME ?= $(shell if [ -x /usr/local/cuda/bin/nvcc ]; then \
@@ -53,8 +53,8 @@ NVCCFLAGS ?= -O3 -g -lineinfo --use_fast_math $(NVCC_ARCH_FLAGS) -Xcompiler $(NA
 # Vendored llama.cpp mmq prefill tier (cuda/mmq/, see cuda/mmq/VENDOR.md).
 MMQ_INCLUDES := -Icuda/mmq
 MMQ_OBJS := cuda/mmq/ds4_ggml_stubs.o cuda/mmq/ds4_mmq.o cuda/mmq/ds4_mmq_d2r.o cuda/mmq/quantize.o cuda/mmq/mmid.o cuda/mmq/mmvq.o cuda/mmq/ds4_repack.o
-CORE_OBJS = ds4.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_cuda.o ds4_layer_pack.o ds4_engram.o $(MMQ_OBJS)
-CPU_CORE_OBJS = ds4_cpu.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_layer_pack.o
+CORE_OBJS = ds4.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_mem_reserve.o ds4_cuda.o ds4_layer_pack.o ds4_engram.o $(MMQ_OBJS)
+CPU_CORE_OBJS = ds4_cpu.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_mem_reserve.o ds4_layer_pack.o
 CUDA_LDLIBS ?= -lm -Xcompiler -pthread -L$(CUDA_HOME)/targets/sbsa-linux/lib -L$(CUDA_HOME)/lib64 -lcudart -lcublas
 HIPCC ?= $(shell command -v hipcc 2>/dev/null || echo /opt/rocm/bin/hipcc)
 ROCM_ARCH ?= gfx1151
@@ -303,7 +303,7 @@ cuda:
 
 strix-halo:
 	$(MAKE) -B ds4 ds4-server ds4-bench ds4-eval ds4-agent \
-		CORE_OBJS="ds4.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_rocm.o ds4_rocm_compat.o ds4_rocm_unavailable.o ds4_layer_pack.o $(ROCM_MMQ_OBJS)" \
+		CORE_OBJS="ds4.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_mem_reserve.o ds4_rocm.o ds4_rocm_compat.o ds4_rocm_unavailable.o ds4_layer_pack.o $(ROCM_MMQ_OBJS)" \
 		CFLAGS="$(CFLAGS) $(ROCM_HOST_CFLAGS) -DDS4_ROCM_BUILD" \
 		DS4_LINK="$(HIPCC) $(ROCM_CFLAGS)" \
 		DS4_LINK_LIBS="$(ROCM_LDLIBS)"
@@ -319,7 +319,7 @@ test-rocm:
 		test-session-state \
 		tests/test_layer_pack tests/test_engine_mgpu_placement tests/test_gpu_args tests/test_prompt_prefix \
 		ds4 ds4-server ds4-bench ds4-agent \
-		CORE_OBJS="ds4.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_rocm.o ds4_rocm_compat.o ds4_rocm_unavailable.o ds4_layer_pack.o $(ROCM_MMQ_OBJS)" \
+		CORE_OBJS="ds4.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_mem_reserve.o ds4_rocm.o ds4_rocm_compat.o ds4_rocm_unavailable.o ds4_layer_pack.o $(ROCM_MMQ_OBJS)" \
 		CFLAGS="$(CFLAGS) $(ROCM_HOST_CFLAGS) -DDS4_ROCM_BUILD" \
 		DS4_LINK="$(HIPCC) $(ROCM_CFLAGS)" \
 		DS4_LINK_LIBS="$(ROCM_LDLIBS)"
@@ -480,7 +480,7 @@ test-qwen4-cuda: tests/test_qwen4_cuda
 	./tests/test_qwen4_cuda
 endif
 
-ds4.o: ds4.c ds4.h ds4_ssd.h ds4_distributed.h ds4_gpu.h ds4_gpu_tp.h ds4_deepseek41_gpu.h ds4_linux_memory.h ds4_engram.h
+ds4.o: ds4.c ds4.h ds4_ssd.h ds4_mem_reserve.h ds4_distributed.h ds4_gpu.h ds4_gpu_tp.h ds4_deepseek41_gpu.h ds4_linux_memory.h ds4_engram.h
 	$(CC) $(CFLAGS) -c -o $@ ds4.c
 
 ds4_image.o: ds4_image.c ds4_image.h third_party/iris/jpeg.h third_party/iris/png.h
@@ -488,6 +488,9 @@ ds4_image.o: ds4_image.c ds4_image.h third_party/iris/jpeg.h third_party/iris/pn
 
 ds4_ssd.o: ds4_ssd.c ds4_ssd.h
 	$(CC) $(CFLAGS) -c -o $@ ds4_ssd.c
+
+ds4_mem_reserve.o: ds4_mem_reserve.c ds4_mem_reserve.h ds4_linux_memory.h
+	$(CC) $(CFLAGS) -c -o $@ ds4_mem_reserve.c
 
 ds4_engram.o: ds4_engram.c ds4_engram.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -c -o $@ ds4_engram.c
@@ -507,7 +510,7 @@ ds4_help.o: ds4_help.c ds4_help.h
 ds4_prompt_prefix.o: ds4_prompt_prefix.c ds4_prompt_prefix.h ds4.h
 	$(CC) $(CFLAGS) -c -o $@ ds4_prompt_prefix.c
 
-ds4_gpu_args.o: ds4_gpu_args.c ds4_gpu_args.h ds4_gpu_mgpu.h
+ds4_gpu_args.o: ds4_gpu_args.c ds4_gpu_args.h ds4_gpu_mgpu.h ds4_mem_reserve.h
 	$(CC) $(CFLAGS) -c -o $@ ds4_gpu_args.c
 
 ds4_server.o: ds4_server.c ds4.h ds4_ssd.h ds4_distributed.h ds4_help.h ds4_kvstore.h rax.h
@@ -552,7 +555,7 @@ ds4_cpu.o: ds4.c ds4.h ds4_ssd.h ds4_distributed.h ds4_gpu.h ds4_gpu_tp.h
 ds4_cli_cpu.o: ds4_cli.c ds4.h ds4_ssd.h ds4_distributed.h ds4_help.h ds4_prompt_prefix.h linenoise.h
 	$(CC) $(CFLAGS) -DDS4_NO_GPU -c -o $@ ds4_cli.c
 
-ds4_gpu_args_cpu.o: ds4_gpu_args.c ds4_gpu_args.h ds4_gpu_mgpu.h
+ds4_gpu_args_cpu.o: ds4_gpu_args.c ds4_gpu_args.h ds4_gpu_mgpu.h ds4_mem_reserve.h
 	$(CC) $(CFLAGS) -DDS4_NO_GPU -c -o $@ ds4_gpu_args.c
 
 ds4_server_cpu.o: ds4_server.c ds4.h ds4_ssd.h ds4_distributed.h ds4_help.h ds4_kvstore.h rax.h
@@ -666,12 +669,18 @@ test-glm-attention-rocm: tests/test_glm_attention_rocm
 tests/test_linux_memory: tests/test_linux_memory.c ds4_linux_memory.h
 	$(CC) $(CFLAGS) -I. -o $@ $<
 
+tests/test_mem_reserve: tests/test_mem_reserve.c ds4_mem_reserve.c ds4_mem_reserve.h ds4_linux_memory.h
+	$(CC) $(CFLAGS) -I. -o $@ tests/test_mem_reserve.c ds4_mem_reserve.c
+
 tests/test_rocm_memory: tests/test_rocm_memory.cu ds4_rocm_memory.h ds4_linux_memory.h
 	$(HIPCC) $(ROCM_CFLAGS) -I. -o $@ $<
 
-.PHONY: test-linux-memory test-rocm-memory
+.PHONY: test-linux-memory test-rocm-memory test-mem-reserve
 test-linux-memory: tests/test_linux_memory
 	./tests/test_linux_memory
+
+test-mem-reserve: tests/test_mem_reserve
+	./tests/test_mem_reserve
 
 test-rocm-memory: tests/test_rocm_memory
 	./tests/test_rocm_memory
@@ -831,10 +840,10 @@ tests/test_layer_pack.o: tests/test_layer_pack.c ds4_layer_pack.h
 tests/test_layer_pack: tests/test_layer_pack.o ds4_layer_pack.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-tests/test_gpu_args.o: tests/test_gpu_args.c ds4_gpu_args.h ds4_gpu_mgpu.h
+tests/test_gpu_args.o: tests/test_gpu_args.c ds4_gpu_args.h ds4_gpu_mgpu.h ds4_mem_reserve.h
 	$(CC) $(CFLAGS) -I. -DDS4_NO_GPU -c -o $@ $<
 
-tests/test_gpu_args: tests/test_gpu_args.o ds4_gpu_args_cpu.o
+tests/test_gpu_args: tests/test_gpu_args.o ds4_gpu_args_cpu.o ds4_mem_reserve.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 ds4_cpu_test_hooks.o: ds4.c ds4.h ds4_image.h ds4_gpu.h ds4_gpu_mgpu.h ds4_layer_pack.h
@@ -843,13 +852,13 @@ ds4_cpu_test_hooks.o: ds4.c ds4.h ds4_image.h ds4_gpu.h ds4_gpu_mgpu.h ds4_layer
 tests/test_engine_mgpu_placement.o: tests/test_engine_mgpu_placement.c ds4.h ds4_gpu_mgpu.h ds4_layer_pack.h
 	$(CC) $(CFLAGS) -I. -c -o $@ $<
 
-tests/test_engine_mgpu_placement: tests/test_engine_mgpu_placement.o ds4_cpu_test_hooks.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_layer_pack.o
+tests/test_engine_mgpu_placement: tests/test_engine_mgpu_placement.o ds4_cpu_test_hooks.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_mem_reserve.o ds4_layer_pack.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 tests/test_sampling.o: tests/test_sampling.c ds4.h
 	$(CC) $(CFLAGS) -fno-finite-math-only -DDS4_TEST_HOOKS -I. -c -o $@ $<
 
-tests/test_sampling: tests/test_sampling.o ds4_cpu_test_hooks.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_layer_pack.o
+tests/test_sampling: tests/test_sampling.o ds4_cpu_test_hooks.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_mem_reserve.o ds4_layer_pack.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 tests/test_session_state.o: tests/test_session_state.c ds4.c ds4.h ds4_gpu.h ds4_image.h ds4_tp.h
@@ -990,7 +999,7 @@ test-web-recovery: tests/test_web_recovery
 tests/test_web_recovery: tests/test_web_recovery.c ds4_web.c ds4_web.h
 	$(CC) $(CFLAGS) -Wno-unused-function -o $@ tests/test_web_recovery.c
 
-test: ds4_test ds4_agent_test ds4-eval q4k-dot-test mxfp4-dot-test test-session-state test-linux-memory test-engram test-web-recovery \
+test: ds4_test ds4_agent_test ds4-eval q4k-dot-test mxfp4-dot-test test-session-state test-linux-memory test-mem-reserve test-engram test-web-recovery \
 	tests/test_layer_pack tests/test_engine_mgpu_placement tests/test_gpu_args \
 	tests/test_deepseek4_vision_image tests/test_prompt_prefix $(SAMPLING_TEST) ds4 ds4-server ds4-bench ds4-agent
 	./ds4-eval --validate-cases

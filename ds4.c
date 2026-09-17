@@ -42270,6 +42270,10 @@ struct ds4_engine {
     uint32_t ssd_streaming_preload_experts;
     uint64_t startup_model_span_bytes;
     ds4_ssd_memory_lock simulated_memory;
+    /* Live OS memory reserve: the FLOOR in force, its authorization, the
+     * observed minimum and the phase it happened in. Zero-init means "not
+     * initialised yet" (floor_bytes == 0), which ds4_engine_close skips. */
+    ds4_mem_reserve mem_reserve;
     bool quality;
     bool glm_mtp;
     bool glm_mtp_timing;
@@ -67895,6 +67899,20 @@ static bool ds4_engine_configure_streaming_auto_cache(ds4_engine *e, int ctx_siz
                 "ds4: SSD streaming auto cache could not compute a valid cache budget\n");
         return false;
     }
+    /* One pool of RAM, three consumers. Print the division so the split is
+     * visible in the run, not inferred from a single percentage. */
+    fprintf(stderr,
+            "ds4: SSD streaming cache split: %.2f GiB pool = engine tier "
+            "%.2f GiB (%u%%) + page-cache floor %.2f GiB (%u%%) + pinned host "
+            "tier %.2f GiB%s\n",
+            (double)plan.pool_bytes / 1073741824.0,
+            (double)plan.model_target_bytes / 1073741824.0,
+            plan.engine_tier_pct,
+            (double)plan.pagecache_floor_bytes / 1073741824.0,
+            plan.pagecache_floor_pct,
+            (double)plan.host_tier_bytes / 1073741824.0,
+            plan.clamped_by_pagecache_floor ?
+                " (engine tier capped by the page-cache floor)" : "");
 
     uint32_t cache_experts = plan.cache_experts;
     uint64_t effective_cache_bytes = plan.effective_cache_bytes;
@@ -69253,6 +69271,16 @@ static int engine_classify_multi_tier(ds4_engine *e, const ds4_gpu_config *cfg) 
 
     e->gpu_cfg = *cfg;
 
+    /* TWO QUANTITIES, TWO NAMES. This used to read
+     *   if (e->mem_reserve.floor_from_env)
+     *       e->gpu_cfg.safety_margin_bytes = e->mem_reserve.floor_bytes;
+     * which made DS4_MEM_RESERVE_MIB - documented as "the OS memory floor in
+     * MiB" - also rewrite every device's VRAM placement margin. Whole-node
+     * MemAvailable and per-device VRAM are not the same unit and the help
+     * text never mentioned the second effect. The VRAM margin now has its own
+     * name (DS4_GPU_SAFETY_MARGIN_MIB, read in parse_gpu_vram_arg) and the
+     * caller-provided margin stands here unchanged. */
+
     /* Pre-subtract per-tier Class-P graph scratch from EVERY device
      * budget BEFORE the packer reads vram_bytes.
      * Conservative: tiers that end up unused still reserve the overhead, so
@@ -70264,6 +70292,18 @@ static int ds4_engine_open_internal(ds4_engine **out,
     e->share_session_prefill_workspace = opt->share_session_prefill_workspace;
     ds4_acquire_instance_lock();
 
+    /* The reserve becomes a named, live, checked value here. It is read
+     * before any model byte is faulted in, and when a breach enforces it
+     * stops the launch rather than letting the OOM killer choose the victim
+     * later. The floor and its authorization are printed either way. */
+    ds4_mem_reserve_init(&e->mem_reserve);
+    ds4_mem_reserve_log_status(&e->mem_reserve, NULL);
+    if (!ds4_mem_reserve_sample(&e->mem_reserve, DS4_MEM_PHASE_STARTUP)) {
+        ds4_engine_close(e);
+        *out = NULL;
+        return 1;
+    }
+
     if (opt->simulate_used_memory_bytes != 0 &&
         !ds4_ssd_memory_lock_acquire(&e->simulated_memory,
                                      opt->simulate_used_memory_bytes)) {
@@ -70743,6 +70783,14 @@ static int ds4_engine_open_internal(ds4_engine **out,
         *out = NULL;
         return 1;
     }
+    /* Load phase: the model map is open and its weights are bound. The
+     * reference's lowest per-node reading was a startup/capacity sample, not
+     * a benchmark-window one, so this sample is taken before placement. */
+    if (!ds4_mem_reserve_sample(&e->mem_reserve, DS4_MEM_PHASE_LOAD)) {
+        ds4_engine_close(e);
+        *out = NULL;
+        return 1;
+    }
     if (engine_classify_multi_tier(e, gpu_cfg) != 0) {
         fprintf(stderr, "ds4: failed to classify multi-tier placement\n");
         ds4_engine_close(e);
@@ -71026,6 +71074,14 @@ static int ds4_engine_open_internal(ds4_engine **out,
             return 1;
         }
         ds4_gpu_set_streaming_expert_cache_budget(e->ssd_streaming_cache_experts);
+        /* Cache-warm phase: the expert cache has just been sized and
+         * published, which is the moment a unified-memory box is most likely
+         * to be over-committed. */
+        if (!ds4_mem_reserve_sample(&e->mem_reserve, DS4_MEM_PHASE_CACHE_WARM)) {
+            ds4_engine_close(e);
+            *out = NULL;
+            return 1;
+        }
 #if defined(__APPLE__)
         /* Keep the weights used by every token from competing with streamed
          * experts in the file cache. These bytes are already in the model
@@ -72344,6 +72400,14 @@ bool ds4_engine_is_deepseek41(ds4_engine *e) {
 
 void ds4_engine_close(ds4_engine *e) {
     if (!e) return;
+    /* End of run: record the observed minimum next to the floor that was in
+     * force and the authorization it carries, so a result file can hold all
+     * four instead of this living only in the log. floor_bytes == 0 means
+     * the reserve was never initialised (an open that failed very early). */
+    if (e->mem_reserve.floor_bytes != 0) {
+        ds4_mem_reserve_log_status(&e->mem_reserve, NULL);
+        ds4_mem_reserve_write_record(&e->mem_reserve);
+    }
     ds4_engine_tp_unbind(e);
     ds4_expert_profile_close();
     weights_free(&e->weights);
@@ -72365,6 +72429,10 @@ void ds4_engine_close(ds4_engine *e) {
     free(e->directional_steering_file);
     free(e->model_path);
     free(e);
+}
+
+const ds4_mem_reserve *ds4_engine_mem_reserve(const ds4_engine *e) {
+    return e ? &e->mem_reserve : NULL;
 }
 
 #ifndef DS4_NO_GPU
@@ -74732,6 +74800,28 @@ int ds4_session_sync(ds4_session *s, const ds4_tokens *prompt, char *err, size_t
     if (s && s->checkpoint_valid && !ds4_session_vision_prefix_matches(
                      s, s->sync_images, s->sync_image_count)) {
         ds4_session_invalidate(s);
+    }
+    /* Phase coverage for the live reserve. The observed minimum on a
+     * unified-memory host lives in load, cache warm and the FIRST LONG
+     * prefill, not in steady-state decode, so a long prompt is sampled as
+     * its own phase and short appends fall through to steady. */
+    if (s && s->engine) {
+        const ds4_mem_phase phase =
+            (prompt && prompt->len > 0 &&
+             (uint32_t)prompt->len >= DS4_MEM_RESERVE_LONG_PREFILL_TOKENS)
+                ? DS4_MEM_PHASE_FIRST_PREFILL
+                : DS4_MEM_PHASE_STEADY;
+        if (!ds4_mem_reserve_sample(&s->engine->mem_reserve, phase)) {
+            if (err && errlen) {
+                snprintf(err, errlen,
+                         "memory reserve floor breached during prefill "
+                         "(FLOOR=%.2f GiB, authorization: %s)",
+                         (double)ds4_mem_reserve_floor_bytes(
+                                 &s->engine->mem_reserve) / 1073741824.0,
+                         s->engine->mem_reserve.authorization);
+            }
+            return 1;
+        }
     }
 #ifndef DS4_NO_GPU
     ds4_session_dspark_scheduler_begin_request(s);
@@ -77173,6 +77263,23 @@ static int ds4_session_eval_probe_tp(ds4_session *s, int token, bool probe_mtp,
 
 int ds4_session_eval(ds4_session *s, int token, char *err, size_t errlen) {
     bool probe_mtp = true;
+    /* Steady-state coverage, and it costs NOTHING unless it was asked for:
+     * ds4_mem_reserve_steady_enabled is a bool read, so with nothing set the
+     * decode loop pays no clock_gettime and no /proc/meminfo parse. When it
+     * is on the read is throttled to DS4_MEM_RESERVE_SAMPLE_INTERVAL_MS. */
+    if (s && s->engine &&
+        ds4_mem_reserve_steady_enabled(&s->engine->mem_reserve) &&
+        !ds4_mem_reserve_sample(&s->engine->mem_reserve, DS4_MEM_PHASE_STEADY)) {
+        if (err && errlen) {
+            snprintf(err, errlen,
+                     "memory reserve floor breached during decode "
+                     "(FLOOR=%.2f GiB, authorization: %s)",
+                     (double)ds4_mem_reserve_floor_bytes(
+                             &s->engine->mem_reserve) / 1073741824.0,
+                     s->engine->mem_reserve.authorization);
+        }
+        return 1;
+    }
 #ifndef DS4_NO_GPU
     if (s && s->engine && s->engine->support_kind == DS4_SUPPORT_DSPARK) {
         probe_mtp = false;
