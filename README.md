@@ -279,27 +279,33 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-all                                           NOT YET
+  │  BRANCH     triple-all                                          POSITIVE
   │
   │  WHAT       six lever branches stacked in series: the pread pool, the
   │             event-gated selected-expert readback, the cache reserve knob,
   │             the hot list seed, the staged page-drop order and hits-first.
-  │             A reference tree, never a submission, and SUPERSEDED
+  │             Measured second-best of all trees today at +6.50 %, and an arm
+  │             of the amended round 7
   │
-  │  LATEST     never in a sealed round, and it will not be in one. The arm
-  │             lists of 2026-09-17-ROUND3-, -R4- and -R5-PREREGISTERED-RULE.txt
-  │             name this branch zero times, and a word-bounded search for
-  │             triple-all not followed by -fastest returns 0 lines across every
-  │             2026-09-16 and 2026-09-17 result and rule file. Its successor
-  │             triple-all-fastest-newtip is round 4's ALLFASTESTNE arm
+  │  LATEST     round 6 · 2026-09-17 · BEATS · +6.50 % ·
+  │             2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
   │
-  │  GEN        not measured. No arm of this tree has ever been built or run
-  │  PREFILL    not measured
+  │  GEN        +6.50 %  floor 3.35 %  sign 3/3  n=3
+  │             raw: arm min-across median 10.35 t/s (10.31 · 10.24 · 10.38 ·
+  │             10.39) vs the tip's 9.69 t/s (9.67 · 9.56 · 9.88 · 9.70 kept,
+  │             9.45 contention-dropped; the result file's figure line reads
+  │             9.67). gen_steady at min across 4096/6144. The delta is each
+  │             run against its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:12-11:58Z · DGX Spark GB10 ·
+  │             native 24.90 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 86.30 t/s min-across median vs the
+  │             tip's 89.16 t/s, n=4. Round 6 makes no prefill verdict.
   │
-  │  VERDICT    NOT YET and SUPERSEDED - the work moved to triple-all-fastest
-  │             and then to triple-all-fastest-newtip, which carries these six
-  │             plus four more AND the round-2 comparator revert as its default.
-  │             Read that branch; this one is kept as a record
+  │  VERDICT    POSITIVE - the only arm of round 6 to clear the floor, and it
+  │             clears it at every repeat (+6.1 to +6.8 %). Both the sealed
+  │             legacy rule and the new rule give this verdict, so nothing
+  │             turns on the straggler rule
   │
   │  SWITCH     the six levers' own switches, verified present in this tree's
   │             diff: DS4_CUDA_STREAMING_EXPERT_PREAD_POOL and _PREAD_THREADS,
@@ -313,9 +319,20 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42
   └──────────────────────────────────────────────────────────────────────
 ```
 
-## Why it has no number, and must not be given one
+## Round 6, and the word this card used to carry
 
-- The combined number was never measured on this tree.
+- Round 6 built and ran this tree for the first time: **+6.50 % gen, 3 of 3 above a 3.35 % floor**,
+  against the ten-lever `triple-all-fastest-newtip` stack's +4.65 % in round 4. It carries pool and
+  hotlist and four levers that measured zero or negative solo, and no prefetch-pool.
+- **This card used to say SUPERSEDED, and the result file scores that against the orchestrator**: it
+  believed the word over a measurement nobody had taken, and three of its five sealed predictions
+  missed as one miss. The word is gone from the box; the supersession history stays below.
+- The four extra levers of the ten-lever tree cost it about 1.9 points against these six. Not
+  attributable from round 6, which is why round 7 was amended to carry this tree as an arm.
+
+## Why it carried no number until round 6
+
+- Until round 6 the combined number had never been measured on this tree.
 - It must not be assembled from the six branches' own deltas: the levers overlap, since pool and
   prefetch-pool touch the same expert-pread code and all six pull on one NVMe, and each solo delta
   was taken against unpatched code.
@@ -323,7 +340,7 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42
   occupy the window it wanted, which is itself a reason a stack is not a sum.
 - Files at HEAD, re-counted with `git diff --numstat 12997e9c8 HEAD`: `ds4_cuda.cu` **+1112/-41**,
   `ds4.c` **+37**, `ds4_gpu.h` **+9**, `README.md` **+42**. So it is a real tree, not a pointer, and
-  that is exactly why an unmeasured one is a hazard.
+  that is exactly why an unmeasured one was a hazard.
 
 ## ⚠ The number this card used to carry, and why it is gone
 
