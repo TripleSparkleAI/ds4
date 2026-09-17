@@ -23,6 +23,7 @@
 #include <unordered_map>
 #include <vector>
 #include <algorithm>
+#include "ds4_warmset.h"
 
 #include "cuda/mmq/ds4_mmq.h"
 #include "cuda/mmq/ds4_repack.h"
@@ -27137,6 +27138,607 @@ struct cuda_stream_upload_batch {
     ~cuda_stream_upload_batch() { (void)finish(); }
 };
 
+/* ---------------------------------------------------------------------------
+ * Persistent hot-expert list for the SSD expert cache.
+ *
+ * The slot cache starts empty on every run, so the whole cold start is paid
+ * each time.  Expert routing is stable across prompts, so the (layer, expert)
+ * pairs one run asked for are a good guess for the next.  Every batch the
+ * cache is asked for is counted here; at exit the counts are written, hits
+ * descending, in the streaming hotlist text format the loader in ds4.c
+ * already reads ("layer expert hits weight" lines, '#' comments).  On the
+ * next run ds4.c seeds the cache from that file before the first prefill,
+ * through ds4_gpu_stream_expert_cache_seed_experts, which does not count.
+ *
+ * DS4_CUDA_EXPERT_HOTLIST_WRITE names the output file; "0" disables the
+ * writer.  Unset means ~/.cache/ds4/cuda_expert_hotlist.txt, which is also
+ * the file ds4.c reads for DeepSeek V4.1 Flash when
+ * DS4_METAL_STREAMING_EXPERT_HOTLIST is not set.  History is halved on load
+ * so hotness decays run over run.  A "# model_size" header keeps one model's
+ * list from seeding another: a mismatch starts the counts cold and is
+ * refused as a seed.  Seeding never fails a load: offsets always come from
+ * the live table, a stale file can only waste slots.
+ * ------------------------------------------------------------------------ */
+struct cuda_expert_hotlist_entry {
+    uint32_t layer;
+    uint32_t expert;
+    uint64_t hits;
+};
+
+struct cuda_expert_hotlist {
+    int      initialized;
+    int      disabled;
+    char     path[PATH_MAX];
+    std::unordered_map<uint64_t, uint64_t> counts;   /* (layer<<32|expert) -> hits */
+    /* THE WARM SET's provenance, day tier only.  One entry per pair, the same
+     * key as counts, so the vocabulary is still identity + evidence and there
+     * is still nowhere for a magnitude to live.  Empty in the session tier, in
+     * which case every code path below is exactly the hot list's. */
+    std::unordered_map<uint64_t, uint32_t> days;      /* distinct days demanded */
+    std::unordered_map<uint64_t, uint32_t> last_day;  /* YYYYMMDD of the last  */
+    uint64_t records;                                /* layer batches seen */
+    uint64_t selections;                             /* unique expert ids seen */
+    uint64_t model_size;
+    uint32_t n_total_expert;
+};
+static cuda_expert_hotlist g_expert_hotlist;
+static int g_stream_expert_seeding;
+/* THE SEAL.  0 until the first cache lookup that is not a seed, that is until
+ * the first real forward pass.  Once set, no warm set may be applied at all:
+ * see ds4_gpu_stream_expert_cache_seed_experts(). */
+static int g_warmset_sealed;
+static uint32_t g_warmset_today;   /* YYYYMMDD, resolved once */
+
+static const char *cuda_expert_hotlist_path(void) {
+    if (g_expert_hotlist.path[0]) return g_expert_hotlist.path;
+    const char *env = getenv("DS4_CUDA_EXPERT_HOTLIST_WRITE");
+    if (env) {
+        if (!env[0] || (env[0] == '0' && !env[1])) return NULL;
+        snprintf(g_expert_hotlist.path, sizeof g_expert_hotlist.path, "%s", env);
+        return g_expert_hotlist.path;
+    }
+    const char *home = getenv("HOME");
+    if (!home || !home[0]) return NULL;
+    snprintf(g_expert_hotlist.path, sizeof g_expert_hotlist.path,
+             "%s/.cache/ds4/cuda_expert_hotlist.txt", home);
+    return g_expert_hotlist.path;
+}
+
+static inline uint64_t cuda_expert_hotlist_key(uint32_t layer, uint32_t expert) {
+    return ((uint64_t)layer << 32) | (uint64_t)expert;
+}
+
+static bool cuda_expert_hotlist_hotter(const cuda_expert_hotlist_entry &a,
+                                       const cuda_expert_hotlist_entry &b) {
+    if (a.hits != b.hits) return a.hits > b.hits;
+    if (a.layer != b.layer) return a.layer < b.layer;
+    return a.expert < b.expert;
+}
+
+/* Reads the "# model_size" header of a hotlist file.  0 when the file is
+ * missing, unreadable or has no such header. */
+static uint64_t cuda_expert_hotlist_file_model_size(const char *path) {
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return 0;
+    char line[256];
+    unsigned long long size = 0;
+    while (fgets(line, sizeof line, fp)) {
+        if (line[0] != '#') break;
+        if (sscanf(line, "# model_size %llu", &size) == 1) break;
+    }
+    fclose(fp);
+    return (uint64_t)size;
+}
+
+extern "C" const char *ds4_gpu_cuda_expert_hotlist_default_path(uint64_t model_size) {
+    const char *path = cuda_expert_hotlist_path();
+    if (!path || !model_size) return NULL;
+    const uint64_t file_size = cuda_expert_hotlist_file_model_size(path);
+    if (file_size != model_size) {
+        if (file_size && getenv("DS4_CUDA_EXPERT_CACHE_STATS"))
+            fprintf(stderr, "ds4: [expert-cache] hotlist %s is for another model, not seeding\n", path);
+        return NULL;
+    }
+    return path;
+}
+
+/* Load the previous run's counts, halved, so the list learns without the
+ * first runs pinning it forever.  A list for another model is ignored. */
+static void cuda_expert_hotlist_load_history(const char *path, uint64_t model_size) {
+    if (cuda_expert_hotlist_file_model_size(path) != model_size) return;
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return;
+    char line[256];
+    while (fgets(line, sizeof line, fp)) {
+        unsigned long long a = 0;
+        if (line[0] == '#') {
+            if (sscanf(line, "# layer_records %llu", &a) == 1) g_expert_hotlist.records = a >> 1;
+            else if (sscanf(line, "# selections %llu", &a) == 1) g_expert_hotlist.selections = a >> 1;
+            continue;
+        }
+        unsigned long layer = 0, expert = 0;
+        unsigned long long hits = 0;
+        if (sscanf(line, "%lu %lu %llu", &layer, &expert, &hits) != 3) continue;
+        if (layer > 0xFFFFu || expert > 0xFFFFu) continue;
+        const uint64_t decayed = hits >> 1;
+        if (decayed) g_expert_hotlist.counts[cuda_expert_hotlist_key((uint32_t)layer, (uint32_t)expert)] += decayed;
+    }
+    fclose(fp);
+}
+
+/* Written to a sibling temp file and renamed in, so a crash mid-write never
+ * leaves a half list. */
+static void cuda_warmset_write_files(void);
+
+static void cuda_expert_hotlist_close(void) {
+    const char *path = cuda_expert_hotlist_path();
+    if (!path || g_expert_hotlist.counts.empty()) return;
+    std::vector<cuda_expert_hotlist_entry> entries;
+    try {
+        entries.reserve(g_expert_hotlist.counts.size());
+        for (auto &kv : g_expert_hotlist.counts) {
+            cuda_expert_hotlist_entry e;
+            e.layer = (uint32_t)(kv.first >> 32);
+            e.expert = (uint32_t)kv.first;
+            e.hits = kv.second;
+            entries.push_back(e);
+        }
+        std::sort(entries.begin(), entries.end(), cuda_expert_hotlist_hotter);
+    } catch (...) {
+        return;
+    }
+    {
+        /* ~/.cache/ds4 may not exist yet; both mkdirs may fail because the
+         * directory is already there, which is fine. */
+        char dir[PATH_MAX];
+        snprintf(dir, sizeof dir, "%s", path);
+        char *slash = strrchr(dir, '/');
+        if (slash && slash != dir) {
+            *slash = '\0';
+            char *parent = strrchr(dir, '/');
+            if (parent && parent != dir) {
+                *parent = '\0';
+                (void)mkdir(dir, 0755);
+                *parent = '/';
+            }
+            (void)mkdir(dir, 0755);
+        }
+    }
+    char tmp[PATH_MAX];
+    if (snprintf(tmp, sizeof tmp, "%s.tmp.%ld", path, (long)getpid()) >= (int)sizeof tmp) return;
+    FILE *fp = fopen(tmp, "wb");
+    if (!fp) {
+        fprintf(stderr, "ds4: failed to open expert hotlist %s for writing\n", tmp);
+        return;
+    }
+    fprintf(fp,
+            "# ds4 expert hotlist v1\n"
+            "# model_size %llu\n"
+            "# experts %u\n"
+            "# layer_records %llu\n"
+            "# selections %llu\n"
+            "# columns: layer expert hits weight\n",
+            (unsigned long long)g_expert_hotlist.model_size,
+            g_expert_hotlist.n_total_expert,
+            (unsigned long long)g_expert_hotlist.records,
+            (unsigned long long)g_expert_hotlist.selections);
+    for (size_t i = 0; i < entries.size(); i++)
+        fprintf(fp, "%u %u %llu 0\n", entries[i].layer, entries[i].expert,
+                (unsigned long long)entries[i].hits);
+    /* ferror BEFORE fclose, for the reason given at cuda_warmset_write_one:
+     * fclose reports only the last flush, so a truncated list could be
+     * renamed over a good one.  Same defect class, same repair. */
+    const int write_failed = ferror(fp) != 0;
+    const int close_failed = fclose(fp) != 0;
+    if (write_failed || close_failed || rename(tmp, path) != 0) {
+        fprintf(stderr, "ds4: failed to write expert hotlist %s, keeping the previous one\n", path);
+        (void)unlink(tmp);
+        return;
+    }
+    fprintf(stderr, "ds4: wrote expert hotlist %s (%zu experts)\n", path, entries.size());
+    /* The day tier's own stores, written alongside the session file.  A no-op
+     * in the session tier, which is why the default path stays exactly as the
+     * hot list left it. */
+    cuda_warmset_write_files();
+}
+
+/* ===========================================================================
+ * ★ THE HIPPOCAMPAL WARM SET - the session -> day -> durable tier.
+ *
+ * The hot list above is one file, one horizon: every load halves it, so the
+ * set forgets at the rate of the session.  This block adds the horizon above
+ * it, behind DS4_WARMSET_TIER=session|day.  The RULES live in ds4_warmset.h
+ * (pure C, no CUDA, tested by `make test-warmset`); this is the I/O.
+ *
+ * Three tiers, one directory per model size:
+ *
+ *   session  ~/.cache/ds4/cuda_expert_hotlist.txt   today's file, unchanged.
+ *            Written in every tier; it is what ds4.c seeds the cache from, and
+ *            it is not touched by the day tier's existence.
+ *   day      <warmset>/day.txt      every pair of the local calendar day, with
+ *            the provenance that says how many DISTINCT days it was demanded
+ *            on.  Carried FREE inside the day; halved once per day boundary.
+ *   durable  <warmset>/durable.txt  the projection of day.txt for pairs
+ *            demanded on >= DS4_WARMSET_DAYS distinct days: what RECURS.
+ *
+ * FORGOTTEN, deliberately: a pair demanded on exactly one day and never again
+ * (dropped at the first day boundary it misses); a pair whose decayed hits
+ * reach 0; a set recorded against another model size; every seeded slot, which
+ * is never recorded, so a guess can never entrench itself; and everything past
+ * DS4_WARMSET_MAX, which truncates on the total order so the survivor set is
+ * unique.
+ *
+ * ⚠ STALENESS IS NOT MEASURED HERE.  "How stale may it be" is ROLLINGSPLIT's
+ * question, which mines over a window and scores over the next one; this tier
+ * only decides what to carry and what to drop.  See
+ * experiments/track3-semiotic-codebook/NEW_IDEA_THE_CEREBELLAR_FRONT_CACHE_2026-09-01.md
+ * §6, item 1.
+ *
+ * ★ THE SAFETY PROPERTY.  A warm set is a set of (layer, expert) identities
+ * with evidence counts.  There is no value vector, no weight, no scale and no
+ * gate in ds4_warmset_entry, so there is nothing that could be added to a
+ * residual stream.  The only consumer is the slot seeder, whose sole effect is
+ * WHICH EXPERT'S BYTES ARE RESIDENT.  A wrong entry costs one wasted slot.
+ * ======================================================================== */
+
+/* Read ONCE.  This is asked per unique expert per routed layer per token, on
+ * both tiers, and the answer cannot change during a run: an environ scan on
+ * the demand path is a cost with no product. */
+static bool cuda_warmset_day_tier(void) {
+    static int tier = -1;
+    if (tier < 0) tier = ds4_warmset_tier_from_env(getenv("DS4_WARMSET_TIER"));
+    return tier == DS4_WARMSET_TIER_DAY;
+}
+
+static const char *cuda_warmset_tier_name(void) {
+    return cuda_warmset_day_tier() ? "day" : "session";
+}
+
+/* YYYYMMDD, resolved once so a run that crosses midnight still has one day. */
+static uint32_t cuda_warmset_today_key(void) {
+    if (!g_warmset_today) {
+        time_t t = time(NULL);
+        struct tm tmv;
+        if (!localtime_r(&t, &tmv)) return 0;
+        g_warmset_today = ds4_warmset_day_key(tmv.tm_year + 1900,
+                                              tmv.tm_mon + 1,
+                                              tmv.tm_mday);
+    }
+    return g_warmset_today;
+}
+
+/* Distinct days a pair must be demanded on before it consolidates. */
+static uint32_t cuda_warmset_threshold_days(void) {
+    const char *s = getenv("DS4_WARMSET_DAYS");
+    if (s && s[0]) {
+        char *end = NULL;
+        const long v = strtol(s, &end, 10);
+        if (end && end != s && v >= 1 && v <= 3650) return (uint32_t)v;
+    }
+    return DS4_WARMSET_DAYS_DEFAULT;
+}
+
+static size_t cuda_warmset_max_entries(void) {
+    const char *s = getenv("DS4_WARMSET_MAX");
+    if (s && s[0]) {
+        char *end = NULL;
+        const long v = strtol(s, &end, 10);
+        if (end && end != s && v >= 1 && v <= 100000000L) return (size_t)v;
+    }
+    return 65536u;
+}
+
+static bool cuda_warmset_dir(char *out, size_t cap, uint64_t model_size) {
+    if (!out || !cap || !model_size) return false;
+    const char *env = getenv("DS4_WARMSET_DIR");
+    int n;
+    if (env && env[0]) {
+        n = snprintf(out, cap, "%s/%llu", env, (unsigned long long)model_size);
+    } else {
+        const char *home = getenv("HOME");
+        if (!home || !home[0]) return false;
+        n = snprintf(out, cap, "%s/.cache/ds4/warmset/%llu", home,
+                     (unsigned long long)model_size);
+    }
+    return n > 0 && (size_t)n < cap;
+}
+
+static void cuda_warmset_path(char *out, size_t cap, uint64_t model_size,
+                              const char *name) {
+    char dir[PATH_MAX];
+    out[0] = '\0';
+    if (!cuda_warmset_dir(dir, sizeof dir, model_size)) return;
+    (void)snprintf(out, cap, "%s/%s", dir, name);
+}
+
+static void cuda_warmset_mkdirs(const char *dir) {
+    char tmp[PATH_MAX];
+    if (!dir || !dir[0]) return;
+    if (snprintf(tmp, sizeof tmp, "%s", dir) >= (int)sizeof tmp) return;
+    for (char *p = tmp + 1; *p; p++) {
+        if (*p != '/') continue;
+        *p = '\0';
+        (void)mkdir(tmp, 0755);
+        *p = '/';
+    }
+    (void)mkdir(tmp, 0755);
+}
+
+/* Fold one read entry into the provenance maps.  Two projections of the same
+ * history are unioned with the idempotent rule, so reading day.txt and then
+ * durable.txt cannot double count. */
+static void cuda_warmset_fold(const ds4_warmset_entry &e) {
+    const uint64_t k = ds4_warmset_key(e.layer, e.expert);
+    ds4_warmset_entry cur;
+    memset(&cur, 0, sizeof cur);
+    cur.layer = e.layer;
+    cur.expert = e.expert;
+    std::unordered_map<uint64_t, uint64_t>::const_iterator it = g_expert_hotlist.counts.find(k);
+    if (it != g_expert_hotlist.counts.end()) cur.hits = it->second;
+    std::unordered_map<uint64_t, uint32_t>::const_iterator dt = g_expert_hotlist.days.find(k);
+    if (dt != g_expert_hotlist.days.end()) cur.days = dt->second;
+    std::unordered_map<uint64_t, uint32_t>::const_iterator lt = g_expert_hotlist.last_day.find(k);
+    if (lt != g_expert_hotlist.last_day.end()) cur.last_day = lt->second;
+    ds4_warmset_merge_view(&cur, &e);
+    g_expert_hotlist.counts[k] = cur.hits;
+    g_expert_hotlist.days[k] = cur.days;
+    g_expert_hotlist.last_day[k] = cur.last_day;
+}
+
+/* std::sort needs a strict weak ordering; ds4_warmset_before is a TOTAL order,
+ * so the survivor set after the cap is unique and independent of read order. */
+static bool cuda_warmset_before_cpp(const ds4_warmset_entry &a,
+                                    const ds4_warmset_entry &b) {
+    return ds4_warmset_before(&a, &b) != 0;
+}
+
+/* The "# day_key" header of a warm-set file: the day its entries were last
+ * carried through a day boundary.  0 when the file has no such header, which
+ * is an older file or the session-tier hot list.  Read like the "# model_size"
+ * header beside it: the headers come first and a non-# line ends them. */
+static uint32_t cuda_warmset_file_day_key(const char *path) {
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return 0;
+    char line[256];
+    unsigned key = 0;
+    while (fgets(line, sizeof line, fp)) {
+        if (line[0] != '#') break;
+        if (sscanf(line, "# day_key %u", &key) == 1) break;
+    }
+    fclose(fp);
+    return (uint32_t)key;
+}
+
+/* Read one warm-set file.  A file for another model size is refused, exactly
+ * as the hot list refuses one.  The day boundary is applied to EVERY source
+ * before it is unioned: applying it to one source only would let another
+ * restore the count the boundary had just decayed. */
+static size_t cuda_warmset_read_file(const char *path, uint64_t model_size) {
+    if (!path || !path[0]) return 0;
+    if (cuda_expert_hotlist_file_model_size(path) != model_size) return 0;
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return 0;
+    const uint32_t today = cuda_warmset_today_key();
+    /* THE BOUNDARY IS A DAY'S, NOT A SESSION'S.  Every entry in this file has
+     * already been carried through the boundary of the day the file records,
+     * because it was loaded, bounded and folded before it was written back.
+     * Applying it again on a file written TODAY is a second halving for one
+     * calendar day, and a third for the session after that: N idle sessions in
+     * one day shifted an entry's hits by N, so "decay, not death" became death
+     * after log2(hits) sessions inside the one day the tier exists to protect.
+     * ds4_warmset_boundary_due decides it; tests/test_warmset.c proves it. */
+    const uint32_t file_day = cuda_warmset_file_day_key(path);
+    const uint32_t boundary_day =
+        ds4_warmset_boundary_due(file_day, today) ? today : 0;
+    char line[256];
+    size_t kept = 0;
+    while (fgets(line, sizeof line, fp)) {
+        if (line[0] == '#') continue;
+        unsigned long layer = 0, expert = 0;
+        unsigned long long hits = 0, days = 0, last_day = 0;
+        const int n = sscanf(line, "%lu %lu %llu %llu %llu",
+                             &layer, &expert, &hits, &days, &last_day);
+        if (n < 3) continue;
+        if (layer > 0xFFFFu || expert > 0xFFFFu) continue;
+        ds4_warmset_entry e;
+        memset(&e, 0, sizeof e);
+        e.layer = (uint32_t)layer;
+        e.expert = (uint32_t)expert;
+        e.hits = hits;
+        e.days = (n >= 4) ? (uint32_t)(days > UINT32_MAX ? UINT32_MAX : days) : 0;
+        e.last_day = (n >= 5) ? (uint32_t)(last_day > UINT32_MAX ? UINT32_MAX : last_day) : 0;
+        if (e.days == 0 && e.hits) e.days = 1;
+        if (boundary_day && !ds4_warmset_day_boundary(&e, boundary_day)) continue;
+        if (e.hits == 0) continue;
+        cuda_warmset_fold(e);
+        kept++;
+    }
+    fclose(fp);
+    return kept;
+}
+
+/* Load the day tier's history: day.txt, then durable.txt, then - only if the
+ * day tier has nothing at all - the session file, halved, which is exactly the
+ * hot list's own behaviour.  A missing or unreadable file is never fatal. */
+static void cuda_warmset_load_provenance(uint64_t model_size) {
+    char p[PATH_MAX];
+    cuda_warmset_path(p, sizeof p, model_size, "day.txt");
+    size_t n = cuda_warmset_read_file(p, model_size);
+    cuda_warmset_path(p, sizeof p, model_size, "durable.txt");
+    n += cuda_warmset_read_file(p, model_size);
+    if (getenv("DS4_WARMSET_PROFILE"))
+        fprintf(stderr, "ds4: [warmset] tier=%s day_key=%u loaded %zu entries "
+                        "threshold_days=%u\n",
+                cuda_warmset_tier_name(), cuda_warmset_today_key(), n,
+                cuda_warmset_threshold_days());
+}
+
+static bool cuda_warmset_write_one(const char *path, const char *what,
+                                   const std::vector<ds4_warmset_entry> &v) {
+    char tmp[PATH_MAX];
+    if (!path || !path[0]) return false;
+    if (snprintf(tmp, sizeof tmp, "%s.tmp.%ld", path, (long)getpid()) >= (int)sizeof tmp)
+        return false;
+    FILE *fp = fopen(tmp, "wb");
+    if (!fp) {
+        fprintf(stderr, "ds4: [warmset] cannot write %s: %s\n", tmp, strerror(errno));
+        return false;
+    }
+    fprintf(fp,
+            "# ds4 warmset v1\n"
+            "# model_size %llu\n"
+            "# tier %s\n"
+            "# day_key %u\n"
+            "# entries %zu\n"
+            "# columns: layer expert hits days last_day\n",
+            (unsigned long long)g_expert_hotlist.model_size,
+            cuda_warmset_tier_name(),
+            cuda_warmset_today_key(),
+            v.size());
+    for (size_t i = 0; i < v.size(); i++)
+        fprintf(fp, "%u %u %llu %u %u\n", v[i].layer, v[i].expert,
+                (unsigned long long)v[i].hits, v[i].days, v[i].last_day);
+    /* ferror BEFORE fclose: fclose reports only the LAST flush, so a write
+     * error on an earlier buffer flush - a disk that filled mid-file - can be
+     * followed by a successful empty flush and a rename that puts a TRUNCATED
+     * set over the previous good one.  On any write error the temp file goes
+     * and the old set stays: an old set is a worse seed, a truncated one is a
+     * lie about what recurred. */
+    const int write_failed = ferror(fp) != 0;
+    const int close_failed = fclose(fp) != 0;
+    if (write_failed || close_failed || rename(tmp, path) != 0) {
+        fprintf(stderr, "ds4: [warmset] failed to write %s, keeping the previous one\n", path);
+        (void)unlink(tmp);
+        return false;
+    }
+    if (getenv("DS4_WARMSET_PROFILE"))
+        fprintf(stderr, "ds4: [warmset] wrote %s %s (%zu entries)\n", what, path, v.size());
+    return true;
+}
+
+/* Write day.txt (everything carried) and durable.txt (what recured).  Written
+ * to a sibling temp file and renamed in, as the hot list is. */
+static void cuda_warmset_write_files(void) {
+    if (!cuda_warmset_day_tier()) return;
+    if (!g_expert_hotlist.model_size || g_expert_hotlist.counts.empty()) return;
+    char dir[PATH_MAX];
+    if (!cuda_warmset_dir(dir, sizeof dir, g_expert_hotlist.model_size)) return;
+    cuda_warmset_mkdirs(dir);
+
+    std::vector<ds4_warmset_entry> all;
+    try {
+        all.reserve(g_expert_hotlist.counts.size());
+        for (std::unordered_map<uint64_t, uint64_t>::const_iterator it =
+                     g_expert_hotlist.counts.begin();
+             it != g_expert_hotlist.counts.end(); ++it) {
+            ds4_warmset_entry e;
+            memset(&e, 0, sizeof e);
+            e.layer = (uint32_t)(it->first >> 32);
+            e.expert = (uint32_t)it->first;
+            e.hits = it->second;
+            std::unordered_map<uint64_t, uint32_t>::const_iterator dt =
+                g_expert_hotlist.days.find(it->first);
+            if (dt != g_expert_hotlist.days.end()) e.days = dt->second;
+            std::unordered_map<uint64_t, uint32_t>::const_iterator lt =
+                g_expert_hotlist.last_day.find(it->first);
+            if (lt != g_expert_hotlist.last_day.end()) e.last_day = lt->second;
+            if (e.days == 0 && e.hits) e.days = 1;
+            all.push_back(e);
+        }
+        std::sort(all.begin(), all.end(), cuda_warmset_before_cpp);
+        const size_t cap = cuda_warmset_max_entries();
+        if (all.size() > cap) all.resize(cap);
+    } catch (...) {
+        return;
+    }
+
+    const uint32_t threshold = cuda_warmset_threshold_days();
+    std::vector<ds4_warmset_entry> durable;
+    try {
+        for (size_t i = 0; i < all.size(); i++)
+            if (ds4_warmset_consolidated(&all[i], threshold)) durable.push_back(all[i]);
+    } catch (...) {
+        return;
+    }
+
+    char p[PATH_MAX];
+    cuda_warmset_path(p, sizeof p, g_expert_hotlist.model_size, "day.txt");
+    (void)cuda_warmset_write_one(p, "day", all);
+    cuda_warmset_path(p, sizeof p, g_expert_hotlist.model_size, "durable.txt");
+    (void)cuda_warmset_write_one(p, "durable", durable);
+    fprintf(stderr, "ds4: [warmset] tier=%s day_key=%u %zu carried, %zu durable "
+                    "(>=%u distinct days)\n",
+            cuda_warmset_tier_name(), cuda_warmset_today_key(), all.size(),
+            durable.size(), threshold);
+}
+
+/* One count per unique (layer, expert) per batch, taken where the cache is
+ * asked for bytes, so the list is exactly the demand the cache saw.  Seeds
+ * are guesses and are not counted: counting them would let one run's guesses
+ * steer the next run's list. */
+static void cuda_expert_hotlist_record(const ds4_gpu_stream_expert_table *table,
+                                       const std::vector<int32_t> &unique) {
+    /* ★ THE SEAL, and it is the whole safety property in one line.  A cache
+     * lookup that is NOT a seed is a real forward pass.  The warm set is
+     * allowed to act on exactly one window - engine startup, before the first
+     * prefill - and this closes it.  See
+     * ds4_gpu_stream_expert_cache_seed_experts(). */
+    if (!g_stream_expert_seeding) g_warmset_sealed = 1;
+    if (g_stream_expert_seeding || g_expert_hotlist.disabled) return;
+    if (!g_expert_hotlist.initialized) {
+        g_expert_hotlist.initialized = 1;
+        const char *path = cuda_expert_hotlist_path();
+        if (!path) { g_expert_hotlist.disabled = 1; return; }
+        g_expert_hotlist.model_size = table->model_size;
+        g_expert_hotlist.n_total_expert = table->n_total_expert;
+        try {
+            /* Day tier: the day's provenance is the history, and the session
+             * boundary's halving is SKIPPED, because inside a day the set is
+             * carried free.  Session tier: exactly the hot list's load. */
+            if (cuda_warmset_day_tier())
+                cuda_warmset_load_provenance(table->model_size);
+            if (g_expert_hotlist.counts.empty())
+                cuda_expert_hotlist_load_history(path, table->model_size);
+        } catch (...) {
+            g_expert_hotlist.counts.clear();
+            g_expert_hotlist.days.clear();
+            g_expert_hotlist.last_day.clear();
+        }
+        atexit(cuda_expert_hotlist_close);
+    }
+    g_expert_hotlist.records++;
+    const bool day_tier = cuda_warmset_day_tier();
+    const uint32_t today = day_tier ? cuda_warmset_today_key() : 0;
+    try {
+        for (size_t i = 0; i < unique.size(); i++) {
+            const uint64_t k =
+                cuda_expert_hotlist_key(table->layer, (uint32_t)unique[i]);
+            g_expert_hotlist.counts[k]++;
+            if (day_tier && today) {
+                /* Demand adds; a day is counted once, however many times the
+                 * pair is asked for inside it. */
+                ds4_warmset_entry e;
+                memset(&e, 0, sizeof e);
+                e.layer = table->layer;
+                e.expert = (uint32_t)unique[i];
+                std::unordered_map<uint64_t, uint32_t>::const_iterator dt =
+                    g_expert_hotlist.days.find(k);
+                if (dt != g_expert_hotlist.days.end()) e.days = dt->second;
+                std::unordered_map<uint64_t, uint32_t>::const_iterator lt =
+                    g_expert_hotlist.last_day.find(k);
+                if (lt != g_expert_hotlist.last_day.end()) e.last_day = lt->second;
+                ds4_warmset_record(&e, today);
+                g_expert_hotlist.days[k] = e.days;
+                g_expert_hotlist.last_day[k] = e.last_day;
+            }
+            g_expert_hotlist.selections++;
+        }
+    } catch (...) {
+        /* Out of host memory for the counts: keep serving, stop learning. */
+        g_expert_hotlist.disabled = 1;
+    }
+}
+
 static int cuda_stream_selected_cache_begin_load(
         const ds4_gpu_stream_expert_table *table,
         const int32_t *selected_ids,
@@ -27168,6 +27770,7 @@ static int cuda_stream_selected_cache_begin_load(
             }
             remap[i] = expert_to_slot[expert];
         }
+        cuda_expert_hotlist_record(table, unique);
         auto &cache = g_stream_selected_cache;
         if (cache.model_map != table->model_map ||
             cache.gate_expert_bytes != table->gate_expert_bytes ||
@@ -33797,7 +34400,55 @@ extern "C" int ds4_gpu_stream_expert_cache_seed_experts(
         const uint32_t *expert_priorities,
         uint32_t n_experts) {
     (void)expert_priorities;
-    return !n_experts || cuda_stream_selected_cache_begin_load(table, expert_ids, n_experts);
+    if (!n_experts) return 1;
+    /* ★★ THE SAFETY PROPERTY, ENFORCED HERE AND NOWHERE ELSE.
+     *
+     * A warm set may SEED SLOTS and may do nothing else.  This function is the
+     * single consumer of one, so the enforcement is in one place: once any
+     * cache lookup that was not a seed has happened, a forward pass has run,
+     * and in the day tier the warm set is refused outright.  The only window
+     * in which it can act is engine startup, before the first prefill - which
+     * is where ds4_session_create calls this, once per engine, behind
+     * e->ds41_hotlist_seeded.
+     *
+     * The guard is scoped to DS4_WARMSET_TIER=day, so the default (session)
+     * tier behaves exactly as it did before this branch: refusing a seed that
+     * a second GLM session would legitimately have made would itself be a
+     * behaviour change, and the session tier carries no warm set to seal.
+     *
+     * What a wrong entry can do is therefore bounded by construction:
+     *   - it cannot alter an output, because nothing here returns a tensor, a
+     *     logit or a hidden state; the only effect is which expert's bytes are
+     *     resident in the SSD cache;
+     *   - it cannot evict a correct entry, because the block below fills EMPTY
+     *     slots only and truncates to the free-slot count;
+     *   - it cannot entrench itself, because g_stream_expert_seeding marks the
+     *     whole call and cuda_expert_hotlist_record declines to count a seed as
+     *     demand.
+     * A wrong entry costs one wasted slot.  Nothing more is reachable. */
+    if (g_warmset_sealed && cuda_warmset_day_tier()) {
+        if (getenv("DS4_WARMSET_PROFILE"))
+            fprintf(stderr,
+                    "ds4: [warmset] refused a seed: a forward pass has already "
+                    "run, so the warm set may no longer act\n");
+        return 1;
+    }
+    /* Seeds fill empty slots only.  The list is hits descending, so when the
+     * cache is smaller than the list the hottest of each layer go in and the
+     * rest are skipped instead of evicting an earlier layer's seeds and
+     * reading gigabytes the cache cannot hold.  The first call sizes the
+     * cache and takes the whole layer. */
+    if (!g_stream_expert_slots.empty()) {
+        const size_t used = g_stream_expert_by_gate.size();
+        const size_t free_slots = g_stream_expert_slots.size() > used ?
+                                  g_stream_expert_slots.size() - used : 0;
+        if (free_slots == 0) return 1;
+        if (n_experts > free_slots) n_experts = (uint32_t)free_slots;
+    }
+    g_stream_expert_seeding = 1;
+    const int ok = cuda_stream_selected_cache_begin_load(table, expert_ids, n_experts);
+    g_stream_expert_seeding = 0;
+    return ok;
 }
 
 extern "C" int ds4_gpu_argmax_tensor(
