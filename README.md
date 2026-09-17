@@ -277,24 +277,31 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-hotlist                                        NOT YET
+  │  BRANCH     triple-hotlist                                NEGATIVE
   │
   │  WHAT       seeds the next session's SSD expert cache from the previous
   │             run's demand, so the opening tokens start WARM. A warm-up
   │             device, not a selection device.
   │
-  │  LATEST     never in a sealed round
-  │             round 3 is measuring this branch now: in flight, unresolved
+  │  LATEST     round 4 · 2026-09-17 · LOSES · -2.73 % (kept -3.34 %) ·
+  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
   │
-  │  GEN        9.38 t/s  vs control 9.56  -1.9 %  floor 3.3-4.9 %  n=2
-  │             control = this branch's writer off, interleaved, same native build
-  │             session = 2026-09-16 · DGX Spark · native 23.1 MB .text · load/gpu unstamped
-  │  PREFILL    not measured
+  │  GEN        -2.73 % (kept -3.34 %)  floor 2.71 % (no-drop)  sign 0/4  n=4
+  │             raw: arm median 9.42 t/s vs tip median 9.65 t/s, gen_steady
+  │             at min across 4096/6144; the delta is each run against the
+  │             mean of its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
+  │             bracket per cycle
+  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
+  │             native 24.90 MB .text · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 82.25 t/s min-across median vs the
+  │             tip's 80.73 t/s, n=4. Round 4 makes no prefill verdict.
   │
-  │  VERDICT    NOT YET - the seeding arm's -1.9 % sits inside its own floor, so
-  │             it decides nothing, and the lever as re-scoped, a warm cache over
-  │             the first 64 tokens, has never been measured at all. The repair
-  │             44bc5398c has no CUDA build behind it.
+  │  VERDICT    NEGATIVE - loses on both readings, -2.73 % no-drop and -3.34 % kept,
+  │             sign 0 of 4: not one repeat read above the tip. The victim-walk
+  │             repair costs on this tip. The two readings agree, so nothing here
+  │             turns on the straggler rule. The 2026-09-15 solo -1.9 %, which sat
+  │             inside its own floor and decided nothing, is superseded by this.
   │
   │  SWITCH     DS4_CUDA_EXPERT_HOTLIST_WRITE=<file> (0 disables the writer)
   │             DS4_CUDA_EXPERT_HOTLIST_DECAY=none|halve|quarter|eighth|shift:<n>, default halve
@@ -469,3 +476,11 @@ so a C test can reach them on a laptop. Same shape as `ds4_warmset.h` on
   unbuilt.
 - A measurement on the new tip `triple-tip-2026-09-16`. Every number on this card pre-dates
   the repair.
+
+## Round 4, 2026-09-17: on the new tip, in a sealed round
+
+- **Loses on the new tip, on both readings.** -2.73 % no-drop, -3.34 % kept, sign 0 of 4. Raw min-across medians 9.42 t/s arm against 9.65 t/s tip. The repair `44bc5398c` now has a CUDA build behind it at `26296f54`, and the lever costs.
+- The no-drop -2.73 % is just inside a 2.71 % floor by 0.02 points, and the kept -3.34 % is outside it; what carries the verdict is the sign, 0 of 4, with every repeat between -5.4 and -0.6.
+- This supersedes the 2026-09-15 seeding arm's -1.9 %, which sat inside its floor. What round 4 still does not measure is the lever as re-scoped, a warm cache over the first 64 tokens: round 4 ran the standard frontiers, not an opening-token window.
+
+Sealed rule `2026-09-17-R4-PREREGISTERED-RULE.txt` @`3914a3226`, result `2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md`, raw CSVs and runlog in `sweeps/r4/`.
