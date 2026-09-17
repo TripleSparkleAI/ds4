@@ -10135,6 +10135,7 @@ struct server {
     tool_memory tool_mem;
     server_image_cache image_cache; /* Protected by inference_mu. */
     bool disable_exact_dsml_tool_replay;
+    bool prefix_cache_disabled;
     bool enable_cors;
     pthread_mutex_t tool_mu;
     pthread_mutex_t kv_mu;
@@ -11240,6 +11241,9 @@ static bool kv_cache_store_live_prefix_text(server *s, server_slot *slot,
                                             uint8_t cache_text_ext,
                                             const char *cache_text_key) {
     if (!s || !slot) return false;
+    /* Control arm: a disabled cache must not write either, otherwise the
+     * control would still warm the prefix the arm reads. */
+    if (s->prefix_cache_disabled) return false;
     char err[160] = {0};
     ds4_kvstore_trailer_hooks hooks = kv_cache_tool_map_hooks(s, NULL);
     pthread_mutex_lock(&s->inference_mu);
@@ -11406,6 +11410,7 @@ static int kv_cache_try_load_text(server *s, server_slot *slot,
                                   uint8_t *loaded_ext_flags_out,
                                   bool responses_protocol) {
     if (!s || !slot) return 0;
+    if (s->prefix_cache_disabled) return 0;
     if (loaded_path_out) *loaded_path_out = NULL;
     if (loaded_ext_flags_out) *loaded_ext_flags_out = 0;
     ds4_kvstore_load_result lr = {0};
@@ -11497,6 +11502,7 @@ static int live_text_prefix_prompt(server *s, server_slot *slot,
                                    const request *req,
                                    ds4_tokens *effective_prompt) {
     if (!s || !slot || !req || !req->prompt_text || !effective_prompt) return 0;
+    if (s->prefix_cache_disabled) return 0;
     const ds4_tokens *live_tokens = ds4_session_tokens(slot->session);
     if (!live_tokens || live_tokens->len <= 0) return 0;
 
@@ -11532,6 +11538,7 @@ static int responses_live_continuation_prompt(server *s, server_slot *slot,
                                               ds4_tokens *effective_prompt,
                                               int *matched_ids) {
     if (!s || !slot || !req || !effective_prompt) return 0;
+    if (s->prefix_cache_disabled) return 0;
     if (req->api != API_RESPONSES || !req->responses_live_suffix_text) return 0;
     if (req->responses_live_call_ids.len == 0) return 0;
     if (!responses_live_matches_request(s, slot,
@@ -11559,6 +11566,7 @@ static int anthropic_live_continuation_prompt(server *s, server_slot *slot,
                                               ds4_tokens *effective_prompt,
                                               int *matched_ids) {
     if (!s || !slot || !req || !effective_prompt) return 0;
+    if (s->prefix_cache_disabled) return 0;
     if (req->api != API_ANTHROPIC || !req->anthropic_live_suffix_text) return 0;
     if (req->anthropic_live_call_ids.len == 0) return 0;
     if (!anthropic_live_matches_request(s, slot,
@@ -11592,6 +11600,7 @@ static int responses_live_visible_prefix_prompt(server *s, server_slot *slot,
                                                 int live_pos,
                                                 ds4_tokens *effective_prompt) {
     if (!s || !slot || !req || !req->prompt_text || !effective_prompt) return 0;
+    if (s->prefix_cache_disabled) return 0;
     if (req->api != API_RESPONSES) return 0;
 
     visible_image_key images;
@@ -11640,6 +11649,7 @@ static int thinking_live_visible_prefix_prompt(server *s, server_slot *slot,
                                                int live_pos,
                                                ds4_tokens *effective_prompt) {
     if (!s || !slot || !req || !req->prompt_text || !effective_prompt) return 0;
+    if (s->prefix_cache_disabled) return 0;
     if (req->kind != REQ_CHAT || req->api == API_RESPONSES) return 0;
 
     visible_image_key images;
@@ -13421,6 +13431,11 @@ static void generate_job_inner(server *s, server_slot *slot, job *j) {
             prompt_for_sync = &effective_prompt;
         }
     }
+    server_log(DS4_LOG_PREFILL,
+               "ds4-server: prefix cache %s source=%s read=%d write=%d prompt=%d",
+               cached > 0 ? "hit" : "miss", cache_source, cached,
+               prompt_for_sync->len > cached ? prompt_for_sync->len - cached : 0,
+               prompt_for_sync->len);
     const bool responses_reasoning_state_preserved =
         cached > 0 &&
         ((!strcmp(cache_source, "responses-visible") ||
@@ -14551,6 +14566,18 @@ static void generate_job(server *s, server_slot *slot, job *j) {
     pthread_mutex_unlock(&s->model_mu);
 
     ds4_session_set_cancel(slot->session, job_cancelled, j);
+    /* Prefix-cache control arm.
+     *
+     * A prefix hit is a byte-for-byte match starting at token zero, so the only
+     * honest way to measure the cache is to run the same binary with the match
+     * disabled.  Rewinding the live session to zero makes every request prefill
+     * from token zero, which is exactly what a server without a checkpoint
+     * does. */
+    if (s->prefix_cache_disabled) {
+        pthread_mutex_lock(&s->inference_mu);
+        ds4_session_rewind(slot->session, 0);
+        pthread_mutex_unlock(&s->inference_mu);
+    }
     if (!job_cancelled(j)) generate_job_inner(s, slot, j);
     ds4_session_set_cancel(slot->session, NULL, NULL);
 
@@ -15174,6 +15201,7 @@ typedef struct {
     uint64_t kv_disk_space_mb;
     kv_cache_options kv_cache;
     bool kv_cache_reject_different_quant;
+    bool prefix_cache_disabled;
     bool disable_exact_dsml_tool_replay;
     int tool_memory_max_ids;
     bool enable_cors;
@@ -15432,6 +15460,17 @@ static server_config parse_options(int argc, char **argv) {
             c.kv_cache.boundary_align_tokens = parse_nonneg_int_arg(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--kv-cache-reject-different-quant")) {
             c.kv_cache_reject_different_quant = true;
+        } else if (!strcmp(arg, "--prefix-cache")) {
+            const char *v = need_arg(&i, argc, argv, arg);
+            if (!strcmp(v, "on") || !strcmp(v, "1")) {
+                c.prefix_cache_disabled = false;
+            } else if (!strcmp(v, "off") || !strcmp(v, "0")) {
+                c.prefix_cache_disabled = true;
+            } else {
+                server_log(DS4_LOG_DEFAULT,
+                           "ds4-server: --prefix-cache expects on or off, got %s", v);
+                exit(2);
+            }
         } else if (!strcmp(arg, "--disable-exact-dsml-tool-replay")) {
             c.disable_exact_dsml_tool_replay = true;
         } else if (!strcmp(arg, "--tool-memory-max-ids")) {
@@ -15684,6 +15723,7 @@ int main(int argc, char **argv) {
     s.last_prefill_slot = slot_count - 1;
     s.default_tokens = cfg.default_tokens;
     s.disable_exact_dsml_tool_replay = cfg.disable_exact_dsml_tool_replay;
+    s.prefix_cache_disabled = cfg.prefix_cache_disabled;
     s.tool_mem.max_entries = cfg.tool_memory_max_ids;
     s.enable_cors = cfg.enable_cors;
     s.slots = xmalloc((size_t)slot_count * sizeof(*s.slots));
@@ -15723,6 +15763,10 @@ int main(int argc, char **argv) {
     if (cfg.kv_disk_dir) {
         kv_cache_open(&s.kv, cfg.kv_disk_dir, cfg.kv_disk_space_mb,
                       cfg.kv_cache_reject_different_quant, cfg.kv_cache);
+    }
+    if (s.prefix_cache_disabled) {
+        server_log(DS4_LOG_DEFAULT,
+                   "ds4-server: prefix cache disabled; every request prefills from token zero (A/B control arm)");
     }
     if (s.disable_exact_dsml_tool_replay) {
         server_log(DS4_LOG_DEFAULT,

@@ -115,6 +115,11 @@ workloads, the controls are `--kv-cache-min-tokens`,
 `--kv-cache-boundary-trim-tokens`, and `--kv-cache-boundary-align-tokens`.
 Check `./ds4-server --help` for their defaults.
 
+`--prefix-cache on|off` controls prefix reuse itself. It defaults to `on`; with
+`off` the server rewinds the live session before every request, so each prompt is
+prefilled from token zero and no checkpoint is read or written. Use it to measure
+prefix reuse against a control built from the same binary.
+
 Quantization variants may share compatible prefixes. Add
 `--kv-cache-reject-different-quant` for same-quant reuse only.
 Cache files contain prompt text and model state: treat the directory as
