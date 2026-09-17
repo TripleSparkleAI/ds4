@@ -285,7 +285,10 @@ it rock.
   │             Round 8 measured it level with the tip: the combination costs
   │             what each part wins
   │
-  │  LATEST     round 8 · 2026-09-17 · TIES · +1.54 % (-0.54 sensitivity) ·
+  │  LATEST     round 9 · 2026-09-17 · TIES · +5.03 % 3/3 under a 17.27 floor ·
+  │             median 10.20, between its parts ·
+  │             2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
+  │             round 8 · 2026-09-17 · TIES · +1.54 % (-0.54 sensitivity) ·
   │             level with the tip while its parts read +8 to +12 in the same
   │             session ·
   │             2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
@@ -306,6 +309,20 @@ it rock.
   │             control = triple-tip-2026-09-16 @12997e9c, interleaved
   │             session = 2026-09-17 13:24-14:37Z · DGX Spark GB10 ·
   │             native 24.90 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │             ─── round 9, TIES, and it reads higher than round 8 did:
+  │             +5.03 %  floor 17.27 %  sign 3/3  n=3
+  │             raw: arm min-across median 10.20 t/s (9.69 to 10.45, spread 0.76)
+  │             vs the tip's 9.42 t/s (8.51 to 9.98). That sits BETWEEN its parts,
+  │             below hitsfirst's 10.41 and pool's 10.35, which is the second
+  │             round to rank it under hitsfirst alone
+  │             ⚠ the instrument sets that floor, not the arm: the five control
+  │             runs span 8.51 to 9.98 t/s because the page cache holds 2.9 GB of
+  │             an 81 GB model and the bench streams 842 MB/s from the NVMe, so
+  │             identical binaries swing about 8 % run to run
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 14:41-15:36Z · DGX Spark GB10 · native
+  │             24.90 MB .text (r9-winners, 24,900,766; tip 24.86 MB) · lean
+  │             regime 4096/6144 · quiet box, warm-up run discarded
   │  PREFILL    reported, not a verdict: 135.09 t/s min-across median vs the
   │             tip's 84.34 t/s, n=4. Round 8 makes no prefill verdict.
   │
@@ -411,3 +428,18 @@ directly: *"why not combine pool and hitsfirst and prefetch-pool?"* This branch 
 Sealed rule `2026-09-17-R8-PREREGISTERED-RULE.txt` @`c173ad6d7`, result
 `2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md`,
 raw CSVs and runlog in `sweeps/r8/`.
+
+## Round 9, 2026-09-17: it reads between its parts, and the answer is still no
+
+- **Round 8's level-with-the-tip reading was the loaded window, and round 9 says so.** On a quiet
+  box this tree reads 10.20 t/s, +5.03 %, sign 3 of 3, against round 8's +1.54 %. Two of round 8's
+  four winners runs sat in that loaded window.
+- **The combination is still not better than hitsfirst alone, in either round.** 10.20 against
+  hitsfirst's 10.41 and pool's 10.35: it lands between its own parts. How much worse it is depends
+  on the day, and that is the honest width of the claim.
+- **What it is NOT is a loss.** Both readings TIE against their floors, so nothing here retracts
+  the tree's correctness or kills a lever; what is measured is a ranking, twice.
+
+Sealed rule `2026-09-17-R9-PREREGISTERED-RULE.txt` @`60d1bd06a`, result
+`2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md`,
+raw CSVs and runlog in `sweeps/r9/`.
