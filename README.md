@@ -267,3 +267,80 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
+
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-all-fastest-newtip                            NOT YET
+  │
+  │  WHAT       the ten-lever stack REBUILT ON THE NEW TIP from its manifest:
+  │             base triple-tip-2026-09-16 (12997e9c8), one commit per lever
+  │             in stack-on-newtip.manifest order, every conflict hunk decided
+  │             on purpose and recorded, so build_stack.sh reproduces this
+  │             tree from the manifest alone. Nine levers on, hits-first off,
+  │             victim order used-ascending (the measured default).
+  │
+  │  LATEST     never in a sealed round
+  │             round 3 (2026-09-17-ROUND3-PREREGISTERED-RULE.txt) measures the
+  │             OLD-base stack at b17231fd, not this tree. This tree has never
+  │             been compiled for CUDA: it was assembled on a Mac with no nvcc.
+  │
+  │  GEN        not measured
+  │  PREFILL    not measured
+  │
+  │  VERDICT    NOT YET. The one number that shaped this tree is inherited,
+  │             not earned here: on the OLD base the sweep-aware victim
+  │             comparator in ds4_gpu_stream_expert_cache_prefetch cost
+  │             -4.35 % and reverting it alone gave +3.46 % vs the clean tip
+  │             (round 2, n=8, sign 8/8, bands disjoint). So used-ascending is
+  │             the default here too, with DS4_CUDA_PREFETCH_SWEEP_ORDER=1
+  │             restoring the losing order. Whether that carries onto this
+  │             base is a measurement, not an inference.
+  │
+  │  SWITCH     ten levers, see the table below; plus
+  │             DS4_CUDA_PREFETCH_SWEEP_ORDER=1 restores the sweep-aware order
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+**How this tree was built.** `bash build_stack.sh stack-on-newtip.manifest --check <HEAD>` is
+the derivation and the proof: base `triple-tip-2026-09-16`, then each lever's code-only diff
+against the base it was written on, applied `--3way`, every conflict hunk resolved by the
+manifest's own `resolve` lines, then the stack-local victim-order commit. The manifest header
+names every judgement call. The branch's history mirrors the manifest: one commit per lever.
+
+```
+   triple-tip-2026-09-16  12997e9c8   (Qwen tip, UP)
+        +-- pool · margin · draincut · pagecache · hotlist        [on]
+        +-- engram-lead · engram-read-threads                     [on]
+        +-- readahead-order                                       [on, no off switch]
+        +-- hits-first                                            [OFF - measured null solo]
+        +-- prefetch-pool                                         [on]
+        +-- victim order used-ascending                           [the measured default]
+        v
+   triple-all-fastest-newtip   ten levers in, nine live, NEVER COMPILED FOR CUDA
+```
+
+| lever | switch | default | off |
+| --- | --- | --- | --- |
+| pool | `DS4_CUDA_STREAMING_EXPERT_PREAD_POOL` | on | `=0` |
+| margin | `DS4_CUDA_EXPERT_CACHE_MARGIN_GB` | 8 | knob, no Boolean |
+| draincut | `DS4_CUDA_SELECTED_DRAIN_SYNC` | on | `=1` restores blocking |
+| pagecache | `DS4_CUDA_KEEP_MODEL_PAGES` | new order | `=1` restores old |
+| hotlist | `DS4_CUDA_EXPERT_HOTLIST_WRITE` | on | `=0` |
+| engram-lead | `DS4_V41_ENGRAM_LEAD_OFF` | on | set |
+| engram-read-threads | `DS4_ENGRAM_READ_THREADS` | request count | `=1` |
+| readahead-order | none | on | needs its own build |
+| hits-first | `DS4_CUDA_HITS_FIRST` | **off** | `=1` turns it on |
+| prefetch-pool | `DS4_CUDA_SSD_PREFETCH_CHUNK_MB` | 8 MB | knob |
+| victim order | `DS4_CUDA_PREFETCH_SWEEP_ORDER` | used-ascending | `=1` sweep-aware |
+
+⚠ What this card does NOT say: any speed. The old-base stack's numbers live on
+`triple-all-fastest`'s card and describe a different tree. Read them there, never here.
