@@ -284,24 +284,32 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-prefetch-pool                                  NOT YET
+  │  BRANCH     triple-prefetch-pool                          POSITIVE
   │
   │  WHAT       cuts the prefill read-ahead into chunked tasks for a pool of
   │             readers with their own pinned buffers and upload streams;
   │             the single reader stays as the fallback when the pool declines
   │
-  │  LATEST     never in a sealed round
-  │             round 3 is measuring this branch now: in flight, unresolved
+  │  LATEST     round 4 · 2026-09-17 · PARTIAL · +2.28 % (kept +2.28 %) ·
+  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
   │
-  │  GEN        not measured
-  │  PREFILL    not measured as a delta. The device probe holds an instrument
-  │             counter, not a result: wait per layer 398.0 ms at one reader to
-  │             196.5 ms at four (speed-bench/v41_cuda_prefetch_pool_gb10.md,
-  │             2026-09-15). It has no tokens/s or percent figure behind it.
+  │  GEN        +2.28 % (kept +2.28 %)  floor 2.71 % (no-drop)  sign 3/3  n=3
+  │             raw: arm median 9.87 t/s vs tip median 9.65 t/s, gen_steady
+  │             at min across 4096/6144; the delta is each run against the
+  │             mean of its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
+  │             bracket per cycle
+  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
+  │             native 24.87 MB .text · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 138.67 t/s min-across median vs the
+  │             tip's 80.73 t/s, n=3. Round 4 makes no prefill verdict.
   │
-  │  VERDICT    NOT YET - in the 2026-09-15 pass every arm read above its
-  │             control, the OFF arms included, so that pass measures a bad
-  │             control and not a lever, and it is withheld.
+  │  VERDICT    POSITIVE, PARTIAL - the kept reading calls it BEATS on a single
+  │             survivor against a 0.21 % floor; the no-drop reading's +2.28 % TIES
+  │             a 2.71 % floor. Sign 3 of 3, one run dropped for box contention
+  │             (load 3.28 at the end of r4_prefetchpool_2, not the straggler rule).
+  │             Read it as a small real positive that THIS round cannot clear its
+  │             floor with. It needs repeats, not a new design.
   │
   │  SWITCH     DS4_CUDA_SSD_PREFETCH_CHUNK_MB, default 8, cap 64; 0 is ignored,
   │             so the chunking has no off arm. DS4_CUDA_SSD_PREFETCH_POOL=0 or
@@ -420,3 +428,11 @@ The merged tree built clean natively.
 
 The line to clear: the clean tip reads **9.65 t/s median**
 (`2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md`).
+
+## Round 4, 2026-09-17: on the new tip, in a sealed round
+
+- **A small positive that does not clear its floor.** +2.28 % on both readings, sign 3 of 3. The kept reading calls it BEATS because the straggler rule shrank the floor to 0.21 %; the no-drop reading TIES a 2.71 % floor with the same number. PARTIAL is the honest word.
+- One of the four runs was dropped for box contention, not by the straggler rule: `r4_prefetchpool_2` ended at load 3.28. Raw min-across medians over the three kept runs are 9.87 t/s arm against 9.65 t/s tip.
+- The 2026-09-15 bad-control pass stays withheld and is not superseded by this: round 4 is the first clean interleaved reading this branch has. Prefill min-across median 138.67 t/s against the tip's 80.73 is reported and is not a verdict.
+
+Sealed rule `2026-09-17-R4-PREREGISTERED-RULE.txt` @`3914a3226`, result `2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md`, raw CSVs and runlog in `sweeps/r4/`.
