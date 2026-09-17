@@ -1,0 +1,479 @@
+RUN OF RECORD at commit 466ad0ed8544789d97301e969a07b5cd178eff3b
+python3 experiments/granule/granule_discrimination.py --run --json experiments/granule/granule_results.json
+PYTHONHASHSEED=0, nice -n 10, numpy 2.0.2, no GPU, no model, no network.
+
+[code] tokens (1324191,) vocab<65526 calib (0, 400000) report (400000, 1324191)
+    store 2048 | distinct report 65324 | recurring store keys 1043
+[code] tokens (1324191,) vocab<65526 store 2048 hits 1024 fr 1024 fc 1024
+  A W=   12 k=  3 | hash D=   0 DISCR +0.3662 FMRr 0.3789 FMRc 0.4082 NE 0.0000 || sdr D=   0 DISCR -0.8867 FMRr 0.9883 FMRc 0.9873 NE 0.0059
+  A W=   16 k=  3 | hash D=   0 DISCR +0.9395 FMRr 0.0430 FMRc 0.0332 NE 0.0000 || sdr D=   0 DISCR -0.6963 FMRr 0.9248 FMRc 0.9150 NE 0.0146
+  A W=   20 k=  3 | hash D=   0 DISCR +0.9980 FMRr 0.0010 FMRc 0.0020 NE 0.0000 || sdr D=   0 DISCR -0.4277 FMRr 0.8125 FMRc 0.7930 NE 0.0146
+  A W=   24 k=  3 | hash D=   0 DISCR +1.0000 FMRr 0.0000 FMRc 0.0000 NE 0.0000 || sdr D=   0 DISCR -0.1592 FMRr 0.6680 FMRc 0.6260 NE 0.0127
+  A W=   32 k=  3 | hash D=   0 DISCR +1.0000 FMRr 0.0000 FMRc 0.0000 NE 0.0000 || sdr D=   0 DISCR +0.2402 FMRr 0.4414 FMRc 0.4277 NE 0.0254
+  A W=   64 k=  3 | hash D=   0 DISCR +1.0000 FMRr 0.0000 FMRc 0.0000 NE 0.0000 || sdr D=   0 DISCR +0.7363 FMRr 0.1475 FMRc 0.1396 NE 0.0127
+  A W=  128 k=  3 | hash D=   0 DISCR +1.0000 FMRr 0.0000 FMRc 0.0000 NE 0.0000 || sdr D=   0 DISCR +0.8633 FMRr 0.0674 FMRc 0.0449 NE 0.0049
+  A W= 1024 k= 21 | hash D=   0 DISCR +1.0000 FMRr 0.0000 FMRc 0.0000 NE 0.0000 || sdr D=   0 DISCR +0.9619 FMRr 0.0059 FMRc 0.0000 NE 0.0000
+  B b= 12 k= 3 m=    31 | hash D=   0 DISCR +0.3662 FMRr 0.3789 FMRc 0.4082 NE 0.0000 || sdr D=    0 DISCR +0.2041 FMRr 0.4551 FMRc 0.4531 NE 0.0215
+  B b= 16 k= 3 m=    75 | hash D=   0 DISCR +0.9395 FMRr 0.0430 FMRc 0.0332 NE 0.0000 || sdr D=    0 DISCR +0.7754 FMRr 0.1221 FMRc 0.1133 NE 0.0098
+  B b= 20 k= 3 m=   186 | hash D=   0 DISCR +0.9980 FMRr 0.0010 FMRc 0.0020 NE 0.0000 || sdr D=    0 DISCR +0.8984 FMRr 0.0410 FMRc 0.0352 NE 0.0029
+  B b= 24 k= 3 m=   467 | hash D=   0 DISCR +1.0000 FMRr 0.0000 FMRc 0.0000 NE 0.0000 || sdr D=    0 DISCR +0.9424 FMRr 0.0156 FMRc 0.0088 NE 0.0010
+  B b= 28 k= 3 m=  1174 | hash D=   0 DISCR +1.0000 FMRr 0.0000 FMRc 0.0000 NE 0.0000 || sdr D=    0 DISCR +0.9541 FMRr 0.0078 FMRc 0.0000 NE 0.0000
+  B b= 12 k= 6 m=    15 | hash D=   0 DISCR +0.3662 FMRr 0.3789 FMRc 0.4082 NE 0.0000 || sdr D=    0 DISCR +0.3691 FMRr 0.3564 FMRc 0.3311 NE 0.0156
+  B b= 16 k= 6 m=    22 | hash D=   0 DISCR +0.9395 FMRr 0.0430 FMRc 0.0332 NE 0.0000 || sdr D=    0 DISCR +0.8184 FMRr 0.0801 FMRc 0.0820 NE 0.0068
+  B b= 20 k= 6 m=    33 | hash D=   0 DISCR +0.9980 FMRr 0.0010 FMRc 0.0020 NE 0.0000 || sdr D=    0 DISCR +0.9082 FMRr 0.0332 FMRc 0.0225 NE 0.0020
+  B b= 24 k= 6 m=    51 | hash D=   0 DISCR +1.0000 FMRr 0.0000 FMRc 0.0000 NE 0.0000 || sdr D=    0 DISCR +0.9482 FMRr 0.0127 FMRc 0.0068 NE 0.0010
+[book] tokens (314997,) vocab<65518 calib (0, 100000) report (100000, 314997)
+    store 2048 | distinct report 149795 | recurring store keys 477
+[book] tokens (314997,) vocab<65518 store 2048 hits 477 fr 1024 fc 477
+  A W=   12 k=  3 | hash D=   0 DISCR +0.3971 FMRr 0.3828 FMRc 0.3753 NE 0.0000 || sdr D=   0 DISCR -0.8763 FMRr 0.9902 FMRc 0.9979 NE 0.0105
+  A W=   16 k=  3 | hash D=   0 DISCR +0.9392 FMRr 0.0244 FMRc 0.0356 NE 0.0000 || sdr D=   0 DISCR -0.6881 FMRr 0.9082 FMRc 0.9036 NE 0.0084
+  A W=   20 k=  3 | hash D=   0 DISCR +0.9958 FMRr 0.0020 FMRc 0.0021 NE 0.0000 || sdr D=   0 DISCR -0.3816 FMRr 0.7646 FMRc 0.7799 NE 0.0273
+  A W=   24 k=  3 | hash D=   0 DISCR +1.0000 FMRr 0.0000 FMRc 0.0000 NE 0.0000 || sdr D=   0 DISCR -0.1449 FMRr 0.6104 FMRc 0.6080 NE 0.0189
+  A W=   32 k=  3 | hash D=   0 DISCR +1.0000 FMRr 0.0000 FMRc 0.0000 NE 0.0000 || sdr D=   0 DISCR +0.1488 FMRr 0.4482 FMRc 0.4612 NE 0.0126
+  A W=   64 k=  3 | hash D=   0 DISCR +1.0000 FMRr 0.0000 FMRc 0.0000 NE 0.0000 || sdr D=   0 DISCR +0.6499 FMRr 0.1602 FMRc 0.1740 NE 0.0189
+  A W=  128 k=  3 | hash D=   0 DISCR +1.0000 FMRr 0.0000 FMRc 0.0000 NE 0.0000 || sdr D=   0 DISCR +0.8457 FMRr 0.0537 FMRc 0.0482 NE 0.0147
+  A W= 1024 k= 21 | hash D=   0 DISCR +1.0000 FMRr 0.0000 FMRc 0.0000 NE 0.0000 || sdr D=   0 DISCR +0.9706 FMRr 0.0000 FMRc 0.0000 NE 0.0000
+  B b= 12 k= 3 m=    31 | hash D=   0 DISCR +0.3971 FMRr 0.3828 FMRc 0.3753 NE 0.0000 || sdr D=    0 DISCR +0.1342 FMRr 0.4492 FMRc 0.4675 NE 0.0231
+  B b= 16 k= 3 m=    75 | hash D=   0 DISCR +0.9392 FMRr 0.0244 FMRc 0.0356 NE 0.0000 || sdr D=    0 DISCR +0.7505 FMRr 0.0957 FMRc 0.0985 NE 0.0147
+  B b= 20 k= 3 m=   186 | hash D=   0 DISCR +0.9958 FMRr 0.0020 FMRc 0.0021 NE 0.0000 || sdr D=    0 DISCR +0.8910 FMRr 0.0312 FMRc 0.0398 NE 0.0105
+  B b= 24 k= 3 m=   467 | hash D=   0 DISCR +1.0000 FMRr 0.0000 FMRc 0.0000 NE 0.0000 || sdr D=    0 DISCR +0.9299 FMRr 0.0156 FMRc 0.0126 NE 0.0042
+  B b= 28 k= 3 m=  1174 | hash D=   0 DISCR +1.0000 FMRr 0.0000 FMRc 0.0000 NE 0.0000 || sdr D=    0 DISCR +0.9586 FMRr 0.0078 FMRc 0.0063 NE 0.0021
+  B b= 12 k= 6 m=    15 | hash D=   0 DISCR +0.3971 FMRr 0.3828 FMRc 0.3753 NE 0.0000 || sdr D=    0 DISCR +0.4172 FMRr 0.2881 FMRc 0.3208 NE 0.0189
+  B b= 16 k= 6 m=    22 | hash D=   0 DISCR +0.9392 FMRr 0.0244 FMRc 0.0356 NE 0.0000 || sdr D=    0 DISCR +0.7987 FMRr 0.0732 FMRc 0.0922 NE 0.0105
+  B b= 20 k= 6 m=    33 | hash D=   0 DISCR +0.9958 FMRr 0.0020 FMRc 0.0021 NE 0.0000 || sdr D=    0 DISCR +0.9254 FMRr 0.0264 FMRc 0.0231 NE 0.0042
+  B b= 24 k= 6 m=    51 | hash D=   0 DISCR +1.0000 FMRr 0.0000 FMRc 0.0000 NE 0.0000 || sdr D=    0 DISCR +0.9581 FMRr 0.0000 FMRc 0.0063 NE 0.0042
+{
+ "primary_arm": "B_matched_entropy,k=3",
+ "n_budgets": 10,
+ "n_required": 8,
+ "sesoi": 0.01,
+ "sdr_wins_n": 0,
+ "null_n": 0,
+ "hash_wins_n": 10,
+ "verdict": "PLAIN_HASH_WINS",
+ "rows": [
+  {
+   "stream": "code",
+   "budget": "b=12,k=3",
+   "delta_discr": -0.162109375,
+   "hash_discr": 0.3662109375,
+   "sdr_discr": 0.2041015625,
+   "hash_tmr": 0.7744140625,
+   "sdr_tmr": 0.6591796875,
+   "hash_fmr_rand": 0.37890625,
+   "sdr_fmr_rand": 0.455078125,
+   "hash_fmr_conf": 0.408203125,
+   "sdr_fmr_conf": 0.453125,
+   "hash_D": 0,
+   "sdr_D": 0,
+   "hash_width": 12,
+   "sdr_width": 31,
+   "hash_near_entry": 0.0,
+   "sdr_near_entry": 0.021484375,
+   "hash_share": 0.0,
+   "sdr_share": 0.04741379310344827,
+   "hash_struct": {
+    "D": 0,
+    "D_frac": 0.0,
+    "FMR_conf": 0.408203125,
+    "FMR_rand": 0.37890625,
+    "NEAR_ENTRY": 0.0,
+    "NEAR_FAR": 0.408203125,
+    "NEAR_ENTRY_share_of_conf": 0.0
+   },
+   "sdr_struct": {
+    "D": 0,
+    "D_frac": 0.0,
+    "FMR_conf": 0.453125,
+    "FMR_rand": 0.455078125,
+    "NEAR_ENTRY": 0.021484375,
+    "NEAR_FAR": 0.431640625,
+    "NEAR_ENTRY_share_of_conf": 0.04741379310344827
+   }
+  },
+  {
+   "stream": "code",
+   "budget": "b=16,k=3",
+   "delta_discr": -0.1640625,
+   "hash_discr": 0.939453125,
+   "sdr_discr": 0.775390625,
+   "hash_tmr": 0.982421875,
+   "sdr_tmr": 0.8974609375,
+   "hash_fmr_rand": 0.04296875,
+   "sdr_fmr_rand": 0.1220703125,
+   "hash_fmr_conf": 0.033203125,
+   "sdr_fmr_conf": 0.11328125,
+   "hash_D": 0,
+   "sdr_D": 0,
+   "hash_width": 16,
+   "sdr_width": 75,
+   "hash_near_entry": 0.0,
+   "sdr_near_entry": 0.009765625,
+   "hash_share": 0.0,
+   "sdr_share": 0.08620689655172414,
+   "hash_struct": {
+    "D": 1,
+    "D_frac": 0.0625,
+    "FMR_conf": 0.40625,
+    "FMR_rand": 0.4208984375,
+    "NEAR_ENTRY": 0.0009765625,
+    "NEAR_FAR": 0.4052734375,
+    "NEAR_ENTRY_share_of_conf": 0.002403846153846154
+   },
+   "sdr_struct": {
+    "D": 0,
+    "D_frac": 0.0,
+    "FMR_conf": 0.11328125,
+    "FMR_rand": 0.1220703125,
+    "NEAR_ENTRY": 0.009765625,
+    "NEAR_FAR": 0.103515625,
+    "NEAR_ENTRY_share_of_conf": 0.08620689655172414
+   }
+  },
+  {
+   "stream": "code",
+   "budget": "b=20,k=3",
+   "delta_discr": -0.099609375,
+   "hash_discr": 0.998046875,
+   "sdr_discr": 0.8984375,
+   "hash_tmr": 1.0,
+   "sdr_tmr": 0.939453125,
+   "hash_fmr_rand": 0.0009765625,
+   "sdr_fmr_rand": 0.041015625,
+   "hash_fmr_conf": 0.001953125,
+   "sdr_fmr_conf": 0.03515625,
+   "hash_D": 0,
+   "sdr_D": 0,
+   "hash_width": 20,
+   "sdr_width": 186,
+   "hash_near_entry": 0.0,
+   "sdr_near_entry": 0.0029296875,
+   "hash_share": 0.0,
+   "sdr_share": 0.08333333333333333,
+   "hash_struct": {
+    "D": 2,
+    "D_frac": 0.1,
+    "FMR_conf": 0.3134765625,
+    "FMR_rand": 0.3056640625,
+    "NEAR_ENTRY": 0.0,
+    "NEAR_FAR": 0.3134765625,
+    "NEAR_ENTRY_share_of_conf": 0.0
+   },
+   "sdr_struct": {
+    "D": 1,
+    "D_frac": 0.005376344086021506,
+    "FMR_conf": 0.22265625,
+    "FMR_rand": 0.2197265625,
+    "NEAR_ENTRY": 0.0390625,
+    "NEAR_FAR": 0.18359375,
+    "NEAR_ENTRY_share_of_conf": 0.17543859649122806
+   }
+  },
+  {
+   "stream": "code",
+   "budget": "b=24,k=3",
+   "delta_discr": -0.0576171875,
+   "hash_discr": 1.0,
+   "sdr_discr": 0.9423828125,
+   "hash_tmr": 1.0,
+   "sdr_tmr": 0.9580078125,
+   "hash_fmr_rand": 0.0,
+   "sdr_fmr_rand": 0.015625,
+   "hash_fmr_conf": 0.0,
+   "sdr_fmr_conf": 0.0087890625,
+   "hash_D": 0,
+   "sdr_D": 0,
+   "hash_width": 24,
+   "sdr_width": 467,
+   "hash_near_entry": 0.0,
+   "sdr_near_entry": 0.0009765625,
+   "hash_share": null,
+   "sdr_share": 0.1111111111111111,
+   "hash_struct": {
+    "D": 3,
+    "D_frac": 0.125,
+    "FMR_conf": 0.2392578125,
+    "FMR_rand": 0.2568359375,
+    "NEAR_ENTRY": 0.0,
+    "NEAR_FAR": 0.2392578125,
+    "NEAR_ENTRY_share_of_conf": 0.0
+   },
+   "sdr_struct": {
+    "D": 1,
+    "D_frac": 0.0021413276231263384,
+    "FMR_conf": 0.162109375,
+    "FMR_rand": 0.1650390625,
+    "NEAR_ENTRY": 0.033203125,
+    "NEAR_FAR": 0.12890625,
+    "NEAR_ENTRY_share_of_conf": 0.20481927710843373
+   }
+  },
+  {
+   "stream": "code",
+   "budget": "b=28,k=3",
+   "delta_discr": -0.0458984375,
+   "hash_discr": 1.0,
+   "sdr_discr": 0.9541015625,
+   "hash_tmr": 1.0,
+   "sdr_tmr": 0.9619140625,
+   "hash_fmr_rand": 0.0,
+   "sdr_fmr_rand": 0.0078125,
+   "hash_fmr_conf": 0.0,
+   "sdr_fmr_conf": 0.0,
+   "hash_D": 0,
+   "sdr_D": 0,
+   "hash_width": 28,
+   "sdr_width": 1174,
+   "hash_near_entry": 0.0,
+   "sdr_near_entry": 0.0,
+   "hash_share": null,
+   "sdr_share": null,
+   "hash_struct": {
+    "D": 4,
+    "D_frac": 0.14285714285714285,
+    "FMR_conf": 0.1416015625,
+    "FMR_rand": 0.16796875,
+    "NEAR_ENTRY": 0.0,
+    "NEAR_FAR": 0.1416015625,
+    "NEAR_ENTRY_share_of_conf": 0.0
+   },
+   "sdr_struct": {
+    "D": 1,
+    "D_frac": 0.0008517887563884157,
+    "FMR_conf": 0.13671875,
+    "FMR_rand": 0.1337890625,
+    "NEAR_ENTRY": 0.033203125,
+    "NEAR_FAR": 0.103515625,
+    "NEAR_ENTRY_share_of_conf": 0.24285714285714285
+   }
+  },
+  {
+   "stream": "book",
+   "budget": "b=12,k=3",
+   "delta_discr": -0.26288980607966456,
+   "hash_discr": 0.39706171383647804,
+   "sdr_discr": 0.13417190775681348,
+   "hash_tmr": 0.779874213836478,
+   "sdr_tmr": 0.6016771488469602,
+   "hash_fmr_rand": 0.3828125,
+   "sdr_fmr_rand": 0.44921875,
+   "hash_fmr_conf": 0.3752620545073375,
+   "sdr_fmr_conf": 0.46750524109014674,
+   "hash_D": 0,
+   "sdr_D": 0,
+   "hash_width": 12,
+   "sdr_width": 31,
+   "hash_near_entry": 0.0,
+   "sdr_near_entry": 0.023060796645702306,
+   "hash_share": 0.0,
+   "sdr_share": 0.04932735426008968,
+   "hash_struct": {
+    "D": 0,
+    "D_frac": 0.0,
+    "FMR_conf": 0.3752620545073375,
+    "FMR_rand": 0.3828125,
+    "NEAR_ENTRY": 0.0,
+    "NEAR_FAR": 0.3752620545073375,
+    "NEAR_ENTRY_share_of_conf": 0.0
+   },
+   "sdr_struct": {
+    "D": 0,
+    "D_frac": 0.0,
+    "FMR_conf": 0.46750524109014674,
+    "FMR_rand": 0.44921875,
+    "NEAR_ENTRY": 0.023060796645702306,
+    "NEAR_FAR": 0.4444444444444444,
+    "NEAR_ENTRY_share_of_conf": 0.04932735426008968
+   }
+  },
+  {
+   "stream": "book",
+   "budget": "b=16,k=3",
+   "delta_discr": -0.18867924528301894,
+   "hash_discr": 0.939203354297694,
+   "sdr_discr": 0.750524109014675,
+   "hash_tmr": 0.9748427672955975,
+   "sdr_tmr": 0.8490566037735849,
+   "hash_fmr_rand": 0.0244140625,
+   "sdr_fmr_rand": 0.095703125,
+   "hash_fmr_conf": 0.03563941299790356,
+   "sdr_fmr_conf": 0.09853249475890985,
+   "hash_D": 0,
+   "sdr_D": 0,
+   "hash_width": 16,
+   "sdr_width": 75,
+   "hash_near_entry": 0.0,
+   "sdr_near_entry": 0.014675052410901468,
+   "hash_share": 0.0,
+   "sdr_share": 0.14893617021276598,
+   "hash_struct": {
+    "D": 1,
+    "D_frac": 0.0625,
+    "FMR_conf": 0.3941299790356394,
+    "FMR_rand": 0.3876953125,
+    "NEAR_ENTRY": 0.0,
+    "NEAR_FAR": 0.3941299790356394,
+    "NEAR_ENTRY_share_of_conf": 0.0
+   },
+   "sdr_struct": {
+    "D": 0,
+    "D_frac": 0.0,
+    "FMR_conf": 0.09853249475890985,
+    "FMR_rand": 0.095703125,
+    "NEAR_ENTRY": 0.014675052410901468,
+    "NEAR_FAR": 0.08385744234800838,
+    "NEAR_ENTRY_share_of_conf": 0.14893617021276598
+   }
+  },
+  {
+   "stream": "book",
+   "budget": "b=20,k=3",
+   "delta_discr": -0.10482180293501042,
+   "hash_discr": 0.9958071278825995,
+   "sdr_discr": 0.8909853249475891,
+   "hash_tmr": 0.9979035639412998,
+   "sdr_tmr": 0.9308176100628931,
+   "hash_fmr_rand": 0.001953125,
+   "sdr_fmr_rand": 0.03125,
+   "hash_fmr_conf": 0.0020964360587002098,
+   "sdr_fmr_conf": 0.039832285115303984,
+   "hash_D": 0,
+   "sdr_D": 0,
+   "hash_width": 20,
+   "sdr_width": 186,
+   "hash_near_entry": 0.0,
+   "sdr_near_entry": 0.010482180293501049,
+   "hash_share": 0.0,
+   "sdr_share": 0.2631578947368421,
+   "hash_struct": {
+    "D": 2,
+    "D_frac": 0.1,
+    "FMR_conf": 0.3165618448637317,
+    "FMR_rand": 0.310546875,
+    "NEAR_ENTRY": 0.0,
+    "NEAR_FAR": 0.3165618448637317,
+    "NEAR_ENTRY_share_of_conf": 0.0
+   },
+   "sdr_struct": {
+    "D": 1,
+    "D_frac": 0.005376344086021506,
+    "FMR_conf": 0.1949685534591195,
+    "FMR_rand": 0.1416015625,
+    "NEAR_ENTRY": 0.039832285115303984,
+    "NEAR_FAR": 0.15513626834381553,
+    "NEAR_ENTRY_share_of_conf": 0.2043010752688172
+   }
+  },
+  {
+   "stream": "book",
+   "budget": "b=24,k=3",
+   "delta_discr": -0.0701323375262054,
+   "hash_discr": 1.0,
+   "sdr_discr": 0.9298676624737946,
+   "hash_tmr": 1.0,
+   "sdr_tmr": 0.9454926624737946,
+   "hash_fmr_rand": 0.0,
+   "sdr_fmr_rand": 0.015625,
+   "hash_fmr_conf": 0.0,
+   "sdr_fmr_conf": 0.012578616352201259,
+   "hash_D": 0,
+   "sdr_D": 0,
+   "hash_width": 24,
+   "sdr_width": 467,
+   "hash_near_entry": 0.0,
+   "sdr_near_entry": 0.0041928721174004195,
+   "hash_share": null,
+   "sdr_share": 0.3333333333333333,
+   "hash_struct": {
+    "D": 3,
+    "D_frac": 0.125,
+    "FMR_conf": 0.22641509433962265,
+    "FMR_rand": 0.2529296875,
+    "NEAR_ENTRY": 0.0,
+    "NEAR_FAR": 0.22641509433962265,
+    "NEAR_ENTRY_share_of_conf": 0.0
+   },
+   "sdr_struct": {
+    "D": 1,
+    "D_frac": 0.0021413276231263384,
+    "FMR_conf": 0.1320754716981132,
+    "FMR_rand": 0.099609375,
+    "NEAR_ENTRY": 0.029350104821802937,
+    "NEAR_FAR": 0.10272536687631027,
+    "NEAR_ENTRY_share_of_conf": 0.22222222222222224
+   }
+  },
+  {
+   "stream": "book",
+   "budget": "b=28,k=3",
+   "delta_discr": -0.041355476939203384,
+   "hash_discr": 1.0,
+   "sdr_discr": 0.9586445230607966,
+   "hash_tmr": 1.0,
+   "sdr_tmr": 0.9664570230607966,
+   "hash_fmr_rand": 0.0,
+   "sdr_fmr_rand": 0.0078125,
+   "hash_fmr_conf": 0.0,
+   "sdr_fmr_conf": 0.006289308176100629,
+   "hash_D": 0,
+   "sdr_D": 0,
+   "hash_width": 28,
+   "sdr_width": 1174,
+   "hash_near_entry": 0.0,
+   "sdr_near_entry": 0.0020964360587002098,
+   "hash_share": null,
+   "sdr_share": 0.3333333333333333,
+   "hash_struct": {
+    "D": 4,
+    "D_frac": 0.14285714285714285,
+    "FMR_conf": 0.15932914046121593,
+    "FMR_rand": 0.1796875,
+    "NEAR_ENTRY": 0.0,
+    "NEAR_FAR": 0.15932914046121593,
+    "NEAR_ENTRY_share_of_conf": 0.0
+   },
+   "sdr_struct": {
+    "D": 1,
+    "D_frac": 0.0008517887563884157,
+    "FMR_conf": 0.06289308176100629,
+    "FMR_rand": 0.0419921875,
+    "NEAR_ENTRY": 0.016771488469601678,
+    "NEAR_FAR": 0.04612159329140461,
+    "NEAR_ENTRY_share_of_conf": 0.26666666666666666
+   }
+  }
+ ],
+ "arm_a_n": 16,
+ "arm_a_sdr_wins_n": 0,
+ "arm_a_null_n": 0,
+ "arm_a_hash_wins_n": 16,
+ "structure_positive_control_fires_n": 9,
+ "structure_positive_control_ratio3_n": 10,
+ "structure_positive_control_readable": true,
+ "random_fmr_identity_n": 0
+}
+wall 10.0 s
+
+=== SELFTEST, same commit, after the run of record ===
+  PASS  hash_fmr_D0_b16  
+  PASS  hash_fmr_monotone_in_D  
+  PASS  hash_fmr_monotone_in_b  
+  PASS  fmp_theta0_is_1  
+  PASS  fmp_theta_gt_k_is_0  
+  PASS  solve_m_16_3  m=75
+  PASS  solve_m_16_6_compressed  m3=75 m6=22
+  PASS  union_packed_weight_le_3  
+  PASS  G_DETERMINISM_union  
+  PASS  G_DETERMINISM_hash  
+  PASS  self_distance_zero_hash  
+  PASS  self_argmax_hash  
+  PASS  self_distance_zero_sdr  
+  PASS  planted_identity_identical  
+  PASS  planted_sparse_perturbed_is_near  med=4.0
+  PASS  planted_dense_perturbed_is_far  med=468.0
+  PASS  planted_near_structure_exists  
+  PASS  planted_unrelated_is_far  med=8.0
+  PASS  planted_overfull_hash_saturates  fmr=1.0000
+  PASS  G_NEAR_SUBSET_CONF  NE=0.8906 FMRc=1.0000
+  PASS  G_CANON_READONLY  
+selftest: 21/21 PASS
