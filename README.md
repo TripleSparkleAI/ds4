@@ -528,6 +528,51 @@ Regenerated 2026-09-17 08:39Z, 24 cards.
   └──────────────────────────────────────────────────────────────────────
 ```
 
+## MEASURED CORRECT, WORTH ZERO ON THE CLOCK
+
+### triple-engram-read-threads
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-engram-read-threads                 CORRECT, WORTH ZERO
+  │
+  │  WHAT       takes the DECODE step's Engram read off the batch machinery:
+  │             one token now goes straight to the serial reader, with no
+  │             malloc, no qsort and no pool dispatch. The wide PREFILL read
+  │             keeps the one-wave rule the branch was named for.
+  │
+  │  RESULT     gen t/s   MEASURED, AND IT BUYS NOTHING
+  │             the bisect's RT arm is this same decode revert, made on the
+  │             nine-lever stack at dd82361a: -6.07 % vs the clean tip, where
+  │             the stack as shipped read -4.35 %. |D_RT - D_STACK| = 1.72,
+  │             inside the 4.13 % floor, so NOT IT by the sealed rule and no
+  │             direction is reported
+  │             (2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md)
+  │             prefill   not measured. The one-wave PREFILL read has never run
+  │             session  the RT binary is tb-bis-rt @d1dd5ec2, native 23,147,372
+  │             .text, 2026-09-16. THIS revision has never been built for CUDA
+  │
+  │  VERDICT    CORRECT, TESTED, AND WORTH NOTHING ON THE CLOCK.
+  │             The decode fast path is right: it takes a malloc, a qsort and
+  │             a broadcast to 32 parked workers off the critical path, and a
+  │             counter proves the pool never wakes. The bisect measured that
+  │             same revert at 1.72 points, inside the floor.
+  │             A fix can be right, well tested, and buy nothing.
+  │             OWED: the one-wave PREFILL read, which is the untested half
+  │
+  │  SWITCH     ⚠ NEITHER KNOB REACHES THE DECODE READ ANY MORE. Both govern
+  │             the wide prefill read only, where the defaults are unchanged.
+  │             DS4_ENGRAM_ROWS_PER_READER=1|2, default 1 (one wave); 2 is the
+  │             old two-round divisor, the control arm in the same binary.
+  │             DS4_ENGRAM_READ_THREADS=<n> overrides the reader count;
+  │             0 clamps to one reader, the serial path.
+  │  OUTPUT     not re-run (the previous revision's gates bb06e711bc498bb9 /
+  │             2f2dd7f89d107bbc / 652dcda32c176cab belong to that revision)
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
 ## NEGATIVELY MEASURED OR KILLED
 
 ### triple-all-fastest
@@ -1245,51 +1290,6 @@ Regenerated 2026-09-17 08:39Z, 24 cards.
   │             DS4_SSD_PAGECACHE_FLOOR_PCT default 10 (range 1-40)
   │             DS4_SSD_AUTO_CACHE_PCT default 80, now a SHARE, not a maximum
   │  OUTPUT     not re-run
-  │
-  └──────────────────────────────────────────────────────────────────────
-```
-
-## UNTAGGED - the card carries no status
-
-### triple-engram-read-threads
-
-```
-  ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-engram-read-threads                 CORRECT, WORTH ZERO
-  │
-  │  WHAT       takes the DECODE step's Engram read off the batch machinery:
-  │             one token now goes straight to the serial reader, with no
-  │             malloc, no qsort and no pool dispatch. The wide PREFILL read
-  │             keeps the one-wave rule the branch was named for.
-  │
-  │  RESULT     gen t/s   MEASURED, AND IT BUYS NOTHING
-  │             the bisect's RT arm is this same decode revert, made on the
-  │             nine-lever stack at dd82361a: -6.07 % vs the clean tip, where
-  │             the stack as shipped read -4.35 %. |D_RT - D_STACK| = 1.72,
-  │             inside the 4.13 % floor, so NOT IT by the sealed rule and no
-  │             direction is reported
-  │             (2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md)
-  │             prefill   not measured. The one-wave PREFILL read has never run
-  │             session  the RT binary is tb-bis-rt @d1dd5ec2, native 23,147,372
-  │             .text, 2026-09-16. THIS revision has never been built for CUDA
-  │
-  │  VERDICT    CORRECT, TESTED, AND WORTH NOTHING ON THE CLOCK.
-  │             The decode fast path is right: it takes a malloc, a qsort and
-  │             a broadcast to 32 parked workers off the critical path, and a
-  │             counter proves the pool never wakes. The bisect measured that
-  │             same revert at 1.72 points, inside the floor.
-  │             A fix can be right, well tested, and buy nothing.
-  │             OWED: the one-wave PREFILL read, which is the untested half
-  │
-  │  SWITCH     ⚠ NEITHER KNOB REACHES THE DECODE READ ANY MORE. Both govern
-  │             the wide prefill read only, where the defaults are unchanged.
-  │             DS4_ENGRAM_ROWS_PER_READER=1|2, default 1 (one wave); 2 is the
-  │             old two-round divisor, the control arm in the same binary.
-  │             DS4_ENGRAM_READ_THREADS=<n> overrides the reader count;
-  │             0 clamps to one reader, the serial path.
-  │  OUTPUT     not re-run (the previous revision's gates bb06e711bc498bb9 /
-  │             2f2dd7f89d107bbc / 652dcda32c176cab belong to that revision)
   │
   └──────────────────────────────────────────────────────────────────────
 ```

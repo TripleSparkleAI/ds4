@@ -13,8 +13,9 @@
 own card box at that branch's HEAD. Usage: rebuild_index.py <stack-README-path> [--dry]"""
 import subprocess, sys, re
 ROOT = subprocess.check_output(['git','rev-parse','--show-toplevel'],text=True).strip()
-GROUPS = ["POSITIVE", "NEGATIVE", "NOT YET", "CONTROL", "TOOLING", "UNTAGGED"]
-TITLES = {"POSITIVE":"POSITIVELY MEASURED", "NEGATIVE":"NEGATIVELY MEASURED OR KILLED",
+GROUPS = ["POSITIVE", "WORTH ZERO", "NEGATIVE", "NOT YET", "CONTROL", "TOOLING", "UNTAGGED"]
+TITLES = {"POSITIVE":"POSITIVELY MEASURED", "WORTH ZERO":"MEASURED CORRECT, WORTH ZERO ON THE CLOCK",
+          "NEGATIVE":"NEGATIVELY MEASURED OR KILLED",
           "NOT YET":"NOT YET MEASURED", "CONTROL":"THE CONTROL", "TOOLING":"TOOLING, NOT A LEVER",
           "UNTAGGED":"UNTAGGED - the card carries no status"}
 def branches():
@@ -28,7 +29,7 @@ def card(b):
     if not m: return None
     box = m.group(0)
     tag = "UNTAGGED"
-    bm = re.search(r"BRANCH\s+\S+\s+(POSITIVE|NEGATIVE|NOT YET|CONTROL|TOOLING)", box)
+    bm = re.search(r"BRANCH\s+\S+\s+(?:CORRECT, )?(POSITIVE|WORTH ZERO|NEGATIVE|NOT YET|CONTROL|TOOLING)", box)
     if bm: tag = bm.group(1)
     return tag, box
 def main():
