@@ -289,6 +289,8 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42
   │
   │  LATEST     round 6 · 2026-09-17 · BEATS · +6.50 % ·
   │             2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
+  │             round 8 · 2026-09-17 · TIES · -0.98 % 1/4 under a 10.69 floor ·
+  │             2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
   │
   │  GEN        +6.50 %  floor 3.35 %  sign 3/3  n=3
   │             raw: arm min-across median 10.35 t/s (10.31 · 10.24 · 10.38 ·
@@ -301,11 +303,30 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42
   │             native 24.90 MB .text (tip 24.86 MB) · lean regime 4096/6144
   │  PREFILL    reported, not a verdict: 86.30 t/s min-across median vs the
   │             tip's 89.16 t/s, n=4. Round 6 makes no prefill verdict.
+  │             ─── round 8, TIES, and the two rounds disagree:
+  │             -0.98 %  floor 10.69 %  sign 1/4  n=4 (sensitivity, cold first
+  │             control run excluded: -1.74 % against a 7.17 % floor, TIES)
+  │             raw: arm min-across median 9.10 t/s (9.21 · 9.18 · 9.02 · 8.99)
+  │             vs the tip's 8.96 t/s (8.61 cold · 9.53 · 8.87 · 9.49 · 8.96),
+  │             so it read level with the tip against round 6's +6.50 %.
+  │             ⚠ the box was not quiet: the five tip runs spanned 8.61 to 9.53
+  │             and four arm runs ended at load 3.2 to 4.0 with no vitest alive,
+  │             which widened the floor from round 6's 3.35 to 10.69. Round 6 is
+  │             the quieter round and keeps LATEST
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 13:24-14:37Z · DGX Spark GB10 ·
+  │             native 24.90 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │             prefill round 8, reported not a verdict: 85.28 t/s min-across
+  │             median vs the tip's 84.34 t/s, n=4
   │
   │  VERDICT    POSITIVE - the only arm of round 6 to clear the floor, and it
   │             clears it at every repeat (+6.1 to +6.8 %). Both the sealed
   │             legacy rule and the new rule give this verdict, so nothing
-  │             turns on the straggler rule
+  │             turns on the straggler rule. ⚠ Round 8 re-ran it and read
+  │             -0.98 %, level with the tip, 1 of 4 under a 10.69 % floor. That
+  │             is a TIE, so it retracts nothing, and round 6's floor was 3.35
+  │             against this round's 10.69: the two rounds disagree and the
+  │             noisier one is round 8. Round 9 re-measures it on a quiet box
   │
   │  SWITCH     the six levers' own switches, verified present in this tree's
   │             diff: DS4_CUDA_STREAMING_EXPERT_PREAD_POOL and _PREAD_THREADS,
@@ -408,3 +429,21 @@ ships.** It is kept above as a dated record of one arm of one series, and nowher
   `DS4_CUDA_SELECTED_DRAIN_SYNC` arm in particular.
 - `2026-09-16-CORRECTION-the-measured-stack-is-nine-levers-and-has-diverged.md` before quoting any
   2026-09-16 stack figure, whichever branch it is attached to.
+
+## Round 8, 2026-09-17: the second reading disagrees with the first
+
+- **It read level with the tip: -0.98 %, 1 of 4, under a 10.69 % floor** (9.21 · 9.18 · 9.02 ·
+  8.99 t/s against a control median of 8.96), and -1.74 % on the cold-run sensitivity. That is a
+  TIE, so round 6's **+6.50 %** is not retracted and stays this card's LATEST.
+- **The two rounds disagree and the noisier one is round 8.** Round 6's control-to-control floor
+  was 3.35 %; round 8's was 10.69 %, because the five tip runs spanned 8.61 to 9.53 t/s and four
+  arm runs ended at load 3.2 to 4.0 with no vitest alive. Round 9 re-measures this tree on a quiet
+  box with the discarded warm-up run, and that reading decides between them.
+- ⚠ **Its raw t/s fell too, which the floor does not explain by itself.** Round 6 read 10.24 to
+  10.39 and round 8 read 8.99 to 9.21 on the same binary vintage, 24.90 MB .text, two hours apart.
+  The control fell with it (9.69 to 8.96), so the ratio moved less than either arm, and nothing
+  here attributes the drop to the box rather than to the tree.
+
+Sealed rule `2026-09-17-R8-PREREGISTERED-RULE.txt` @`c173ad6d7`, result
+`2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md`,
+raw CSVs and runlog in `sweeps/r8/`.
