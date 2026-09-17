@@ -289,26 +289,32 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-engram-lead                                   NOT YET
+  │  BRANCH     triple-engram-lead                                WORTH ZERO
   │
   │  WHAT       starts the Engram table read one token ahead of first use,
   │             speculating on the current step's own argmax, so the read
   │             overlaps the step instead of landing exposed inside it
   │
-  │  LATEST     attrib series · 2026-09-16 · JOINT, NOT ATTRIBUTABLE: this
-  │             branch's switch is one of the SEVEN turned off together, and
-  │             the seven together are a net GAIN of +7.62 pp against their own
-  │             off state at min-across-frontiers, floor max 2.18, cleared 3.5x.
-  │             Nothing in that file says what THIS lever did
-  │             (2026-09-16-triple-all-fastest-attrib-SUMMARY-levers-attribution.txt)
-  │             ⚠ that arm is the NINE-lever binary at dd82361a, not this branch
+  │  LATEST     round 5 - 2026-09-17 - TIES - -1.04 % 1/4 under a 5.69 floor -
+  │             2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
   │
-  │  GEN        not measured
-  │  PREFILL    not measured
+  │  GEN        -1.04 %  floor 5.69 %  sign 1/4  n=4
+  │             raw: arm min-across median 9.43 t/s (9.45 / 9.42 / 9.35 / 9.48)
+  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
+  │             across 4096/6144, each run against its bracketing TIP runs
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
+  │             native 24.86 MB .text (tip 24.86 MB) - lean regime 4096/6144
+  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
+  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
+  │             that nothing clears it
+  │  PREFILL    reported, not a verdict: 86.94 t/s min-across median vs the
+  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
   │
-  │  VERDICT    NOT YET - the lead-on against lead-off A/B has never been run
-  │             with a sound control. The 2026-09-15 pass that touched it had a
-  │             control that moved, and its numbers stay unpublished
+  │  VERDICT    WORTH ZERO - -1.04 % at 1 of 4 positive, the lowest delta and the
+  │             weakest sign of the round, and still inside a 5.69 % floor. Measured
+  │             correct and worth nothing. It is not carded NEGATIVE, because -1.04 %
+  │             does not clear the floor in either direction
   │
   │  SWITCH     DS4_V41_ENGRAM_LEAD_OFF - the lead is ON by default; set the
   │             variable to anything to turn it off. Read once per process,
@@ -385,3 +391,9 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29
 - The end-to-end A/B against the tip, and now against `triple-tip-2026-09-16`.
 - A genuinely cold long-prompt measurement, where the read is not already in page cache.
 - Files: `ds4.c` +126/-1, `speed-bench/v41_engram_lead_gb10.md` new.
+
+## Round 5, and the number this card now carries
+
+- **Round 5 is the sound A/B this card said had never been run**: -1.04 % gen, 1 of 4 positive, TIES under a 5.69 % floor, against an interleaved tip control. The `NOT YET` is discharged.
+- It is the round's lowest arm on every reading, and its four repeats are the tightest of the seven, 9.35 to 9.48 t/s, so the tie is not the arm being noisy.
+- The 2026-09-15 numbers stay unpublished for the reason this card already gave, and nothing above them is retracted; round 5 simply supersedes them as the current measurement.
