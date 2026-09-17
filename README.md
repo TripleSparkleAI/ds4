@@ -267,3 +267,116 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
+
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+
+Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42 pass lines, 5 pre-existing failures (the Qwen3.8 and GLM 5.3 model-absent skips, counted as failures by ds4_test and identical on every branch).
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-iq2-lut-fix                                   TOOLING
+  │
+  │  WHAT       a source check, not a lever: does our tree carry upstream's
+  │             IQ2 dequant-LUT defect, where the codebook was staged in
+  │             shared memory only for n_embd <= 4096 and then read below the
+  │             guard unconditionally
+  │
+  │  LATEST     never in a sealed round, and it cannot enter one. The arm lists
+  │             of 2026-09-17-ROUND3-, -R4- and -R5-PREREGISTERED-RULE.txt name
+  │             this branch zero times. Its own finding is a source read taken
+  │             2026-09-16 and re-counted on this rebased tree 2026-09-17
+  │
+  │  GEN        not measured - no engine code, nothing for the bench to run
+  │  PREFILL    not measured - no engine code, nothing for the bench to run
+  │
+  │  VERDICT    TOOLING, NOT A LEVER - our tree is NOT AFFECTED and no patch is
+  │             owed. 5 of 5 IQ2 kernels stage the codebook unconditionally at
+  │             HEAD, so there is nothing to fix and nothing to time
+  │
+  │  SWITCH     NONE - no code changed, no knob added
+  │  OUTPUT     not re-run - the branch changes no executable byte
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+**Why this branch is not in the measurement pass.** It changes one file, `README.md`, and no
+other. There is no kernel, no switch, no argv and no build difference, so a generation or prefill
+row would describe a change that does not exist, and a round that included it would be timing the
+tip twice under two names. It is in no round's arm list for exactly that reason.
+
+## The defect
+
+- `WIKI/research/neutronstar/NEUTRONSTAR_02_expert-streaming.md` section 3: on the CUDA batch path
+  the MoE expert-tile kernels loaded the IQ2 dequantization tables into shared memory only under
+  `if (xq_blocks <= 16u)`, where `xq_blocks = expert_in_dim / CUDA_QK_K`, so 16 blocks is exactly
+  n_embd 4096.
+- They then read `s_iq2_grid` and `s_iq2_signs` below that guard unconditionally.
+- For n_embd above 4096 the dot products ran on uninitialized shared memory: fluent garbage at
+  full speed, no crash and no warning.
+- Upstream fixed it as `1d8a26c` (`antirez/ds4#513`) and asked for our twin to be checked. This
+  branch is that check, and nothing else.
+- ⚠ The `WIKI/` path above is not in this branch's tree. These branches are rooted on the upstream
+  tip, which carries no `WIKI/`, so that citation resolves in the dwarfstar working branch and not
+  here.
+
+## What the check found, re-counted on this tree 2026-09-17
+
+- The defect was in our lineage and was removed by `a04f46fa42` ("DeepSeek v4.1 Flash support for
+  CUDA", 2026-09-13), whose diff lifts the two staging loops out of the guard in all five kernels,
+  raises the activation stage to 32 blocks, and carries the comment "Wide inputs bypass the shared
+  activation cache, not the lookup tables."
+- At HEAD of `ds4_cuda.cu`: `grep -c '__shared__ uint64_t s_iq2_grid'` is **5**,
+  `grep -c 's_iq2_grid\[i\] = cuda_iq2xxs_grid'` is **5**, and `grep -c 's_iq2_grid'` is **20**, so
+  5 declarations plus 5 loads leaves **10 consumers**.
+- All five kernels, by name and by line, with the load above the `__syncthreads()` and every
+  consumer below it: `moe_gate_up_mid_decode_lut_qwarp32_kernel` (declared 20611, staged 20621),
+  `..._decode_lut_owned_qwarp32_kernel` (20679, 20687),
+  `moe_gate_up_mid_expert_tile8_row32_kernel` (21194, 21217), `..._row2048_kernel` (21284, 21307),
+  `..._rowspan_kernel` (21378, 21401).
+- The three expert-tile kernels are the multi-token batch path, dispatched for `n_tokens > 1` via
+  `use_expert_tiles`. All three stage unconditionally.
+- `use_decode_lut_gate` carries no `xq_blocks` term: at 25010 it reads
+  `(n_tokens == 1u || small_exact_batch) && getenv("DS4_CUDA_MOE_NO_DECODE_LUT_GATE") == NULL`.
+- A tree-wide search for the two table names returns only `ds4_cuda.cu` and
+  `ds4_iq2_tables_cuda.inc`, so there is no second copy of the pattern to audit.
+
+**⚠ Corrected here.** The previous card said "the one remaining `if (xq_blocks <= 32u)` guards the
+activation copy `sxq` only". Counted at HEAD there are **two** `xq_blocks <= 32u` guards (20613,
+20681) and **sixteen** `xq_blocks <= 16u` guards, plus one `xq_blocks <= 16u` term in the Q4 MMA
+dispatch at 25235 which is a different path. The verdict does not move: every one of those guards
+encloses an `sxq` activation copy and not a table load, which is the property the check is about.
+The singular "one remaining" was the number that was wrong, not the finding.
+
+```
+   T H E   R O L L - C A L L   O F   F I V E ─────────────────────────
+
+   kernel                                   decl   stage   guarded?
+   moe_gate_up_mid_decode_lut_qwarp32       20611  20621   no  ✓
+   ..._decode_lut_owned_qwarp32             20679  20687   no  ✓
+   ..._expert_tile8_row32                   21194  21217   no  ✓   n_tokens>1
+   ..._expert_tile8_row2048                 21284  21307   no  ✓   n_tokens>1
+   ..._expert_tile8_rowspan                 21378  21401   no  ✓   n_tokens>1
+
+   every stage sits ABOVE its __syncthreads(), every consumer BELOW it
+   the 18 surviving xq_blocks guards all enclose an sxq activation copy
+   5 of 5 clean, so LOAD and CONSUME agree at every xq_blocks
+```
+
+## Who would have been exposed on a pre-fix tree
+
+- DeepSeek V4.1 Flash, n_embd 5120, 20 blocks, and V4 Pro, 7168, 28 blocks, on the CUDA IQ2 routed
+  MoE expert-tile batch path with `n_tokens > 1`.
+- V4 Flash, n_embd 4096, 16 blocks, was never in scope.
+- GLM 5.2, 6144, uses `glm_routed_moe_gateup_expert_tile8_kernel` and never touches the IQ2 tables.
+
+## Owed
+
+- Nothing for the verdict, which is a property of the source text and was re-derived above.
+- A CUDA rebuild of the unchanged file on the Spark would confirm compilation and say nothing about
+  the finding. A cheap runtime cross-check needs no new code: a 2-token batch on V4.1 Flash against
+  the known-good greedy sha.
