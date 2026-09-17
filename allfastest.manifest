@@ -1,0 +1,48 @@
+# <claudes_code_comments>
+# ** WHAT THIS FILE IS **
+# The definition of branch triple-all-fastest since the round 8 ruling
+# (2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
+# section 5): THE NEW TIP PLUS THE HITSFIRST LEVER, hitsfirst ON by default, and nothing else.
+# The navigator's standing rule is that the all-fastest default follows the measured number,
+# and hitsfirst alone holds two sealed wins and no sealed loss:
+#     round 4   +6.47 %   4/4   floor 2.71    (2026-09-17-R4-RESULT-*.md)
+#     round 8   +12.31 %  4/4   floor 10.69   (2026-09-17-R8-RESULT-*.md)
+# Provisional on round 9 (2026-09-17-R9-PREREGISTERED-RULE.txt), which re-measures hitsfirst,
+# pool, winners, stack+hits and triple-all on a quiet box with the warm-up run. If round 9 ranks
+# another tree above hitsfirst on a clean floor, the default moves again and this file with it.
+#
+# The line kinds are stack.manifest's (legend on tag sealed/all-fastest-tenlever-oldbase, the
+# ten-lever tree this branch used to be); the machinery is the same build_stack.sh /
+# stack_resolve.py / stack_list_conflicts.py, copied from triple-winners so the branch is
+# self-contained.
+#
+# ** DEFAULTS **
+# hitsfirst ON - the lever's own default (cuda_hits_first_enabled in ds4_cuda.cu:
+# DS4_CUDA_HITS_FIRST=0 turns it off; DS4_CUDA_HITS_FIRST_STAGED=0 keeps hits-first with the
+# single-stage read order). No default flip, no `local` line, no `patch` line: nothing in this
+# tree is code that the lever does not carry.
+#
+# ** DERIVATION **
+#   base        git rev-parse triple-tip-2026-09-16
+#   lever sha   git rev-parse triple-hitsfirst~1   (the code commit under the round 4 card
+#                                                    commit 40cd5b944, which is README-only)
+#   resolve     none. triple-hitsfirst is a linear descendant of 12997e9c8 (505ac7f0d the card,
+#               3e4773671 the code, 40cd5b944 the card again), so its diff against the base is
+#               exactly its own code and applies with zero conflict hunks.
+#   identity    git diff triple-hitsfirst -- '*.c' '*.h' '*.cu' '*.cuh' Makefile tests/  ->  EMPTY
+#
+# ** THE CHECK **
+#   bash build_stack.sh allfastest.manifest --check <HEAD of triple-all-fastest>
+#   Build surface byte-identical, 2026-09-17. The full tree differs by the documentation and
+#   tooling files this branch carries (README.md, this manifest, the machinery), and the check
+#   prints that difference rather than hiding it.
+#   ⚠ NOT COMPILED FOR CUDA HERE. The Spark built this exact lever tree for round 8
+#   (r8-hitsfirst @40cd5b94, ds4-server .text 24,886,127) and is running it in round 9.
+# </claudes_code_comments>
+
+base        12997e9c84b39258f28781b808d18ea0069af2ac
+paths       *.c *.h *.cu *.cuh *.inc Makefile tests/ cuda/ speed-bench/*.c gguf-tools/
+lever-base  12997e9c84b39258f28781b808d18ea0069af2ac
+
+# --- the one lever ---------------------------------------------------------------------
+lever   triple-hitsfirst                3e477367150ff20d1b5b93dd28b20b82452bf941   on
