@@ -281,15 +281,40 @@ it rock.
   │             squashed to one commit. No lever. Every other branch is
   │             measured against this one.
   │
-  │  RESULT     gen t/s   9.70 median (min 9.44, max 9.92, MAD 0.11)   n=16 of 18
-  │             prefill   84.06 median (79.13 - 87.19)                  n=16 of 18
+  │  RESULT     gen t/s   THREE READINGS OF ONE OBJECT, NOT A DISAGREEMENT
+  │             9.70 median (min 9.44, max 9.92, MAD 0.11)  n=16 of 18
+  │                the dedicated baseline session, 18 runs, sealed rule
+  │                (2026-09-16-triple-antirez-tip-latest-BASELINE.txt)
+  │             9.65 median   n=4 kept bracket runs
+  │                the bisect round 1 brackets, min-across-frontiers
+  │                (2026-09-16-BISECT-RESULT-one-comparator-carries-the-
+  │                 whole-loss.md)
+  │             9.57 median (band 9.47 - 9.62)  n=8 kept bracket runs
+  │                the round 2 brackets, min-across-frontiers
+  │                (2026-09-17-ROUND2-RESULT-the-revert-beats-the-tip.md)
+  │             ★ ALL THREE MEASURE THE SAME SHA, e6d9d3b8, on the same box
+  │               with the same argv. The spread 9.57 - 9.70 is 1.3 %, inside
+  │               this configuration's own floor, and the baseline session
+  │               already recorded a ~2.2 % drift between its own two passes.
+  │               ⇒ quote the level as ~9.6 - 9.8 and never treat a bracket
+  │               median as a re-baselining of the control.
+  │             ⚠ A DELTA IS ONLY EVER TAKEN AGAINST ITS OWN ROUND'S
+  │               BRACKETS, never against another round's absolute t/s.
+  │             prefill   84.06 median (79.13 - 87.19)   n=16 of 18
   │             control = this branch IS the control; nothing to compare against
-  │             session  2026-09-16 04:27-05:38Z, DGX Spark GB10, native .text
-  │                      23,118,434 B, box quiet by the harness gate (load < 2.0,
-  │                      memavail 117 GB, gpu < 50 %), ctx 2048 discarded
+  │             session  baseline 2026-09-16 04:27-05:38Z; round 1 2026-09-16;
+  │                      round 2 2026-09-17 15:06-16:30Z. DGX Spark GB10,
+  │                      native .text 23,118,434 B, box quiet by the harness
+  │                      gate (load < 2.0, memavail 117 GB, gpu < 50 %),
+  │                      ctx 2048 discarded
   │
   │  VERDICT    CONTROL
-  │             the zero point: 9.70 gen t/s, in-run floor median 1.0-1.5 %
+  │             the zero point: ~9.6 - 9.8 gen t/s at min-across-frontiers,
+  │             in-run floor median 1.0 - 1.5 %, max 2.2 - 4.1 %.
+  │             ⚠ THIS IS NO LONGER THE NEWEST TIP. triple-tip-2026-09-16
+  │             (upstream f39675195 + our PR carry) is the control for round 3
+  │             and after; this branch stays the control for every number
+  │             already taken against it.
   │
   │  SWITCH     NONE - no lever in this tree
   │  OUTPUT     not re-run
@@ -312,6 +337,16 @@ the aligned fused SoA tier, `small_exact_batch` gating). **PR 1030** (Makefile l
 - In-run floor, adjacent same-arm pairs (attribution series, 13 kept tip runs): median
   1.23 / 1.03 / 1.46 %, max 3.14 / 2.70 / 4.05 % at ctx 4096 / 6144 / 8192.
   `2026-09-16-triple-all-fastest-attrib-SUMMARY-levers-attribution.txt`.
+- Bracket median 9.65 gen t/s at min-across-frontiers, n=4 kept, from the bisect round 1
+  brackets on this same sha. `2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md`.
+- Bracket median 9.57 gen t/s, band 9.47-9.62, n=8 kept, from the round 2 brackets on this same
+  sha. `2026-09-17-ROUND2-RESULT-the-revert-beats-the-tip.md`. Those 8 runs are what the
+  comparator revert's +3.46 % was measured against, and the two bands never touch.
+- ★ The three readings 9.70 / 9.65 / 9.57 are one object measured three times, not three
+  claims. They span 1.3 %, which is inside this configuration's own in-run floor, and the
+  baseline session recorded a ~2.2 % drift between its own two passes. A bracket median is an
+  artefact of its round and never re-baselines the control; a delta is always taken against the
+  brackets of the round it belongs to.
 - Earlier figure: 9.56 gen t/s (minimum across repeats, first frontier discarded), from the
   session before the 2026-09-16 baseline. Superseded by the 9.70 median above.
 - Cross-vintage sanity only, used for no delta: the 36 stack controls at dd82361a ran
