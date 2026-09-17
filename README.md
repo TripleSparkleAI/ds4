@@ -279,21 +279,32 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make climbin
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-climbingfibre                                 NOT YET
+  │  BRANCH     triple-climbingfibre                              WORTH ZERO
   │
   │  WHAT       a front cache in front of the frozen model that learns from the
   │             speculative verifier's own REJECTIONS, online, with a retention
   │             horizon. It proposes one draft token; it never injects anything
   │
-  │  LATEST     never in a sealed round
+  │  LATEST     round 5 - 2026-09-17 - TIES - +1.28 % 4/4 under a 5.69 floor -
+  │             2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
   │
-  │  GEN        not measured
-  │  PREFILL    not measured
+  │  GEN        +1.28 %  floor 5.69 %  sign 4/4  n=4
+  │             raw: arm min-across median 9.58 t/s (9.11 / 9.83 / 9.52 / 9.64)
+  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
+  │             across 4096/6144, each run against its bracketing TIP runs
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
+  │             native 24.86 MB .text (tip 24.86 MB) - lean regime 4096/6144
+  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
+  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
+  │             that nothing clears it
+  │  PREFILL    reported, not a verdict: 83.08 t/s min-across median vs the
+  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
   │
-  │  VERDICT    NOT YET - no CUDA build of this branch exists, so no arm has
-  │             ever run against a control. The only acceptance figures come
-  │             from a scripted 61-token target, +139 accepted tokens cold and
-  │             +0 with every entry poisoned, which is a mechanism check
+  │  VERDICT    WORTH ZERO - +1.28 % at 4 of 4 inside a 5.69 % floor. The first
+  │             real A/B this branch has ever had against a control, and it says the
+  │             rejection-learned front cache costs nothing and buys nothing
+  │             measurable at this context and this batch shape
   │
   │  SWITCH     DS4_CLIMBINGFIBRE=1, default 0. Off allocates nothing, never
   │             learns and never proposes
@@ -380,3 +391,9 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make climbin
 - Reach is the graph backends and the greedy path only.
 - Files: `ds4_climbingfibre.h` (222 lines), `ds4_climbingfibre.c` (617),
   `ds4.c` (three hooks, two helpers), `tests/test_climbingfibre.c` (775), `Makefile`, `.gitignore`.
+
+## Round 5, and the number this card now carries
+
+- **Round 5 built and ran a CUDA binary of this branch for the first time**: +1.28 % gen, 4 of 4 positive, TIES under a 5.69 % floor. The `NOT YET` and the no-CUDA-build note above are both discharged.
+- Its cycle-1 run ended at load 3.62, one of the two contention events the result file names, and its lowest repeat 9.11 t/s is the cheapest in the arm's set.
+- The scripted acceptance figures stay as a mechanism check and are not a speed claim; the speed claim is now the line above.
