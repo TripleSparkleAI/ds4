@@ -277,24 +277,32 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-pool                                           NOT YET
+  │  BRANCH     triple-pool                                   POSITIVE
   │
   │  WHAT       serves expert reads from a parallel SSD pool instead of one
   │             serial reader, with an io_uring O_DIRECT ring in front of the
   │             pool so queue depth is a switch, not the worker count.
   │
-  │  LATEST     never in a sealed round
-  │             round 3 is measuring this branch now: in flight, unresolved.
-  │             Its build in that round, 2026-09-17, is the first CUDA compile
-  │             this branch has ever had.
+  │  LATEST     round 4 · 2026-09-17 · BEATS · +7.27 % (kept +7.75 %) ·
+  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
   │
-  │  GEN        not measured
-  │  PREFILL    not measured
+  │  GEN        +7.27 % (kept +7.75 %)  floor 2.71 % (no-drop)  sign 3/4  n=4
+  │             raw: arm median 10.39 t/s vs tip median 9.65 t/s, gen_steady
+  │             at min across 4096/6144; the delta is each run against the
+  │             mean of its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
+  │             bracket per cycle
+  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
+  │             native 24.89 MB .text · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 87.25 t/s min-across median vs the
+  │             tip's 80.73 t/s, n=4. Round 4 makes no prefill verdict.
   │
-  │  VERDICT    NOT YET, and further back than most. The io_uring engine had no
-  │             build behind it until round 3 compiled it, and the last A/B this
-  │             branch holds describes the pthread-only pool, a fetch engine the
-  │             tree no longer has, so it is superseded and off this card.
+  │  VERDICT    POSITIVE - beats the new tip on both readings, +7.27 % no-drop and
+  │             +7.75 % kept. ⚠ The first run of the round read 9.24 t/s, below the
+  │             tip, and the next three read 10.34 to 10.47. The kept reading drops
+  │             that run as a straggler; the no-drop reading keeps it and still wins.
+  │             A cold io_uring ring on a first run and a straggler look identical
+  │             here, and THIS ROUND CANNOT TELL THEM APART. The next round starts warm.
   │
   │  SWITCH     DS4_CUDA_FETCH_QD=<n> ring queue depth, default 64, clamped 8-512
   │             DS4_CUDA_FETCH_URING=0 falls back to the pread pool
@@ -428,3 +436,11 @@ land the layer remaps; when they do not, the slot is rolled back and the load fa
 
 The line to clear: the clean tip reads **9.65 t/s median**
 (`2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md`).
+
+## Round 4, 2026-09-17: on the new tip, in a sealed round
+
+- **First CUDA build this branch has ever had, and it beats the tip.** +7.27 % no-drop, +7.75 % kept, sign 3 of 4, no-drop floor 2.71 %. Raw min-across medians 10.39 t/s arm against 9.65 t/s tip.
+- ⚠ The dip is on the round's FIRST run: 9.24 t/s, then 10.47, 10.45, 10.34. A cold io_uring ring and an ordinary straggler produce the same shape, and round 4 has no arm that separates them. The card claims the win and keeps the caution.
+- The two readings differ only in whether that first run is kept, and both say BEATS, so the straggler-rule problem in section 3 of the result does not decide this card.
+
+Sealed rule `2026-09-17-R4-PREREGISTERED-RULE.txt` @`3914a3226`, result `2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md`, raw CSVs and runlog in `sweeps/r4/`.
