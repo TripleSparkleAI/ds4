@@ -29,6 +29,7 @@
 #include "cuda/mmq/ds4_repack.h"
 #include "ds4_image.h"
 #include "ds4_hitsfirst_logic.h"
+#include "ds4_scout_logic.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -186,6 +187,12 @@ static uint64_t g_stream_expert_clock = 1;
 static uint64_t g_stream_expert_lookups, g_stream_expert_hits, g_stream_expert_evictions;
 static double   g_stream_expert_sec_read;
 static std::vector<int32_t> g_stream_prefill_ids, g_stream_prefill_slots;
+/* SCOUT (DS4_CUDA_SCOUT, ds4_scout_logic.h): per layer, the previous token's
+ * routed ids and the table that addresses them; the switch and the issue step
+ * live with the hits-first code after the selected cache. */
+struct cuda_scout_layer { ds4_scout_layer_memory ids; ds4_gpu_stream_expert_table table; };
+static cuda_scout_layer g_scout_mem[DS4_SCOUT_MAX_LAYERS];
+static uint64_t g_scout_reads, g_scout_hits, g_scout_guessed;   /* stats line */
 extern "C" void ds4_gpu_stream_expert_cache_prefetch_finish(bool cancel);
 static void cuda_stream_prefetch_before_load(const ds4_gpu_stream_expert_table *table);
 static bool cuda_stream_prefetch_protects(const cuda_stream_expert_slot &slot);
@@ -226,6 +233,7 @@ static void cuda_stream_selected_cache_release(void) {
     g_stream_expert_clock = 1;
     g_stream_prefill_ids.clear();
     g_stream_prefill_slots.clear();
+    memset(g_scout_mem, 0, sizeof g_scout_mem);   /* SCOUT: a new model, no memory */
 }
 
 typedef struct {
@@ -24909,6 +24917,10 @@ struct cuda_hits_first_state {
     uint32_t layer;
     int      staged;
     uint32_t n_gate_up;
+    /* SCOUT: 3 tasks per scout read, appended AFTER every miss task so the
+     * pool's index-order pick-up never delays a demand read; slot per read. */
+    uint32_t n_scout;
+    std::vector<uint32_t> scout_victim;
 };
 static cuda_hits_first_state g_hits_first;
 static float *g_hf_partials = NULL;      /* 6 x out_dim floats, device; own allocation, never a scratch alias */
@@ -27749,6 +27761,20 @@ static int cuda_hits_first_staged_enabled(void) {
     if (cached < 0) { const char *e = getenv("DS4_CUDA_HITS_FIRST_STAGED"); cached = !(e && e[0] == '0'); }
     return cached;
 }
+/* SCOUT (ds4_scout_logic.h): at layer L, read the experts token t-1 used at
+ * L+1 that are not resident, on the same pool batch as L's misses.  Reads
+ * only, never math.  On by default; DS4_CUDA_SCOUT=0 disables it.  A no-op
+ * when hits-first is off (it rides the hits-first batch), when the layer has
+ * no miss batch, when nothing is remembered for L+1, or when the ledger
+ * offers no victim.  Per layer: the previous token's ids and the table that
+ * addresses them (a layer's offsets do not change between tokens). */
+/* cuda_scout_layer, g_scout_mem and the three counters are declared with the
+ * expert-cache state near the top of the file (the release path clears them). */
+static int cuda_scout_enabled(void) {
+    static int cached = -1;
+    if (cached < 0) { const char *e = getenv("DS4_CUDA_SCOUT"); cached = !(e && e[0] == '0'); }
+    return cached;
+}
 /* Finish a hits-first load: wait for the pool, then the same per-miss
  * validation the synchronous path does.  A failed read drops its slot and
  * invalidates the selected cache. */
@@ -27769,6 +27795,20 @@ static int cuda_hits_first_wait(void) {
         if (slot.used) g_stream_expert_by_gate.erase(slot.gate);
         slot.used = 0;
     }
+    /* SCOUT reads sit at 3*n_miss.. in both orders.  A failed one drops its
+     * slot and nothing else: a scout failure never invalidates the layer.  A
+     * landed one is published at used=1, older than any demand hit, so a
+     * wrong guess is the first victim at L+1 and a right guess is promoted by
+     * L+1's own hit loop - look-ahead is not evidence of reuse. */
+    for (uint32_t m = 0; m < g_hits_first.n_scout; m++) {
+        const std::vector<cuda_expert_pread_task> &t = g_hits_first.tasks;
+        const uint32_t b = 3u * g_hits_first.n_miss + 3u * m;
+        auto &slot = g_stream_expert_slots[g_hits_first.scout_victim[m]];
+        if (t[b].ok && t[b + 1].ok && t[b + 2].ok) { slot.used = 1; continue; }
+        if (slot.used) g_stream_expert_by_gate.erase(slot.gate);
+        slot.used = 0;
+    }
+    g_hits_first.n_scout = 0;
     if (!all_ok) cuda_stream_selected_cache_invalidate();
     return all_ok;
 }
@@ -27964,10 +28004,97 @@ static int cuda_stream_selected_cache_begin_load(
             g_stream_expert_by_gate[gate] = victim;
             slots[i] = (int32_t)victim;
         }
+        /* SCOUT.  Runs AFTER every demand miss of this layer has claimed its
+         * slot, so a scout read can never win a victim over a demand read.
+         * Its victims are the ledger's oldest slots that are not this layer's
+         * (used < stamp), not prefetch-protected, and not a resident member
+         * of the L+1 remembered set (evicting B to load A, both wanted at L+1,
+         * is a wash).  No eligible victim: the scout does nothing. */
+        std::vector<cuda_expert_pread_task> scout_tasks;
+        std::vector<uint32_t> scout_victim;
+        if (slot_count <= 8u && cuda_hits_first_enabled() && cuda_scout_enabled() &&
+            table->layer < DS4_SCOUT_MAX_LAYERS) {
+            cuda_scout_layer &here = g_scout_mem[table->layer];
+            if (here.ids.n && here.table.model_map == table->model_map &&
+                here.table.gate_offset == table->gate_offset)
+                ds4_scout_score(here.ids.id, here.ids.n, unique.data(), (uint32_t)unique.size(),
+                                &g_scout_hits, &g_scout_guessed);
+            if (ds4_scout_remember(&here.ids, unique.data(), (uint32_t)unique.size()))
+                here.table = *table;
+            const cuda_scout_layer *nx = table->layer + 1u < DS4_SCOUT_MAX_LAYERS ?
+                &g_scout_mem[table->layer + 1u] : NULL;
+            if (!tasks.empty() && nx && nx->ids.n && nx->table.layer == table->layer + 1u &&
+                nx->table.model_map == table->model_map && nx->table.model_size == table->model_size &&
+                nx->table.gate_offset != table->gate_offset &&
+                nx->table.n_total_expert == table->n_total_expert &&
+                nx->table.gate_expert_bytes == table->gate_expert_bytes &&
+                nx->table.down_expert_bytes == table->down_expert_bytes &&
+                cuda_stream_selected_ranges_valid(&nx->table)) {
+                const ds4_gpu_stream_expert_table &nt = nx->table;
+                uint8_t resident[DS4_SCOUT_MAX_IDS] = {0};
+                uint32_t keep[DS4_SCOUT_MAX_IDS], n_keep = 0;
+                for (uint32_t i = 0; i < nx->ids.n; i++) {
+                    const int32_t id = nx->ids.id[i];
+                    if (id < 0 || (uint32_t)id >= nt.n_total_expert) continue;
+                    const uint64_t e = (uint32_t)id;
+                    const auto f = g_stream_expert_by_gate.find(nt.gate_offset + e * nt.gate_expert_bytes);
+                    if (f == g_stream_expert_by_gate.end()) continue;
+                    const auto &sl = g_stream_expert_slots[f->second];
+                    if (sl.up != nt.up_offset + e * nt.gate_expert_bytes ||
+                        sl.down != nt.down_offset + e * nt.down_expert_bytes) continue;
+                    resident[i] = 1; keep[n_keep++] = f->second;
+                }
+                uint32_t victims_available = 0;
+                for (uint32_t j = 0; j < g_stream_expert_slots.size() && victims_available < DS4_SCOUT_MAX_IDS; j++)
+                    if (g_stream_expert_slots[j].used < stamp && !cuda_stream_prefetch_protects(g_stream_expert_slots[j]))
+                        victims_available++;
+                int32_t pick[DS4_SCOUT_MAX_IDS];
+                const uint32_t n_pick = ds4_scout_select(nx->ids.id, nx->ids.n, resident, nt.n_total_expert,
+                                                         victims_available, DS4_SCOUT_MAX_IDS, pick);
+                for (uint32_t k = 0; k < n_pick; k++) {
+                    uint32_t victim = UINT32_MAX;
+                    uint64_t oldest = stamp;
+                    for (uint32_t j = 0; j < g_stream_expert_slots.size(); j++) {
+                        if (cuda_stream_prefetch_protects(g_stream_expert_slots[j]) ||
+                            g_stream_expert_slots[j].used >= oldest) continue;
+                        bool kept = false;
+                        for (uint32_t q = 0; q < n_keep; q++) if (keep[q] == j) { kept = true; break; }
+                        if (kept) continue;
+                        oldest = g_stream_expert_slots[j].used; victim = j;
+                        if (!oldest) break;
+                    }
+                    if (victim == UINT32_MAX) break;
+                    auto &slot = g_stream_expert_slots[victim];
+                    if (slot.used) { g_stream_expert_by_gate.erase(slot.gate); g_stream_expert_evictions++; }
+                    slot.used = 0;
+                    const uint64_t e = (uint32_t)pick[k];
+                    const uint64_t gate = nt.gate_offset + e * nt.gate_expert_bytes;
+                    const uint64_t up = nt.up_offset + e * nt.gate_expert_bytes;
+                    const uint64_t down = nt.down_offset + e * nt.down_expert_bytes;
+                    cuda_expert_pread_task t;
+                    memset(&t, 0, sizeof t);
+                    t.model_map = nt.model_map; t.model_size = nt.model_size;
+                    t.offset = gate; t.bytes = nt.gate_expert_bytes;
+                    t.dst = cache.gate_ptr + (uint64_t)victim * nt.gate_expert_bytes;
+                    t.what = "scout gate"; scout_tasks.push_back(t);
+                    t.offset = up; t.dst = cache.up_ptr + (uint64_t)victim * nt.gate_expert_bytes;
+                    t.what = "scout up"; scout_tasks.push_back(t);
+                    t.offset = down; t.bytes = nt.down_expert_bytes;
+                    t.dst = cache.down_ptr + (uint64_t)victim * nt.down_expert_bytes;
+                    t.what = "scout down"; scout_tasks.push_back(t);
+                    scout_victim.push_back(victim);
+                    /* Claimed at this layer's stamp so a later scout pick in
+                     * this batch cannot take it; demoted to 1 on landing. */
+                    slot = {gate, up, down, stamp};
+                    g_stream_expert_by_gate[gate] = victim;
+                }
+            }
+        }
         int hits_first_started = 0;
         if (!tasks.empty() && slot_count <= 8u && cuda_hits_first_enabled()) {
             g_hits_first.staged = 0;
             g_hits_first.n_gate_up = 0;
+            g_hits_first.n_scout = 0;
             std::vector<cuda_expert_pread_task> order;
             bool ok_order = true;
             try {
@@ -27985,6 +28112,9 @@ static int cuda_stream_selected_cache_begin_load(
                     g_hits_first.tasks = tasks;
                 }
                 g_hits_first.victim = task_victim;
+                g_hits_first.tasks.insert(g_hits_first.tasks.end(), scout_tasks.begin(), scout_tasks.end());
+                g_hits_first.scout_victim = scout_victim;
+                g_hits_first.n_scout = (uint32_t)scout_victim.size();
             } catch (...) { ok_order = false; }
             if (ok_order) {
                 g_hits_first.n_miss = (uint32_t)task_victim.size();
@@ -27999,7 +28129,18 @@ static int cuda_stream_selected_cache_begin_load(
                         g_hits_first.staged ? g_hits_first.n_gate_up : 0u)) {
                     g_hits_first.active = 1;
                     hits_first_started = 1;
+                    g_scout_reads += scout_victim.size();
                 }
+            }
+        }
+        if (!hits_first_started) {
+            /* The scout rides only a started hits-first batch: give back its
+             * claims so the synchronous fallback below reads exactly the misses. */
+            g_hits_first.n_scout = 0;
+            for (uint32_t v : scout_victim) {
+                auto &slot = g_stream_expert_slots[v];
+                if (slot.used) g_stream_expert_by_gate.erase(slot.gate);
+                slot.used = 0;
             }
         }
         if (!tasks.empty() && !hits_first_started) {
@@ -28028,11 +28169,13 @@ static int cuda_stream_selected_cache_begin_load(
         }
         if (cuda_expert_cache_stats_enabled() && g_stream_expert_lookups &&
             g_stream_expert_lookups / 4000u != (g_stream_expert_lookups - unique.size()) / 4000u)
-            fprintf(stderr, "ds4: [expert-cache] %llu lookups, hit_rate=%.3f, resident=%zu/%zu, evictions=%llu, read %.1f s\n",
+            fprintf(stderr, "ds4: [expert-cache] %llu lookups, hit_rate=%.3f, resident=%zu/%zu, evictions=%llu, read %.1f s, scout reads=%llu guess_hits=%llu/%llu\n",
                     (unsigned long long)g_stream_expert_lookups,
                     (double)g_stream_expert_hits / (double)g_stream_expert_lookups,
                     g_stream_expert_by_gate.size(), g_stream_expert_slots.size(),
-                    (unsigned long long)g_stream_expert_evictions, g_stream_expert_sec_read);
+                    (unsigned long long)g_stream_expert_evictions, g_stream_expert_sec_read,
+                    (unsigned long long)g_scout_reads, (unsigned long long)g_scout_hits,
+                    (unsigned long long)g_scout_guessed);
         g_stream_prefill_ids = remap;
         g_stream_prefill_slots = slots;
         for (auto &id : remap) id = slots[id];
