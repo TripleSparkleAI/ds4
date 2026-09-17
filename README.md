@@ -283,7 +283,10 @@ it rock.
   │             serial reader, with an io_uring O_DIRECT ring in front of the
   │             pool so queue depth is a switch, not the worker count.
   │
-  │  LATEST     round 4 · 2026-09-17 · BEATS · +7.27 % (kept +7.75 %) ·
+  │  LATEST     round 9 · 2026-09-17 · TIES · +9.59 % 4/4 under a 17.27 floor ·
+  │             median 10.35, second again, behind hitsfirst ·
+  │             2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
+  │             round 4 · 2026-09-17 · BEATS · +7.27 % (kept +7.75 %) ·
   │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
   │             round 8 · 2026-09-17 · TIES · +8.56 % 3/4 under a 10.69 floor,
   │             two runs in a loaded window - round 4's +7.27 stands ·
@@ -310,6 +313,20 @@ it rock.
   │             control = triple-tip-2026-09-16 @12997e9c, interleaved
   │             session = 2026-09-17 13:24-14:37Z · DGX Spark GB10 ·
   │             native 24.89 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │             ─── round 9, TIES, and it does not retract round 4 either:
+  │             +9.59 %  floor 17.27 %  sign 4/4  n=4
+  │             raw: arm min-across median 10.35 t/s (four runs, 9.67 to 10.73,
+  │             spread 1.06) vs the tip's 9.42 t/s (8.51 to 9.98). Second of the
+  │             five arms, behind hitsfirst's 10.41, and its spread is five times
+  │             hitsfirst's 0.19
+  │             ⚠ the instrument sets that floor, not the arm: the five control
+  │             runs span 8.51 to 9.98 t/s because the page cache holds 2.9 GB of
+  │             an 81 GB model and the bench streams 842 MB/s from the NVMe, so
+  │             identical binaries swing about 8 % run to run
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 14:41-15:36Z · DGX Spark GB10 · native
+  │             24.89 MB .text (r9-pool, 24,888,282; tip 24.86 MB) · lean regime
+  │             4096/6144 · quiet box, warm-up run discarded
   │  PREFILL    reported, not a verdict: round 4, 87.25 t/s min-across median
   │             vs the tip's 80.73 t/s, n=4; round 8, 86.47 t/s vs 84.34 t/s,
   │             n=4. Neither round makes a prefill verdict.
@@ -483,3 +500,18 @@ Sealed rule `2026-09-17-R4-PREREGISTERED-RULE.txt` @`3914a3226`, result `2026-09
 Sealed rule `2026-09-17-R8-PREREGISTERED-RULE.txt` @`c173ad6d7`, result
 `2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md`,
 raw CSVs and runlog in `sweeps/r8/`.
+
+## Round 9, 2026-09-17: second again, on a quiet box
+
+- **The quiet round round 8 asked for has run, and pool is second in it.** +9.59 %, sign 4 of 4,
+  median 10.35 t/s against the tip's 9.42. It TIES only because the sealed floor is 17.27, so
+  round 4's +7.27 % remains this card's own number and nothing is retracted.
+- **The 9.24 t/s first run of round 4 is not explained by round 9.** This round's four runs span
+  9.67 to 10.73, a spread of 1.06, so a slow run inside a warm sequence is ordinary here. The cold
+  io_uring ring and the ordinary straggler are still indistinguishable on this instrument.
+- **Pool plus hitsfirst is still worse than hitsfirst alone.** `triple-winners` read 10.20 in this
+  round against hitsfirst's 10.41 and this branch's 10.35, which is the second round to say so.
+
+Sealed rule `2026-09-17-R9-PREREGISTERED-RULE.txt` @`60d1bd06a`, result
+`2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md`,
+raw CSVs and runlog in `sweeps/r9/`.
