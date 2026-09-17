@@ -490,7 +490,7 @@ first measurement of the ten-lever tree, and it has not been taken.
 One card per branch, the box copied from that branch's own README at its HEAD by
 `rebuild_index.py`, grouped by the status the card itself declares. Regenerate,
 never hand-edit: a hand-edited row drifts from the branch it describes.
-Regenerated 2026-09-17 08:37Z, 24 cards.
+Regenerated 2026-09-17 08:39Z, 24 cards.
 
 ## POSITIVELY MEASURED
 
