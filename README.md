@@ -267,3 +267,102 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
+
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+
+Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42 pass lines, 5 pre-existing failures (the Qwen3.8 and GLM 5.3 model-absent skips, counted as failures by ds4_test and identical on every branch).
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-word-finisher                                 TOOLING
+  │
+  │  WHAT       a suffix-lookup drafter, measured offline and closed: draft k
+  │             tokens from the continuation stored against the last n tokens,
+  │             verify in one batched pass, commit the longest matching prefix
+  │
+  │  LATEST     never in a sealed round, and it never can be. The arm lists of
+  │             2026-09-17-ROUND3-, -R4- and -R5-PREREGISTERED-RULE.txt name
+  │             this branch zero times. Its newest measurement is its own,
+  │             MEASURED_WORDFINISHER_lookup-drafter-acceptance-offline_2026-09-15.md
+  │             on this branch, verdict CLOSED, deciding number miss reuse
+  │             0 of 1,219
+  │
+  │  GEN        not measured - no engine code, nothing for the bench to run
+  │  PREFILL    not measured - no engine code, nothing for the bench to run
+  │
+  │  VERDICT    TOOLING - two offline probes and a closing record, not a lever.
+  │             The idea is DEAD on its own numbers: a k-token verify pass reads
+  │             the same NVMe bytes as k single passes, because the union of k
+  │             steps' misses equals their sum, 0 of 1,219 reused
+  │
+  │  SWITCH     NONE - a measurement branch, no code lever
+  │  OUTPUT     not re-run - no patch exists to gate
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+**Why this branch is not in the measurement pass.** It ships `wordfinisher_replay.py` (103 lines),
+`wordfinisher_union.py` (143 lines), a `.gitignore` and the MEASURED record. Zero engine files, zero
+switches, zero build difference. There is no arm to time, and the question it asked was answered
+offline for zero box seconds.
+
+## The offline numbers, all from this branch's own record, 2026-09-15
+
+| quantity | value | where |
+| --- | ---: | --- |
+| acceptance, code, n=2 L=8 | **2.3724x** over 114,182 tokens | MEASURED record, the sweep table |
+| acceptance, prose, n=2 L=8 | **1.169x**, and 88 % of passes commit ONE token | same, the prose row |
+| length past 8 buys | 0.18 on code, 0.0001 on prose | same, "Draft length 8" |
+| NVMe bytes saved, k = 2 / 4 / 8 | **0.0000 / 0.0000 / 0.0000** | same, the union table |
+| experts touched per layer, k=4 | **15.66** against 24 selected, a 35 % reduction | same |
+| adjacent-token routing overlap | **38.90 %** | same |
+| next-step misses already selected by the previous token | **0 of 1,219** | same, the deciding row |
+
+- The session was offline, from a fixed token stream and a sibling lane's probe dump. Zero box time,
+  so there is no load stamp, power mode or context stamp to carry, and none is invented.
+
+## Mechanism, and why it dies
+
+- Suffix length n=2 and draft length 8 came from a sweep: hit rate rises with n while the propose
+  rate collapses faster.
+- **Acceptance is real.** The saving is not.
+- Selections do union: at k=4 four adjacent tokens touch 15.66 experts per layer against 24
+  selected.
+- But the experts that union are already RESIDENT, so the saving falls on bytes nobody was going to
+  read from disk. The misses are disjoint, so a streaming decode moves the same bytes whatever k is.
+
+```
+   T H E   S P A R K - G A P ─────────────────────────────────────────
+
+   THE IDEA        verify k tokens in one pass, read each expert's
+                   bytes ONCE, so fewer NVMe bytes than k single passes
+                            ⚡  and the gap is where the idea died
+   WHAT RAN        selections union            15.66 of 24 per layer, k=4
+                   but those are HITS in the resident arena
+                   miss reuse                  0 of 1,219
+                   bytes saved                 0.0000 at k = 2, 4 and 8
+
+   the overlap is real · the amortisation is not · 38.90 % of routing
+   shared between adjacent tokens bought exactly zero disk
+```
+
+## The constraint that outlives the lane
+
+- The batched verifier and one-token decode run different floating-point reduction orders.
+- Upstream does not promise byte-identical output from the batched verifier, and the exact variant
+  handles two tokens only.
+- Any rebuild of this idea hits that wall first, before it reaches a throughput question.
+- The closing finding was re-derived through a second, separately written code path, which is why it
+  is held as closed rather than as one probe's result.
+
+## What it is offered for
+
+- A different approach, not a number. The two probes and the record stay so the next drafting idea
+  starts from the union measurement instead of re-deriving it.
+- ⚠ Nothing here is a claim about DSpark on a resident box. `triple-spec-under-offload` carries that
+  question, and cites this branch's 0 of 1,219 as the reason its own sign could fall either way.
