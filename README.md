@@ -267,3 +267,91 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
+
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-winners                                NOT YET
+  │
+  │  WHAT       the three levers round 4 measured as winners solo on the
+  │             new tip, stacked and nothing else: pool (+7.27 %), hitsfirst
+  │             (+6.47 %) and prefetch-pool (+2.28 %), with HITSFIRST ON.
+  │
+  │  LATEST     never in a sealed round
+  │
+  │  GEN        not measured
+  │  PREFILL    not measured
+  │
+  │  VERDICT    NOT YET - built 2026-09-17 from winners.manifest to answer
+  │             "why not combine pool and hitsfirst and prefetch-pool?"; the
+  │             amended round 7 carries it as an arm. Not compiled for CUDA
+  │             yet: assembled on a Mac, Metal make rc 0, the four lever test
+  │             binaries green. The first Spark build is the real gate.
+  │
+  │  SWITCH     DS4_CUDA_HITS_FIRST=0 turns hits-first off (ON here, the
+  │             lever's own default); DS4_CUDA_HITS_FIRST_STAGED=0 keeps it
+  │             single-stage
+  │             DS4_CUDA_FETCH_URING=0 falls back to the pread pool;
+  │             DS4_CUDA_STREAMING_EXPERT_PREAD_POOL=0 restores the serial path;
+  │             DS4_CUDA_FETCH_QD=<n> ring depth, default 64, clamped 8-512
+  │             DS4_CUDA_SSD_PREFETCH_POOL=0 or DS4_CUDA_SSD_PREFETCH_THREADS=1
+  │             reverts the prefetch pool; DS4_CUDA_SSD_PREFETCH_CHUNK_MB,
+  │             default 8, cap 64
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### Why this tree exists
+
+Round 4 (`2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md`)
+measured seven arms solo on the new tip. Three won. The ten-lever stack that carries all of them
+measured +4.65 % with hitsfirst OFF, and round 6 found the six-lever `triple-all`, which carries
+none of hitsfirst or prefetch-pool, at +6.50 %. So the open question is not "more levers" but
+"the winners, alone, with the one that was shipped off turned on". The navigator asked it
+directly: *"why not combine pool and hitsfirst and prefetch-pool?"* This branch is that tree.
+
+```
+   the arms round 4 measured solo, and the one this tree stacks   (gen, no-drop, vs the tip)
+
+   readahead-order   -11.38   ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
+   hotlist            -2.73   ●━━━━━━━━━━━━┫
+   engram-read        -1.39   ●━━━━━━┫
+                                            ╵ tip
+   prefetch-pool      +2.28                 ┣━━━━━━━━━●     ✦ carried
+   newtip stack       +4.65                 ┣━━━━━━━━━━━━━━━━━━━●     (hitsfirst OFF)
+   triple-all         +6.50                 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━●     round 6
+   hitsfirst          +6.47                 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━●       ✦ carried, ON
+   pool               +7.27                 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●   ✦ carried
+
+   triple-winners     ?                     ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ not measured
+```
+
+### How this tree was built
+
+- Base `triple-tip-2026-09-16` at `12997e9c8`. One commit per lever, in manifest order, each
+  the lever's live rebased branch at its code sha: `triple-pool` `6371428b0` · `triple-hitsfirst`
+  `3e4773671` · `triple-prefetch-pool` `ed11cb474`. Every lever branch is already rebased onto
+  this tip, so each diff carries only its own code.
+- `winners.manifest` is the definition; `build_stack.sh` reproduces it into a fresh detached
+  worktree and `--check <sha>` asserts byte identity on the build surface. 49 conflict hunks,
+  every one decided and recorded: ours 14 · theirs 19 · both 3 · hand 13. The hand merges are
+  data under `stack.patches/winners/` and the manifest header says why each is a third text.
+- The claim-ledger hunk (hitsfirst `ds4_cuda.cu 12`) IS needed with hits-first on: when
+  hits-first takes the batch the pool owns the reads and `cuda_hits_first_wait` drops any slot
+  whose bytes do not land, so every claim is committed there, or pool's RAII ledger would
+  withdraw the slots on return while the reads are still in flight.
+- The prefetch victim order is the tip's own, `used` ascending. The sweep-aware comparator and
+  `DS4_CUDA_PREFETCH_SWEEP_ORDER` belong to prefill-readahead-order, which this tree does not
+  carry; there is no region here to gate.
+- Not carried, on purpose: margin, draincut, pagecache, hotlist, engram-lead,
+  engram-read-threads, prefill-readahead-order. Each has its own branch and its own number.
+- Tests here: `tests/test_hitsfirst_logic` 142 checks · `tests/test_pread_pool_config` 59
+  checks · `tests/test_uring_sq` PASS · `tests/test_expert_claims` PASS. Metal `make` rc 0.
+  `ds4_cuda.cu` cannot compile on this machine.
