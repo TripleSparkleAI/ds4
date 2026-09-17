@@ -426,7 +426,7 @@ The old tree's full record and its lever table stay readable at the tag:
 One card per branch, the box copied from that branch's own README at its HEAD by
 `rebuild_index.py`, grouped by the status the card itself declares. Regenerate,
 never hand-edit: a hand-edited row drifts from the branch it describes.
-Regenerated 2026-09-17 14:45Z, 26 cards.
+Regenerated 2026-09-17 15:42Z, 26 cards.
 
 ## POSITIVELY MEASURED
 
@@ -443,8 +443,13 @@ Regenerated 2026-09-17 14:45Z, 26 cards.
   │             Measured second-best of all trees today at +6.50 %, and an arm
   │             of the amended round 7
   │
-  │  LATEST     round 6 · 2026-09-17 · BEATS · +6.50 % ·
+  │  LATEST     round 9 · 2026-09-17 · TIES · +7.02 % 3/4 under a 17.27 floor ·
+  │             median 10.11, and it reads with round 6 rather than round 8 ·
+  │             2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
+  │             round 6 · 2026-09-17 · BEATS · +6.50 % ·
   │             2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
+  │             round 8 · 2026-09-17 · TIES · -0.98 % 1/4 under a 10.69 floor ·
+  │             2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
   │
   │  GEN        +6.50 %  floor 3.35 %  sign 3/3  n=3
   │             raw: arm min-across median 10.35 t/s (10.31 · 10.24 · 10.38 ·
@@ -457,11 +462,45 @@ Regenerated 2026-09-17 14:45Z, 26 cards.
   │             native 24.90 MB .text (tip 24.86 MB) · lean regime 4096/6144
   │  PREFILL    reported, not a verdict: 86.30 t/s min-across median vs the
   │             tip's 89.16 t/s, n=4. Round 6 makes no prefill verdict.
+  │             ─── round 8, TIES, and the two rounds disagree:
+  │             -0.98 %  floor 10.69 %  sign 1/4  n=4 (sensitivity, cold first
+  │             control run excluded: -1.74 % against a 7.17 % floor, TIES)
+  │             raw: arm min-across median 9.10 t/s (9.21 · 9.18 · 9.02 · 8.99)
+  │             vs the tip's 8.96 t/s (8.61 cold · 9.53 · 8.87 · 9.49 · 8.96),
+  │             so it read level with the tip against round 6's +6.50 %.
+  │             ⚠ the box was not quiet: the five tip runs spanned 8.61 to 9.53
+  │             and four arm runs ended at load 3.2 to 4.0 with no vitest alive,
+  │             which widened the floor from round 6's 3.35 to 10.69. Round 6 is
+  │             the quieter round and keeps LATEST
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 13:24-14:37Z · DGX Spark GB10 ·
+  │             native 24.90 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │             prefill round 8, reported not a verdict: 85.28 t/s min-across
+  │             median vs the tip's 84.34 t/s, n=4
+  │
+  │             ─── round 9, TIES, and it settles which of the two rounds to read:
+  │             +7.02 %  floor 17.27 %  sign 3/4  n=4
+  │             raw: arm min-across median 10.11 t/s (9.14 to 10.29, spread 1.15)
+  │             vs the tip's 9.42 t/s (8.51 to 9.98). That is round 6's level, not
+  │             round 8's 9.10, so the disagreement resolves toward round 6
+  │             ⚠ the instrument sets that floor, not the arm: the five control
+  │             runs span 8.51 to 9.98 t/s because the page cache holds 2.9 GB of
+  │             an 81 GB model and the bench streams 842 MB/s from the NVMe, so
+  │             identical binaries swing about 8 % run to run
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 14:41-15:36Z · DGX Spark GB10 · native
+  │             24.90 MB .text (r9-all, 24,895,653; tip 24.86 MB) · lean regime
+  │             4096/6144 · quiet box, warm-up run discarded
   │
   │  VERDICT    POSITIVE - the only arm of round 6 to clear the floor, and it
   │             clears it at every repeat (+6.1 to +6.8 %). Both the sealed
   │             legacy rule and the new rule give this verdict, so nothing
-  │             turns on the straggler rule
+  │             turns on the straggler rule. ⚠ Round 8 re-ran it and read
+  │             -0.98 %, level with the tip, 1 of 4 under a 10.69 % floor. That
+  │             is a TIE, so it retracts nothing, and round 6's floor was 3.35
+  │             against this round's 10.69: the two rounds disagree and the
+  │             noisier one is round 8, and round 9 on a quiet box read +7.02 %
+  │             at 10.11 t/s, which is round 6's level rather than round 8's
   │
   │  SWITCH     the six levers' own switches, verified present in this tree's
   │             diff: DS4_CUDA_STREAMING_EXPERT_PREAD_POOL and _PREAD_THREADS,
@@ -483,11 +522,16 @@ Regenerated 2026-09-17 14:45Z, 26 cards.
   │  BRANCH     triple-all-fastest                                POSITIVE
   │
   │  WHAT       the new tip plus hitsfirst, the measured fastest tree, set
-  │             by rule from rounds 4 and 8, provisional on round 9. One
+  │             by rule from rounds 4 and 8 and confirmed by round 9. One
   │             lever, ON by default, and nothing else.
   │
-  │  LATEST     round 8 · 2026-09-17 · BEATS · +12.31 % (no-tip_1 +11.54 %) ·
+  │  LATEST     round 9 · 2026-09-17 · THE DEFAULT HOLDS · hitsfirst highest
+  │             median 10.41 (tip 9.42) ·
+  │             2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
+  │             round 8 · 2026-09-17 · BEATS · +12.31 % (no-tip_1 +11.54 %) ·
   │             2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
+  │             round 4 · 2026-09-17 · BEATS · +6.47 % (kept +7.93 %) ·
+  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
   │
   │  GEN        +12.31 %  floor 10.69 % (sealed, max)  sign 4/4  n=4
   │             raw: arm 10.49 · 9.43 · 10.38 · 10.29 (median 10.34 t/s) vs
@@ -504,17 +548,32 @@ Regenerated 2026-09-17 14:45Z, 26 cards.
   │             round 4 beside it: +6.47 % (kept +7.93 %)  floor 2.71 %
   │             sign 4/4  n=4  arm median 10.37 vs tip 9.65 t/s
   │             (2026-09-17 09:50-10:57Z, same control, same box)
+  │             ─── round 9, TIES on the rule, and it holds the default:
+  │             +12.09 %  floor 17.27 %  sign 4/4  n=4
+  │             raw: arm min-across median 10.41 t/s (10.32 to 10.51, spread
+  │             0.19) vs the tip's 9.42 t/s (8.51 to 9.98), every arm run above
+  │             every control run. Highest median and tightest tree of the five
+  │             arms: pool 10.35, winners 10.20, triple-all 10.11, and the
+  │             ten-lever stack carrying this same lever 9.93
+  │             ⚠ the instrument sets that floor, not the arm: the five control
+  │             runs span 8.51 to 9.98 t/s because the page cache holds 2.9 GB of
+  │             an 81 GB model and the bench streams 842 MB/s from the NVMe, so
+  │             identical binaries swing about 8 % run to run
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 14:41-15:36Z · DGX Spark GB10 · native
+  │             24.89 MB .text (r9-hitsfirst, 24,886,127; tip 24.86 MB) · lean
+  │             regime 4096/6144 · quiet box, warm-up run discarded
   │  PREFILL    not measured
   │
-  │  VERDICT    POSITIVE - two sealed wins, no sealed loss: round 4 +6.47 %
-  │             through a 2.71 floor, round 8 +12.31 % through a 10.69 floor,
-  │             the only arm of seven that cleared round 8's floor. By the
-  │             navigator's standing rule the all-fastest default follows the
-  │             measured number, so this branch IS that tree. Provisional:
-  │             round 9 (sealed 2026-09-17-R9-PREREGISTERED-RULE.txt, quiet
-  │             box, with the warm-up run) re-measures hitsfirst, pool,
-  │             winners, stack+hits and triple-all; if it ranks another tree
-  │             above hitsfirst on a clean floor, the default moves again.
+  │  VERDICT    POSITIVE - three sealed rounds, two wins and one tie, and no
+  │             sealed loss: round 4 +6.47 % through a 2.71 floor, round 8
+  │             +12.31 % through a 10.69 floor, round 9 +12.09 % and the highest
+  │             median of five arms on a quiet box. By the navigator's standing
+  │             rule the all-fastest default follows the measured number, so
+  │             this branch IS that tree, and ROUND 9 CONFIRMS THE DEFAULT: the
+  │             word provisional is dropped. Round 9 ranked every other arm
+  │             below this one lever, including the ten-lever tree that carries
+  │             it (9.93), and no arm cleared the round's 17.27 floor.
   │
   │  SWITCH     DS4_CUDA_HITS_FIRST=0 turns the lever off (ON here, the lever's
   │             own default; =0 restores wait-then-launch)
@@ -539,8 +598,17 @@ Regenerated 2026-09-17 14:45Z, 26 cards.
   │             tree from the manifest alone. Nine levers on, hits-first off,
   │             victim order used-ascending (the measured default).
   │
-  │  LATEST     round 4 · 2026-09-17 · BEATS · +4.65 % (kept +6.87 %) ·
+  │  LATEST     round 9 · 2026-09-17 · +DS4_CUDA_HITS_FIRST=1 · TIES · +3.77 %
+  │             2/3 under a 17.27 floor · median 9.93, the lowest median in both
+  │             rounds it ran ·
+  │             2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
+  │             round 4 · 2026-09-17 · BEATS · +4.65 % (kept +6.87 %) ·
   │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
+  │             round 8 · +DS4_CUDA_HITS_FIRST=1 · TIES · +5.46 % (+0.33 sens)
+  │             round 8 · +DS4_PREFILL_READAHEAD_HOLD=1 · TIES · +6.64 % (+5.54)
+  │             round 8 · +both switches ON · TIES · -5.95 % (-6.20), the
+  │             slowest tree measured, all three under a 10.69 floor ·
+  │             2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
   │
   │  GEN        +4.65 % (kept +6.87 %)  floor 2.71 % (no-drop)  sign 4/4  n=4
   │             raw: arm median 10.14 t/s vs tip median 9.65 t/s, gen_steady
@@ -552,6 +620,40 @@ Regenerated 2026-09-17 14:45Z, 26 cards.
   │             native 24.94 MB .text · lean regime 4096/6144
   │  PREFILL    reported, not a verdict: 136.25 t/s min-across median vs the
   │             tip's 80.73 t/s, n=4. Round 4 makes no prefill verdict.
+  │             ─── round 8, three switch variants on THIS binary, all TIES
+  │             under a 10.69 % floor (7.17 % on the cold-run sensitivity):
+  │             +hits   +5.46 %  sign 4/4  n=4  (sens +0.33 %)  arm 9.36 t/s
+  │                     (10.05 · 9.21 · 9.21 · 9.51)
+  │             +hold   +6.64 %  sign 3/4  n=4  (sens +5.54 %)  arm 9.80 t/s
+  │                     (9.92 · 9.71 · 9.89 · 9.06)
+  │             +both   -5.95 %  sign 0/4  n=4  (sens -6.20 %)  arm 8.64 t/s
+  │                     (8.53 · 8.63 · 8.75 · 8.64), below every control run
+  │             vs the tip's 8.96 t/s (8.61 cold · 9.53 · 8.87 · 9.49 · 8.96),
+  │             gen_steady at min across 4096/6144, each run against its
+  │             bracketing TIP runs
+  │             ⚠ the box was not quiet: the five tip runs spanned 8.61 to 9.53
+  │             and four arm runs ended at load 3.2 to 4.0 with no vitest
+  │             alive, which is what widened the floor to 10.69
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 13:24-14:37Z · DGX Spark GB10 ·
+  │             native 24.94 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │             prefill round 8, reported not a verdict, min-across medians vs
+  │             the tip's 84.34 t/s, n=4 each: +hits 137.00, +hold 147.16,
+  │             +both 144.86 t/s
+  │
+  │             ─── round 9, +hits only, TIES, and it is last of the five arms:
+  │             +3.77 %  floor 17.27 %  sign 2/3  n=3
+  │             raw: arm min-across median 9.93 t/s (8.99 to 10.29, spread 1.30)
+  │             vs the tip's 9.42 t/s (8.51 to 9.98). LOWEST median of the round,
+  │             as in round 8, and the widest spread of any arm measured
+  │             ⚠ the instrument sets that floor, not the arm: the five control
+  │             runs span 8.51 to 9.98 t/s because the page cache holds 2.9 GB of
+  │             an 81 GB model and the bench streams 842 MB/s from the NVMe, so
+  │             identical binaries swing about 8 % run to run
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 14:41-15:36Z · DGX Spark GB10 · native
+  │             24.94 MB .text (r9-allfastestne, 24,943,300; tip 24.86 MB) · lean
+  │             regime 4096/6144 · quiet box, warm-up run discarded
   │
   │  VERDICT    POSITIVE - beats the new tip on both readings, +4.65 % no-drop and
   │             +6.87 % kept, sign 4 of 4. First measurement of this tree, and it
@@ -560,8 +662,17 @@ Regenerated 2026-09-17 14:45Z, 26 cards.
   │             hits-first (+6.47 % solo, the wrong side) and the readahead arm
   │             (-11.38 % solo, the right side; corrected 11:25Z from a source read
   │             at the sealed sha, the card had said ON). Nothing here attributes the
-  │             stack's number to any lever; the seal forbids it. ROUND 7 flips both
-  │             switches on this same binary.
+  │             stack's number to any lever; the seal forbids it.
+  │             ⚠⚠ ROUND 8 FLIPPED BOTH SWITCHES ON THIS BINARY AND ALL THREE
+  │             VARIANTS TIE: +hits +5.46 %, +hold +6.64 %, +both -5.95 %. The
+  │             two switches FIGHT - with both on this is the slowest tree
+  │             measured, below every control run - and the readahead arm read
+  │             ABOVE hits-first here, against its -11.38 % solo, so prediction
+  │             P2 missed in the opposite direction.
+  │             ★ the ten-lever stack is no longer the all-fastest default; the
+  │             default is hitsfirst alone as of round 8 (round 8 section 5:
+  │             `triple-all-fastest` becomes the new tip plus the hitsfirst
+  │             lever, from a one-lever manifest), and round 9 confirms it
   │
   │  SWITCH     ten levers, see the table below; plus
   │             DS4_CUDA_PREFETCH_SWEEP_ORDER=1 restores the sweep-aware order
@@ -581,7 +692,10 @@ Regenerated 2026-09-17 14:45Z, 26 cards.
   │             before the miss reads land, so a token does not stall on
   │             the slowest read in the batch
   │
-  │  LATEST     round 8 · 2026-09-17 · BEATS · +12.31 % 4/4 (floor 10.69;
+  │  LATEST     round 9 · 2026-09-17 · TIES · +12.09 % 4/4 under a 17.27 floor ·
+  │             median 10.41, spread 0.19, every run above every control ·
+  │             2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
+  │             round 8 · 2026-09-17 · BEATS · +12.31 % 4/4 (floor 10.69;
   │             +11.54 with the cold first run excluded) ·
   │             2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
   │             round 4 · 2026-09-17 · BEATS · +6.47 % (kept +7.93 %) ·
@@ -600,6 +714,20 @@ Regenerated 2026-09-17 14:45Z, 26 cards.
   │             control = triple-tip-2026-09-16 @12997e9c, interleaved
   │             session = 2026-09-17 13:24-14:37Z · DGX Spark GB10 ·
   │             native 24.89 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │             ─── round 9, TIES, and it confirms the ranking not a magnitude:
+  │             +12.09 %  floor 17.27 %  sign 4/4  n=4
+  │             raw: arm min-across median 10.41 t/s (four runs, 10.32 to 10.51,
+  │             spread 0.19) vs the tip's 9.42 t/s (8.51 to 9.98). Every arm run
+  │             read above every control run, and the next-tightest arm of the
+  │             round spans 0.76
+  │             ⚠ the instrument sets that floor, not the arm: the five control
+  │             runs span 8.51 to 9.98 t/s because the page cache holds 2.9 GB of
+  │             an 81 GB model and the bench streams 842 MB/s from the NVMe, so
+  │             identical binaries swing about 8 % run to run
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 14:41-15:36Z · DGX Spark GB10 · native
+  │             24.89 MB .text (r9-hitsfirst, 24,886,127; tip 24.86 MB) · lean
+  │             regime 4096/6144 · quiet box, warm-up run discarded
   │  PREFILL    reported, not a verdict: 86.55 t/s min-across median vs the
   │             tip's 84.34 t/s, n=4. Round 8 makes no prefill verdict.
   │
@@ -609,7 +737,7 @@ Regenerated 2026-09-17 14:45Z, 26 cards.
   │             the win does not depend on which control run is kept. By the
   │             standing rule that the default follows the measured number, the
   │             shipped default is now the new tip plus this one lever
-  │             (round 8 section 5), provisional on a quiet round 9
+  │             (round 8 section 5), and round 9 confirms it on a quiet box
   │
   │  SWITCH     DS4_CUDA_HITS_FIRST=1 (default OFF in the stack; =0 is wait-then-launch)
   │             DS4_CUDA_HITS_FIRST_STAGED=0 keeps hits-first, single-stage read order
@@ -629,7 +757,10 @@ Regenerated 2026-09-17 14:45Z, 26 cards.
   │             serial reader, with an io_uring O_DIRECT ring in front of the
   │             pool so queue depth is a switch, not the worker count.
   │
-  │  LATEST     round 4 · 2026-09-17 · BEATS · +7.27 % (kept +7.75 %) ·
+  │  LATEST     round 9 · 2026-09-17 · TIES · +9.59 % 4/4 under a 17.27 floor ·
+  │             median 10.35, second again, behind hitsfirst ·
+  │             2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
+  │             round 4 · 2026-09-17 · BEATS · +7.27 % (kept +7.75 %) ·
   │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
   │             round 8 · 2026-09-17 · TIES · +8.56 % 3/4 under a 10.69 floor,
   │             two runs in a loaded window - round 4's +7.27 stands ·
@@ -656,6 +787,20 @@ Regenerated 2026-09-17 14:45Z, 26 cards.
   │             control = triple-tip-2026-09-16 @12997e9c, interleaved
   │             session = 2026-09-17 13:24-14:37Z · DGX Spark GB10 ·
   │             native 24.89 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │             ─── round 9, TIES, and it does not retract round 4 either:
+  │             +9.59 %  floor 17.27 %  sign 4/4  n=4
+  │             raw: arm min-across median 10.35 t/s (four runs, 9.67 to 10.73,
+  │             spread 1.06) vs the tip's 9.42 t/s (8.51 to 9.98). Second of the
+  │             five arms, behind hitsfirst's 10.41, and its spread is five times
+  │             hitsfirst's 0.19
+  │             ⚠ the instrument sets that floor, not the arm: the five control
+  │             runs span 8.51 to 9.98 t/s because the page cache holds 2.9 GB of
+  │             an 81 GB model and the bench streams 842 MB/s from the NVMe, so
+  │             identical binaries swing about 8 % run to run
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 14:41-15:36Z · DGX Spark GB10 · native
+  │             24.89 MB .text (r9-pool, 24,888,282; tip 24.86 MB) · lean regime
+  │             4096/6144 · quiet box, warm-up run discarded
   │  PREFILL    reported, not a verdict: round 4, 87.25 t/s min-across median
   │             vs the tip's 80.73 t/s, n=4; round 8, 86.47 t/s vs 84.34 t/s,
   │             n=4. Neither round makes a prefill verdict.
@@ -668,7 +813,8 @@ Regenerated 2026-09-17 14:45Z, 26 cards.
   │             and read +8.56 % at 3 of 4 under a 10.69 floor: two runs at 10.47
   │             to 10.65, as round 4, and two at 8.98 to 9.53 in the loaded
   │             window. That TIES, so it neither confirms nor retracts round 4.
-  │             Round 9 re-measures it on a quiet box
+  │             Round 9 ran that quiet box and read +9.59 % at 10.35 t/s, sign
+  │             4 of 4, second of the five arms behind hitsfirst
   │
   │  SWITCH     DS4_CUDA_FETCH_QD=<n> ring queue depth, default 64, clamped 8-512
   │             DS4_CUDA_FETCH_URING=0 falls back to the pread pool
@@ -1060,7 +1206,10 @@ Regenerated 2026-09-17 14:45Z, 26 cards.
   │             Round 8 measured it level with the tip: the combination costs
   │             what each part wins
   │
-  │  LATEST     round 8 · 2026-09-17 · TIES · +1.54 % (-0.54 sensitivity) ·
+  │  LATEST     round 9 · 2026-09-17 · TIES · +5.03 % 3/3 under a 17.27 floor ·
+  │             median 10.20, between its parts ·
+  │             2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
+  │             round 8 · 2026-09-17 · TIES · +1.54 % (-0.54 sensitivity) ·
   │             level with the tip while its parts read +8 to +12 in the same
   │             session ·
   │             2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
@@ -1081,6 +1230,20 @@ Regenerated 2026-09-17 14:45Z, 26 cards.
   │             control = triple-tip-2026-09-16 @12997e9c, interleaved
   │             session = 2026-09-17 13:24-14:37Z · DGX Spark GB10 ·
   │             native 24.90 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │             ─── round 9, TIES, and it reads higher than round 8 did:
+  │             +5.03 %  floor 17.27 %  sign 3/3  n=3
+  │             raw: arm min-across median 10.20 t/s (9.69 to 10.45, spread 0.76)
+  │             vs the tip's 9.42 t/s (8.51 to 9.98). That sits BETWEEN its parts,
+  │             below hitsfirst's 10.41 and pool's 10.35, which is the second
+  │             round to rank it under hitsfirst alone
+  │             ⚠ the instrument sets that floor, not the arm: the five control
+  │             runs span 8.51 to 9.98 t/s because the page cache holds 2.9 GB of
+  │             an 81 GB model and the bench streams 842 MB/s from the NVMe, so
+  │             identical binaries swing about 8 % run to run
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 14:41-15:36Z · DGX Spark GB10 · native
+  │             24.90 MB .text (r9-winners, 24,900,766; tip 24.86 MB) · lean
+  │             regime 4096/6144 · quiet box, warm-up run discarded
   │  PREFILL    reported, not a verdict: 135.09 t/s min-across median vs the
   │             tip's 84.34 t/s, n=4. Round 8 makes no prefill verdict.
   │
