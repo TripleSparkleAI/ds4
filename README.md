@@ -284,32 +284,34 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-engram-read-threads                         WORTH ZERO
+  │  BRANCH     triple-engram-read-threads                  WORTH ZERO
   │
   │  WHAT       takes the DECODE step's Engram read off the batch machinery:
   │             one token now goes straight to the serial reader, with no
   │             malloc, no qsort and no pool dispatch. The wide PREFILL read
   │             keeps the one-wave rule the branch was named for.
   │
-  │  LATEST     round 1 bisect · 2026-09-16 · NOT IT: the RT arm is this same
-  │             decode revert, made on the nine-lever stack at dd82361a, and it
-  │             read -6.07 % against the clean tip where the stack as shipped
-  │             read -4.35 %, so |D_RT - D_STACK| = 1.72, inside the 4.13 %
-  │             floor, and the sealed rule reports no direction
-  │             (2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md)
-  │             round 3 is measuring this branch now: in flight, unresolved
+  │  LATEST     round 4 · 2026-09-17 · TIES · -1.39 % (kept +0.31 %) ·
+  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
   │
-  │  GEN        not measured on this revision, which has never been built for
-  │             CUDA. The RT arm above measured the revert on another tree.
-  │  PREFILL    not measured. The one-wave prefill read has never run.
+  │  GEN        -1.39 % (kept +0.31 %)  floor 2.71 % (no-drop)  sign 1/4  n=4
+  │             raw: arm median 9.60 t/s vs tip median 9.65 t/s, gen_steady
+  │             at min across 4096/6144; the delta is each run against the
+  │             mean of its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
+  │             bracket per cycle
+  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
+  │             native 24.86 MB .text · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 82.62 t/s min-across median vs the
+  │             tip's 80.73 t/s, n=4. Round 4 makes no prefill verdict.
   │
-  │  VERDICT    WORTH ZERO - correct, tested, and worth nothing on the clock.
-  │             The decode fast path is right: it takes a malloc, a qsort and a
-  │             broadcast to 32 parked workers off the critical path, and a
-  │             counter proves the pool never wakes. The bisect put that same
-  │             revert 1.72 points from the stack against the one comparator's
-  │             8.04, a factor of 4.7. A fix can be right, well tested, and buy
-  │             nothing. OWED: the one-wave PREFILL read, the untested half.
+  │  VERDICT    WORTH ZERO - confirmed on the new tip, with its own CUDA build at
+  │             last. The no-drop reading is -1.39 % at sign 1 of 4, inside a 2.71 %
+  │             floor: TIES. ⚠ The kept reading says +0.31 % BEATS on one surviving
+  │             run against a floor that two dropped TIP controls shrank to
+  │             0.21 %, and where the two readings disagree the no-drop column
+  │             is the one to quote (result section 3).
+  │             NOT IT at round 1, not it here. OWED: the one-wave PREFILL read.
   │
   │  SWITCH     ⚠ NEITHER KNOB REACHES THE DECODE READ ANY MORE. Both govern
   │             the wide prefill read only, where the defaults are unchanged.
@@ -457,3 +459,10 @@ it rock.
   2026-09-16), whose round-1 band was 9.44 to 9.83 with a median of 9.65.
 - The 2026-09-15 native pass is withheld: its control read 9.17 to 9.46 t/s and every arm, the
   off arms included, beat it.
+
+## Round 4, 2026-09-17: on the new tip, in a sealed round
+
+- **Measured on the new tip with its own CUDA build, and it is still worth nothing.** No-drop -1.39 %, sign 1 of 4, inside the 2.71 % floor. Raw min-across medians 9.60 t/s arm against 9.65 t/s tip. The round-1 bisect verdict NOT IT reproduces.
+- The decode fast path remains correct, tested and free. The one-wave PREFILL read, the untested half, is still owed and round 4 did not measure it: prefill min-across median 82.62 t/s against the tip's 80.73 is reported, not a verdict.
+
+Sealed rule `2026-09-17-R4-PREREGISTERED-RULE.txt` @`3914a3226`, result `2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md`, raw CSVs and runlog in `sweeps/r4/`.
