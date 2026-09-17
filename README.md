@@ -267,3 +267,118 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+
+
+
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
+
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
+
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+
+Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29 verdicts all pass (it stops at ds4_test, whose model is absent in a worktree, identically before and after), cc -fsyntax-only clean on 1 touched C file (ds4.c). ⚠ Re-counted on this Mac 2026-09-17: **26** verdicts, all pass, stopping at ds4_test as before. Counting the run's `PASS` and `ok` verdict lines does not reproduce 29, on this branch or on any of the eight, so 26 is the current figure and 29 is superseded.
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-draincut                                      NOT YET
+  │
+  │  WHAT       reads the router's selected expert ids back on an event
+  │             instead of a blocking cudaMemcpy, so the host no longer
+  │             waits on the shared expert - 40 device drains per token
+  │
+  │  LATEST     attrib series · 2026-09-16 · JOINT, NOT ATTRIBUTABLE: this
+  │             branch's switch is one of the SEVEN turned off together, and
+  │             the seven together are a net GAIN of +7.62 pp against their own
+  │             off state at min-across-frontiers, floor max 2.18, cleared 3.5x.
+  │             Nothing in that file says what THIS lever did
+  │             (2026-09-16-triple-all-fastest-attrib-SUMMARY-levers-attribution.txt)
+  │             ⚠ that arm is the NINE-lever binary at dd82361a, not this branch
+  │
+  │  GEN        9.09 t/s  vs control 9.17  -0.9 %  floor 4.9 %  n=2
+  │             control = unpatched tip, interleaved, same native vintage
+  │             session = 2026-09-15 · DGX Spark GB10 · native 23.1 MB .text · unstamped
+  │  PREFILL    not measured
+  │
+  │  VERDICT    NOT YET - no sealed round has measured this lever alone, and the
+  │             one solo pass does not resolve it: the engaged arm is -0.9 %
+  │             inside a 4.9 % floor while the DORMANT arm reads 9.71 vs the same
+  │             9.17 control, +5.9 %, which clears that floor in the direction
+  │             that says the control moved and not the lever
+  │
+  │  SWITCH     ON by default. DS4_CUDA_SELECTED_DRAIN_SYNC=1 restores the
+  │             blocking read - that is the OFF arm
+  │  OUTPUT     greedy-identical sha256 bb06e711bc498bb9 (2026-09-15, before the rebase)
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+## What the branch does
+
+- The streaming expert-cache load must know which experts the router picked before it primes the
+  cache. Upstream learns them with a blocking `cudaMemcpy` of the selected-id tensor.
+- That read waits for everything already queued on the decode stream, including the shared
+  expert's gate, up and down, once per MoE layer. 40 layers, so 40 drains per token.
+- `ds41_moe_partial` in `ds4.c` now calls `ds4_gpu_selected_readback_begin` right after the router
+  select and before the shared-expert kernels are queued: an async D2H copy of `DS4_N_EXPERT_USED`
+  int32 ids into one pinned buffer, plus a disable-timing event.
+- The cache load's `take()` matches on source pointer and byte count, waits on the event alone,
+  and copies the pinned bytes out. Any mismatch falls back to the blocking read.
+- Stream order is untouched. Only what the HOST blocks on changes, which is why the output bytes
+  cannot move.
+- Scope: streaming, single GPU (`tp_world != 2`) only. The TP=2 path already overlaps its shared
+  expert. Refused during CUDA graph capture. Metal and ROCm compile it out.
+- Files: `ds4.c` +11, `ds4_gpu.h` +5, `ds4_cuda.cu` +86/-1.
+- The gate at the top of `ds4_gpu_selected_readback_begin` is the arbiter of switch direction:
+  `if (drain_sync < 0) drain_sync = getenv("DS4_CUDA_SELECTED_DRAIN_SYNC") != NULL; if (drain_sync) return 0;`
+  An earlier note published the opposite direction.
+
+```
+   WHAT THE HOST WAITS ON, once per MoE layer, 40 times a token
+
+   as shipped   select ─▶ shared expert queued ─▶ memcpy BLOCKS on all of it
+                                                  ╰── host idle, device busy
+   this branch  select ─▶ memcpyAsync ids + event
+                          shared expert queued
+                          host waits on the EVENT alone ──▶ primes the cache
+                                                            while gate/up/down run
+
+   the kernels are queued in the same order in both arms, so the sha cannot move
+```
+
+## The numbers, and why they do not settle it
+
+- 2026-09-15 native pass, both binaries `make cuda-spark -j12`, interleaved, ctx 2048 discarded as
+  warmup, minimum across the three stable frontiers, two repeats per arm.
+- Engaged: **9.09 vs 9.17**, -0.9 %. Files on the Spark:
+  `~/sweeps/2026-09-15-triple-draincut-lever-engaged.txt` and `...-lever-dormant.txt`.
+- Dormant, same pass, same control: **9.71**, which is **+5.9 %**.
+- The control-to-control floor of that native generation set is 3.3 to 4.9 %.
+- An arm with the lever OFF cannot beat its own control by 5.9 % because of the lever. So the
+  dormant reading is evidence about the control, not about the branch. `triple-engram-lead`
+  withheld its numbers from the same pass for exactly this reason.
+- No comparison against the 2026-09-16 tip baseline, and none against `triple-tip-2026-09-16`,
+  has been run for this branch alone.
+
+## In the sealed attrib series, as one of seven
+
+- `DS4_CUDA_SELECTED_DRAIN_SYNC=1` is in the seven-switch off block
+  (`2026-09-16-ATTRIB-PREREGISTERED-RULE.txt`), beside the hotlist write, the page-keep, the
+  Engram lead, the pread pool and the Engram read threads.
+- All-off read -12.13 % against the clean tip; as-shipped -4.51 %; both from the same brackets, so
+  `L = -7.62 pp` is the seven levers' joint contribution and its sign says they HELP.
+- The series names no single lever's share, and this card claims none.
+- ⚠ The measured binary is `tb-afstack @dd82361a`, nine levers, on a line of history that is not
+  this branch's (`2026-09-16-CORRECTION-the-measured-stack-is-nine-levers-and-has-diverged.md`).
+
+## Still open
+
+- A higher-repeat interleaved on/off in one session with a control that holds still. n=2 is the
+  whole solo sample and its two arms disagree.
+- A measurement on the new tip. Nothing on this branch has been measured since the rebase.
+- The greedy-identical check re-run on the rebased tree. The sha above is from 2026-09-15.
