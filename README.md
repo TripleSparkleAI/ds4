@@ -277,22 +277,47 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-winners                                NOT YET
+  │  BRANCH     triple-winners                                WORTH ZERO
   │
   │  WHAT       the three levers round 4 measured as winners solo on the
   │             new tip, stacked and nothing else: pool (+7.27 %), hitsfirst
   │             (+6.47 %) and prefetch-pool (+2.28 %), with HITSFIRST ON.
+  │             Round 8 measured it level with the tip: the combination costs
+  │             what each part wins
   │
-  │  LATEST     never in a sealed round
+  │  LATEST     round 8 · 2026-09-17 · TIES · +1.54 % (-0.54 sensitivity) ·
+  │             level with the tip while its parts read +8 to +12 in the same
+  │             session ·
+  │             2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
   │
-  │  GEN        not measured
-  │  PREFILL    not measured
+  │  GEN        +1.54 %  floor 10.69 %  sign 2/3  n=3 of 4 paired
+  │             sensitivity, cold first control run excluded: -0.54 % against a
+  │             7.17 % floor, TIES either way (post hoc, labelled as such)
+  │             raw: arm min-across median 9.18 t/s (9.21 · 9.42 · 9.13 · 9.15)
+  │             vs the tip's 8.96 t/s (8.61 cold · 9.53 · 8.87 · 9.49 · 8.96).
+  │             gen_steady at min across 4096/6144. The delta is each run
+  │             against its bracketing TIP runs, not against that median
+  │             ⚠ the box was not quiet: the five tip runs spanned 8.61 to 9.53
+  │             and four arm runs ended at load 3.2 to 4.0 with no vitest alive,
+  │             which is what widened the floor to 10.69. But this arm's own
+  │             four runs span only 9.13 to 9.42, so its LEVEL reading is not a
+  │             noise artifact; the noise bounds how strongly it can be called
+  │             a loss, not whether it won
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 13:24-14:37Z · DGX Spark GB10 ·
+  │             native 24.90 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 135.09 t/s min-across median vs the
+  │             tip's 84.34 t/s, n=4. Round 8 makes no prefill verdict.
   │
-  │  VERDICT    NOT YET - built 2026-09-17 from winners.manifest to answer
-  │             "why not combine pool and hitsfirst and prefetch-pool?"; the
-  │             amended round 7 carries it as an arm. Not compiled for CUDA
-  │             yet: assembled on a Mac, Metal make rc 0, the four lever test
-  │             binaries green. The first Spark build is the real gate.
+  │  VERDICT    WORTH ZERO - built correct, compiled, measured, and level with
+  │             the tip. The combination costs what each part wins: pool read
+  │             10.47 to 10.65 on its clean runs and hitsfirst read 10.29 to
+  │             10.49, all four of them above every control run, in this same
+  │             session, while this tree that carries both read 9.13 to 9.42.
+  │             So the answer to "why not combine pool and hitsfirst and
+  │             prefetch-pool" is measured, and it is no. The two pread-path
+  │             levers fight; the claim-ledger interaction the build lane
+  │             carried is the first suspect and round 8 does not prove it
   │
   │  SWITCH     DS4_CUDA_HITS_FIRST=0 turns hits-first off (ON here, the
   │             lever's own default); DS4_CUDA_HITS_FIRST_STAGED=0 keeps it
@@ -330,7 +355,7 @@ directly: *"why not combine pool and hitsfirst and prefetch-pool?"* This branch 
    hitsfirst          +6.47                 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━●       ✦ carried, ON
    pool               +7.27                 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●   ✦ carried
 
-   triple-winners     ?                     ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ not measured
+   triple-winners     +1.54                 ┣━━━━━●     ROUND 8, level with the tip
 ```
 
 ### How this tree was built
@@ -355,3 +380,34 @@ directly: *"why not combine pool and hitsfirst and prefetch-pool?"* This branch 
 - Tests here: `tests/test_hitsfirst_logic` 142 checks · `tests/test_pread_pool_config` 59
   checks · `tests/test_uring_sq` PASS · `tests/test_expert_claims` PASS. Metal `make` rc 0.
   `ds4_cuda.cu` cannot compile on this machine.
+
+## Round 8, 2026-09-17: the question is answered, and the answer is no
+
+- **It reads level with the tip: +1.54 %, 2 of 3, under a 10.69 % floor**, and -0.54 % on the
+  cold-run sensitivity against a 7.17 % floor. Its four runs span 9.13 to 9.42 t/s against a
+  control median of 8.96, so the LEVEL reading is its own, not the round's noise.
+- **Its parts beat, in the same session, on the same box.** hitsfirst alone read 10.29 to 10.49
+  (**+12.31 %, 4/4, BEATS**) and pool's two clean runs read 10.47 and 10.65. A tree carrying both
+  read below both. Prediction P7 ("winners highest delta") and P8 ("winners beats triple-all's
+  +6.50") were sealed at 0.5 each and both missed.
+- ⚠ **Not attributed.** pool and prefetch-pool touch the same expert-pread code and hitsfirst
+  calls the pool's own entry points, so three candidates remain open: the claim ledger, queue-depth
+  contention on one NVMe, and the hits-first drain interacting with the prefetch pool's own
+  in-flight batch. Round 8 separates none of them.
+
+```
+   T H E   P A R T S   B E A T ,   T H E   W H O L E   D O E S   N O T
+                                        (round 8, min-across gen, raw t/s)
+
+   control tip   8.61 ↑cold  8.87   8.96   9.49   9.53
+                              ╵      ╵      ╵      ╵
+   winners                 9.13  9.15 9.21 9.42        ◀ inside the control span
+   hitsfirst                                    9.43        10.29 10.38 10.49  ✦ above all five
+   pool                                   8.98      9.53          10.47 10.65
+
+   the two levers that clear the tip alone do not clear it together
+```
+
+Sealed rule `2026-09-17-R8-PREREGISTERED-RULE.txt` @`c173ad6d7`, result
+`2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md`,
+raw CSVs and runlog in `sweeps/r8/`.
