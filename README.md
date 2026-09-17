@@ -349,6 +349,8 @@ the claim ledger.
   pool+hitsfirst interaction this tree has, which is what makes the tree a test of it.
 - Not carried, on purpose: prefetch-pool, margin, draincut, pagecache, hotlist, engram-lead,
   engram-read-threads, prefill-readahead-order.
-- Tests here: `tests/test_hitsfirst_logic` 142 checks · `tests/test_pread_pool_config` 59
-  checks · `tests/test_uring_sq` PASS · `tests/test_expert_claims` PASS. Metal `make` rc 0.
-  `ds4_cuda.cu` cannot compile on this machine; the first Spark build is the real gate.
+- Tests here: `tests/test_hitsfirst_logic` 142 checks, 0 failed · `tests/test_uring_sq` PASS ·
+  `tests/test_expert_claims` PASS. `tests/test_pread_pool_config` is NOT here: it is
+  prefetch-pool's test (`ds4_pread_pool_config.h` arrives with that lever), so its absence is
+  the tree being what it says it is. Metal `make` rc 0. `ds4_cuda.cu` cannot compile on this
+  machine; the first Spark build is the real gate.
