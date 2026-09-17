@@ -267,3 +267,107 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
+
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+
+Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29 verdicts all pass (it stops at ds4_test, whose model is absent in a worktree, identically before and after), make test-draft-gamma ok 0 failures, cc -fsyntax-only clean on 3 touched C files. ⚠ Re-counted on this Mac 2026-09-17: **26** verdicts, all pass, stopping at ds4_test as before. Counting the run's `PASS` and `ok` verdict lines does not reproduce 29, on this branch or on any of the eight, so 26 is the current figure and 29 is superseded. `make test-draft-gamma` re-run the same day: **ok, 0 failures**.
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-draft-gamma                                   NOT YET
+  │
+  │  WHAT       an adaptive draft-length (gamma) controller for DSpark: one EMA
+  │             slot per active-lane bucket, choosing gamma from {0..16}. Zero
+  │             is a candidate, so drafting switches itself off where it is not
+  │             paying
+  │
+  │  LATEST     never in a sealed round
+  │
+  │  GEN        not measured
+  │  PREFILL    not measured
+  │
+  │  VERDICT    NOT YET - no CUDA build of this branch exists. The only run is
+  │             `make test-draft-gamma`, a state trace with 0 failures and no
+  │             t/s anywhere in it
+  │
+  │  SWITCH     DS4_DRAFT_GAMMA_MODE=fixed|adaptive, default fixed. On fixed no
+  │             controller is allocated and today's constant is returned
+  │             Knobs: _ALPHA 0.2 · _UPDATE_INTERVAL 5 · _WARMUP 10 ·
+  │             _DOWN_HYST -0.25 · _UP_HYST 0.0 · _CEILING 1.5 ·
+  │             _MAX_STEPS 16 · _LOG=1
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+## The mechanism
+
+- Today gamma is the support model's GGUF `dspark.block_size`, read once by
+  `ds4_session_dspark_fixed_gamma`, clamped at 16 by `DS4_DSPARK_MAX_BLOCK_SIZE`, and never
+  revisited for the rest of the process.
+- `ds4_draft_gamma.c/.h` keeps, per lane bucket (1, 2, 4, 8, 16, 32+), an EMA of the accept length
+  the DSpark loop already computes. No new counter and no new timing path is added.
+- The EMA is updated every 5 batches after a 10-batch warmup.
+- It probes one step past observed acceptance: `target = clamp(round(ema) + 1, 0, max_steps)`.
+- A hysteresis band makes it hold rather than oscillate; the ceiling caps downward only.
+- At gamma 0 drafting is disabled for that bucket, rested one interval, then re-probed at gamma 1,
+  so zero is not absorbing.
+
+```
+   THE CONTROLLER WALKING DOWN AND BACK UP, from the state trace
+
+   accept length 0 every batch
+     gamma  4 ─▶ 3 ─▶ 2 ─▶ 1 ─▶ 0 ·rest· 1 ─▶ 0 ·rest· 1 ─▶ 0
+                                  ╰── 13 zero intervals, 12 re-probes
+                                      in 38 decisions: zero is NOT absorbing
+
+   every draft lands
+     gamma  2 ─▶ 4 ─▶ 8 ─▶ 16   and stops at _MAX_STEPS
+   ceiling 1.5 against an EMA of 4
+     gamma  2 ─▶ 2              held DOWN, never held up
+
+   the engine's own cap of 5 was never exceeded in any trace
+```
+
+## What is measured, and what is not
+
+- `make test-draft-gamma`, standalone, no GPU and no model: **ok, 0 failures**, re-run 2026-09-17.
+- Traces in that run: gamma walks 4 to 0 on accept length 0 (13 zero intervals, 12 re-probes in 38
+  decisions), climbs 2 to 16 when every draft lands, holds inside a widened band, the ceiling
+  holds gamma at 2 against an EMA of 4, bucket 0 collapses while bucket 5 holds 6, and an engine
+  cap of 5 is never exceeded.
+- Those are STATE TRACES. None of them is a speedup, and none of them ran a model.
+- A known narrow band: with integer accept lengths the hold band is
+  `(prev_step - 0.75, current_step - 0.5]`, so in steady state the controller cycles between gamma
+  and gamma + 1. `DS4_DRAFT_GAMMA_UP_HYST` widens it, and the sweep is what decides the value.
+
+## Why the claim is narrow
+
+- `WIKI/theory/48-decode-speedup-levers.md` section 8 rules more spec-decode "settled, do not",
+  because it adds compute to a bandwidth-bound step. This branch REMOVES compute.
+- `WIKI/theory/50-moe-verify-budgeting-evict.md` section 1 puts the real bottleneck at the verify
+  slope kappa of about 0.32, not at acceptance. This branch does not pull that lever.
+- `WIKI/theory/34-synthesis-dspark-implications.md` section 2's action item 1, the
+  confidence-head prefix cut, already exists in the tree as `dspark_confident_prefix_len` in
+  `ds4.c`. What is left there is sizing theta, not building a component.
+- `MEASURED_OPTK_*_2026-09-01.md` (track 3): on code the acceptance-optimal k is 16 while the
+  throughput-optimal k is 4, and shipping k=16 would have cost 31 %; on prose k=2 is optimal and
+  k=16 runs at 0.8476x plain decode. Acceptance alone picks wrong on both, and that file is
+  batch 1 only. A controller reading what the loaded box achieves is the answer to that fence, and
+  not a substitute for measuring.
+- The closed `triple-word-finisher` finding (a k-token verify reads the same bytes as k single
+  passes) is about BYTES and does not kill this branch, which is about not wasting verify passes.
+
+## Owed
+
+- A CUDA build on the Spark, then `fixed` against `adaptive` interleaved at 1 and 32 lanes with
+  `DS4_DRAFT_GAMMA_LOG=1` and `DS4_DSPARK_STATS=1`, then the greedy-identical check.
+- The expected visible effect is a SMALLER LOSS where fixed gamma overspent, not a win. If the
+  A/B reads a win, that is a surprise and wants explaining before it is believed.
+- Files: `ds4.c`, `ds4_draft_gamma.c`, `ds4_draft_gamma.h`, `tests/test_draft_gamma.c`, `Makefile`,
+  `.gitignore`. Pre-rebase base `21d323dfe`, pre-rebase code commit `ef6889465`.
