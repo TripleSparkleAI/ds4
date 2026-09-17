@@ -285,8 +285,12 @@ it rock.
   │
   │  LATEST     round 4 · 2026-09-17 · BEATS · +7.27 % (kept +7.75 %) ·
   │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
+  │             round 8 · 2026-09-17 · TIES · +8.56 % 3/4 under a 10.69 floor,
+  │             two runs in a loaded window - round 4's +7.27 stands ·
+  │             2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
   │
-  │  GEN        +7.27 % (kept +7.75 %)  floor 2.71 % (no-drop)  sign 3/4  n=4
+  │  GEN        round 4, the branch's number: +7.27 % (kept +7.75 %)
+  │             floor 2.71 % (no-drop)  sign 3/4  n=4
   │             raw: arm median 10.39 t/s vs tip median 9.65 t/s, gen_steady
   │             at min across 4096/6144; the delta is each run against the
   │             mean of its bracketing TIP runs, not against that median
@@ -294,15 +298,31 @@ it rock.
   │             bracket per cycle
   │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
   │             native 24.89 MB .text · lean regime 4096/6144
-  │  PREFILL    reported, not a verdict: 87.25 t/s min-across median vs the
-  │             tip's 80.73 t/s, n=4. Round 4 makes no prefill verdict.
+  │             ─── round 8, TIES, neither confirms nor retracts the above:
+  │             +8.56 %  floor 10.69 %  sign 3/4  n=4 (sensitivity, cold first
+  │             control run excluded: +3.31 % against a 7.17 % floor, TIES)
+  │             raw: arm min-across median 10.00 t/s (10.65 · 10.47 · 8.98 ·
+  │             9.53) vs the tip's 8.96 t/s (8.61 cold · 9.53 · 8.87 · 9.49 ·
+  │             8.96). Two runs read as round 4 did, two fell in the loaded
+  │             window. ⚠ the box was not quiet: the five tip runs spanned
+  │             8.61 to 9.53 and four arm runs ended at load 3.2 to 4.0 with no
+  │             vitest alive, which widened the floor from 2.71 to 10.69
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 13:24-14:37Z · DGX Spark GB10 ·
+  │             native 24.89 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: round 4, 87.25 t/s min-across median
+  │             vs the tip's 80.73 t/s, n=4; round 8, 86.47 t/s vs 84.34 t/s,
+  │             n=4. Neither round makes a prefill verdict.
   │
-  │  VERDICT    POSITIVE - beats the new tip on both readings, +7.27 % no-drop and
-  │             +7.75 % kept. ⚠ The first run of the round read 9.24 t/s, below the
-  │             tip, and the next three read 10.34 to 10.47. The kept reading drops
-  │             that run as a straggler; the no-drop reading keeps it and still wins.
-  │             A cold io_uring ring on a first run and a straggler look identical
-  │             here, and THIS ROUND CANNOT TELL THEM APART. The next round starts warm.
+  │  VERDICT    POSITIVE on round 4, +7.27 % no-drop and +7.75 % kept, and that
+  │             stays the branch's number. ⚠ Round 4's first run read 9.24 t/s,
+  │             below the tip, and the next three read 10.34 to 10.47; a cold
+  │             io_uring ring and an ordinary straggler look identical there and
+  │             round 4 could not tell them apart. Round 8 ran the branch warm
+  │             and read +8.56 % at 3 of 4 under a 10.69 floor: two runs at 10.47
+  │             to 10.65, as round 4, and two at 8.98 to 9.53 in the loaded
+  │             window. That TIES, so it neither confirms nor retracts round 4.
+  │             Round 9 re-measures it on a quiet box
   │
   │  SWITCH     DS4_CUDA_FETCH_QD=<n> ring queue depth, default 64, clamped 8-512
   │             DS4_CUDA_FETCH_URING=0 falls back to the pread pool
@@ -444,3 +464,22 @@ The line to clear: the clean tip reads **9.65 t/s median**
 - The two readings differ only in whether that first run is kept, and both say BEATS, so the straggler-rule problem in section 3 of the result does not decide this card.
 
 Sealed rule `2026-09-17-R4-PREREGISTERED-RULE.txt` @`3914a3226`, result `2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md`, raw CSVs and runlog in `sweeps/r4/`.
+
+## Round 8, 2026-09-17: warm, and still not settled
+
+- **Round 4's +7.27 % stands as the branch's number.** Round 8 read **+8.56 %, 3 of 4, under a
+  10.69 % floor**, which is a TIE and decides nothing either way. Two of its runs read 10.47 and
+  10.65 t/s, exactly where round 4's three good runs sat; the other two read 8.98 and 9.53 in the
+  loaded window that widened the round's floor.
+- **The cold-ring question from round 4 is answered in one direction only.** This round started
+  warm (the tool now discards a warm-up run, `c8699505b`) and the first run was one of the two
+  high ones, so no cold-start dip appeared. That is consistent with the cold-ring reading and does
+  not exclude an ordinary straggler at n=4.
+- ⚠ **Stacking this lever with hitsfirst loses both wins.** `triple-winners` (pool + hitsfirst +
+  prefetch-pool) read 9.13 to 9.42 in this same session, level with the tip, while this branch's
+  clean runs read 10.5 to 10.65 and hitsfirst alone read 10.3 to 10.5. Both levers touch the same
+  expert-pread path; the claim ledger is the first suspect and round 8 does not prove it.
+
+Sealed rule `2026-09-17-R8-PREREGISTERED-RULE.txt` @`c173ad6d7`, result
+`2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md`,
+raw CSVs and runlog in `sweeps/r8/`.
