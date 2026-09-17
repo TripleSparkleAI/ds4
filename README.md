@@ -281,26 +281,33 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-prefill-readahead-order                        NOT YET
+  │  BRANCH     triple-prefill-readahead-order                NEGATIVE
   │
   │  WHAT       reorders the prefill read-ahead's victim choice and holds the
   │             earliest layers of the scan, so the experts decode needs first
   │             are the last ones evicted: the prefill hit list survives into
   │             decode. Residency policy only, no byte of cache added.
   │
-  │  LATEST     never in a sealed round
-  │             round 3 is measuring this branch now: in flight, unresolved
+  │  LATEST     round 4 · 2026-09-17 · LOSES · -11.38 % (kept -11.38 %) ·
+  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
   │
-  │  GEN        not measured. A 2026-09-15 native pass exists on the Spark and
-  │             is WITHHELD, because its off arms beat their own control and an
-  │             off arm IS the control.
-  │  PREFILL    not measured
+  │  GEN        -11.38 % (kept -11.38 %)  floor 2.71 % (no-drop)  sign 0/4  n=4
+  │             raw: arm median 8.55 t/s vs tip median 9.65 t/s, gen_steady
+  │             at min across 4096/6144; the delta is each run against the
+  │             mean of its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
+  │             bracket per cycle
+  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
+  │             native 24.88 MB .text · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 86.34 t/s min-across median vs the
+  │             tip's 80.73 t/s, n=4. Round 4 makes no prefill verdict.
   │
-  │  VERDICT    NOT YET - it needs a clean interleaved A/B of both arms from a
-  │             Spark build. The number it has to move is in this card's own tip
-  │             instrumentation below: the first 32 decode tokens miss 32.22
-  │             experts/token at hit rate 0.8658 on the unpatched tip, against a
-  │             steady state of 9.16 at 0.9618.
+  │  VERDICT    NEGATIVE - loses by eleven percent, -11.38 % on BOTH readings, sign
+  │             0 of 4, every repeat between -9.7 and -13.3. THE LARGEST LOSS THIS
+  │             PROJECT HAS MEASURED ON ANY LEVER. The two readings are identical,
+  │             so the straggler rule does not enter into it. Holding the earliest
+  │             layers of the prefill scan buys residency and pays for it in decode
+  │             throughput, and the price is four times the floor.
   │
   │  SWITCH     DS4_PREFILL_READAHEAD_HOLD, default on; =0 (off/no/false)
   │             restores upstream exactly. DS4_CUDA_SSD_PREFETCH_STATS=1 counts
@@ -443,3 +450,11 @@ pool change. The figure is context, never a result of this card.
 
 The line to clear: the clean tip reads **9.65 t/s median**
 (`2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md`).
+
+## Round 4, 2026-09-17: on the new tip, in a sealed round
+
+- **The largest loss ever measured on a lever here: -11.38 %, identical on both readings.** Sign 0 of 4, every repeat between -9.7 and -13.3, against a no-drop floor of 2.71 %. Raw min-across medians 8.55 t/s arm against 9.65 t/s tip.
+- The 2026-09-15 pass that was withheld for a bad control is superseded: this is a clean interleaved A/B from a Spark build at `73283614`, with `DS4_PREFILL_READAHEAD_HOLD` on its default ON.
+- ⚠ **The ten-lever stack ships this lever ON by default** and still beat the tip by +4.65 % in the same round. Round 4 attributes nothing, and the stack with the hold OFF is one of round 7's arms. Prefill min-across median 86.34 t/s against the tip's 80.73 is reported, not a verdict.
+
+Sealed rule `2026-09-17-R4-PREREGISTERED-RULE.txt` @`3914a3226`, result `2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md`, raw CSVs and runlog in `sweeps/r4/`.
