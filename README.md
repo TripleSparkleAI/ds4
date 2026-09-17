@@ -303,10 +303,12 @@ it rock.
   │  VERDICT    POSITIVE - beats the new tip on both readings, +4.65 % no-drop and
   │             +6.87 % kept, sign 4 of 4. First measurement of this tree, and it
   │             compiled first time at 24.94 MB .text, which refuted prediction P4.
-  │             ⚠ It ships the WRONG SIDE of both levers round 4 measured solo:
-  │             prefill-readahead-order ON at -11.38 % solo, and hits-first OFF at
-  │             +6.47 % solo. Nothing here attributes the stack's number to any
-  │             lever; the seal forbids it. ROUND 7 asks the question directly.
+  │             ⚠ Both levers round 4 measured solo are OFF in this tree by default:
+  │             hits-first (+6.47 % solo, the wrong side) and the readahead arm
+  │             (-11.38 % solo, the right side; corrected 11:25Z from a source read
+  │             at the sealed sha, the card had said ON). Nothing here attributes the
+  │             stack's number to any lever; the seal forbids it. ROUND 7 flips both
+  │             switches on this same binary.
   │
   │  SWITCH     ten levers, see the table below; plus
   │             DS4_CUDA_PREFETCH_SWEEP_ORDER=1 restores the sweep-aware order
@@ -325,7 +327,7 @@ names every judgement call. The branch's history mirrors the manifest: one commi
    triple-tip-2026-09-16  12997e9c8   (Qwen tip, UP)
         +-- pool · margin · draincut · pagecache · hotlist        [on]
         +-- engram-lead · engram-read-threads                     [on]
-        +-- readahead-order                                       [on, no off switch]
+        +-- readahead-order                                       [OFF by default; DS4_PREFILL_READAHEAD_HOLD=1 turns the arm on]
         +-- hits-first                                            [OFF - measured null solo]
         +-- prefetch-pool                                         [on]
         +-- victim order used-ascending                           [the measured default]
@@ -342,7 +344,7 @@ names every judgement call. The branch's history mirrors the manifest: one commi
 | hotlist | `DS4_CUDA_EXPERT_HOTLIST_WRITE` | on | `=0` |
 | engram-lead | `DS4_V41_ENGRAM_LEAD_OFF` | on | set |
 | engram-read-threads | `DS4_ENGRAM_READ_THREADS` | request count | `=1` |
-| readahead-order | none | on | needs its own build |
+| readahead-order | `DS4_PREFILL_READAHEAD_HOLD` | **off** (also on with `DS4_CUDA_PREFETCH_SWEEP_ORDER=1`) | `=1` turns the arm on |
 | hits-first | `DS4_CUDA_HITS_FIRST` | **off** | `=1` turns it on |
 | prefetch-pool | `DS4_CUDA_SSD_PREFETCH_CHUNK_MB` | 8 MB | knob |
 | victim order | `DS4_CUDA_PREFETCH_SWEEP_ORDER` | used-ascending | `=1` sweep-aware |
