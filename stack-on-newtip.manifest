@@ -1,0 +1,93 @@
+# <claudes_code_comments>
+# ** THE LINE KINDS ** are the same as stack.manifest's; that file carries the full legend and
+# this one does not repeat it. Read it there.
+#
+# ** WHAT THIS FILE IS **
+# The SAME ten levers, on the CURRENT tip instead of the stack's own 2026-09-15 base. Its build
+# is the first reproducible attempt at a ten-lever tree on triple-tip-2026-09-16.
+#
+# ⚠ IT IS DELIBERATELY UNRESOLVED. It carries NO resolve lines, so the build STOPS at the first
+# conflict and names it. A conflict list is a valid result and it is the result this file is for:
+# the conflicts are facts about which levers touch one place on the new tip, and the navigator
+# or a lever's own lane decides each one. A resolve line invented by the lane that wrote this
+# manifest would be a guess wearing a record's clothes.
+#
+# ** WHY THE LEVER BASES DIFFER, AND IT IS NOT UNTIDINESS **
+# Six lever branches were rebased onto triple-tip-2026-09-16 on 2026-09-17 and four were not:
+#     git merge-base --is-ancestor triple-tip-2026-09-16 triple-<name>
+#         yes  pool hotlist engram-read-threads prefill-readahead-order hitsfirst prefetch-pool
+#         no   margin draincut pagecache engram-lead
+# So the six are diffed against the new tip and carry only their own code, while the four are
+# diffed against the old lever base 06cd63786 (the tree 84ba6ef1b also has) and are applied
+# forward onto the new tip. Diffing the four against the new tip would emit a reversal of the
+# whole Qwen delta; diffing the six against the old base would emit the Qwen delta itself. Each
+# lever is diffed against the tree it was written on. That is what the repeated lever-base line
+# is for.
+#
+# ** DERIVATION **
+#   base        git rev-parse triple-tip-2026-09-16
+#   six shas    git rev-parse triple-<name>            (live heads, already on the tip)
+#   four shas   git rev-parse backup/triple-<name>     (pre-rebase heads, on the old base)
+#   order       README.md's own "How this tree was built" figure, unchanged
+#   defaults    carried across from stack.manifest unchanged: hits-first off, the rest on
+#
+# ** THE MEASURED CONFLICT LIST - 61 HUNKS, 2026-09-17 **
+# Recorded in stack-on-newtip.conflicts.txt, produced by --survey. Six levers conflict and four
+# apply clean; three files carry all of it.
+#     triple-pool triple-margin triple-draincut triple-engram-lead .......... clean
+#     triple-pagecache ds4_cuda.cu 1 · triple-hotlist ds4_cuda.cu 1
+#     triple-engram-read-threads ds4.c 1
+#     triple-prefill-readahead-order Makefile 1 + ds4_cuda.cu 1
+#     triple-hitsfirst Makefile 6 + ds4_cuda.cu 16
+#     triple-prefetch-pool Makefile 3 + ds4_cuda.cu 31
+# The old base needed 40 hunks for the same ten levers. It is 61 now because hits-first and
+# prefetch-pool were each repaired independently on 2026-09-16 and both rewrite the pread
+# pool's staging, and because the repair lanes' six new pure headers each add a Makefile test
+# rule in the same place.
+#
+# ** RUN IT **
+#   bash build_stack.sh stack-on-newtip.manifest --dry-run
+#   bash build_stack.sh stack-on-newtip.manifest            # stops at the first conflict
+#   bash build_stack.sh stack-on-newtip.manifest --survey   # enumerates all 61, decides none
+#
+# ** WHAT IS NOT IN HERE, AND MUST BE DECIDED BEFORE IT IS **
+#   local dd189b2d7 - the victim-order commit. It is on triple-all-fastest alone and the
+#       2026-09-16 bisect says ONE eviction comparator in that region carries the whole loss,
+#       so whether it belongs in a tree on the new tip is a MEASURED question, not a merge one.
+#       Left out, named here, so the omission is visible rather than silent.
+#   patch stack.patches/99-hand-assembly.patch - 12 hunks of hand assembly against the OLD
+#       base. Most of it is superseded by the levers' own 2026-09-16 repairs and it must be
+#       re-derived against this base, never carried across.
+# </claudes_code_comments>
+
+base        12997e9c84b39258f28781b808d18ea0069af2ac
+
+paths       *.c *.h *.cu *.cuh *.inc Makefile tests/ cuda/ speed-bench/*.c gguf-tools/
+
+# --- the five that went on together first -----------------------------------------------
+lever-base  12997e9c84b39258f28781b808d18ea0069af2ac
+lever   triple-pool                     1b80adae32259be2fdec975ad8daf08c1e5ecdf4   on
+
+lever-base  06cd63786ce39f92910ba3ecf193b6d53c18af26
+lever   triple-margin                   4c0750872a1f08e5fd4afd986c256062e25ff74d   on
+lever   triple-draincut                 e108fd71f4f8f49a957485d84eef673ea2fd6a2d   on
+lever   triple-pagecache                a17de28c342edd9baffb8a3e685b5551ae5379be   on
+
+lever-base  12997e9c84b39258f28781b808d18ea0069af2ac
+lever   triple-hotlist                  ce886cddba135754e32484c1f6ced6b4be0449b5   on
+
+# --- the two Engram levers ---------------------------------------------------------------
+lever-base  06cd63786ce39f92910ba3ecf193b6d53c18af26
+lever   triple-engram-lead              42ff8f9043b2934229f17f96f66a2aad867e5bd0   on
+
+lever-base  12997e9c84b39258f28781b808d18ea0069af2ac
+lever   triple-engram-read-threads      37b2962a7ad60f1a130bd63057df3894b7b20b72   on
+
+# --- the read-ahead order, which has no off switch ---------------------------------------
+lever   triple-prefill-readahead-order  f552eb3c15b2e572c908a02da35ed688c34b6bc5   on
+
+# --- hits-first: compiled in, default off ------------------------------------------------
+lever   triple-hitsfirst                c5eb891aabec98bf411b0a4f5039a2c4fb5abdfd   off
+
+# --- the prefetch pool, the tenth lever --------------------------------------------------
+lever   triple-prefetch-pool            dd72115ee5b8cdcf6de5594520016156a1a3406e   on

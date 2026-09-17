@@ -1,0 +1,154 @@
+diff --git b/ds4.c a/ds4.c
+index 421e56da4..2a05aa1ce 100644
+--- b/ds4.c
++++ a/ds4.c
+@@ -41386,9 +41386,10 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model
+      * rather than outliving the step that started it. */
+     const bool lead_hit = ds41_engram_lead_take(g->lead, token, g->pos,
+                                                 &g->history, g->rows);
++    /* The miss path goes through the batch reader, so the request count decides
++     * how many readers serve it (DS4_ENGRAM_READ_THREADS). One row here is the
++     * decode case; the lead read above is what usually spares it. */
+     for (uint32_t i = 0; !lead_hit && !ds41_image_at(g, g->pos) && i < 2; i++) {
+-        if (!ds4_engram_read(&g->table[i], ids[i], DS4_ENGRAM_COLS, g->rows[i])) return false;
+-    for (uint32_t i = 0; !ds41_image_at(g, g->pos) && i < 2; i++) {
+         if (!ds4_engram_read_batch(&g->table[i], ids[i], 1, DS4_ENGRAM_COLS,
+                                    g->rows[i])) return false;
+     }
+diff --git b/ds4_cuda.cu a/ds4_cuda.cu
+index aa40adf6d..a4086d7fc 100644
+--- b/ds4_cuda.cu
++++ a/ds4_cuda.cu
+@@ -2117,7 +2117,7 @@ static void cuda_model_drop_file_pages(uint64_t offset, uint64_t bytes) {
+ }
+ 
+ /* Release a model range that was just staged into device memory.  The device
+- * copy is now the only reader of those bytes: a later cache miss goes back to
++ * copy is now the only reader of these bytes: a later cache miss goes back to
+  * the SSD, never to page cache, so on a unified-memory part the cached copy
+  * only competes with the expert slots for the same pool.
+  *
+@@ -2134,8 +2134,8 @@ static void cuda_model_release_read_range(const void *model_map, uint64_t model_
+ 
+ /* Ask the kernel to start reading a range we are about to pread.  Only on the
+  * buffered path: with O_DIRECT (the default on Linux) the read bypasses page
+- * cache, so a WILLNEED would fill exactly the cache dropped above and the read
+- * would not use it.  DS4_CUDA_NO_EXPERT_READAHEAD=1 disables it. */
++ * cache, so a WILLNEED would fill exactly the cache dropped above and the
++ * read would not use it. */
+ static void cuda_model_readahead_range(uint64_t offset, uint64_t bytes) {
+ #if defined(POSIX_FADV_WILLNEED)
+     if (g_model_fd < 0 || g_model_direct_fd >= 0 || bytes == 0 ||
+@@ -2428,7 +2428,7 @@ static int cuda_model_copy_to_device_streamed(
+  * rejected direct read must not disable O_DIRECT for the demand path.
+  * ------------------------------------------------------------------------ */
+ 
+-#define DS4_CUDA_EXPERT_PREAD_MAX 32u
++#define DS4_CUDA_EXPERT_PREAD_MAX 16u
+ 
+ typedef struct {
+     uint64_t    offset;        /* byte offset in the model file */
+@@ -2587,10 +2587,10 @@ static int cuda_expert_pread_task_run(const cuda_pread_pool *pool,
+             return 0;
+         }
+         /* A private direct read never entered the page cache, so there is
+-         * nothing to drop; antirez's serial reader skips the same call. */
++         * nothing for fadvise to drop; the mmap advice still applies.  Keep
++         * the stacked tree's order: zap our PTEs first, then drop cache. */
++        cuda_model_discard_source_pages(t->model_map, t->model_size, t->offset + copied, n);
+         if (!pool->no_fadvise) cuda_model_drop_file_pages(t->offset + copied, n);
+-        cuda_model_discard_source_pages(t->model_map, t->model_size,
+-                                        t->offset + copied, n);
+         copied += n;
+     }
+     return 1;
+@@ -2635,7 +2635,7 @@ static void *cuda_expert_pread_worker(void *arg) {
+             if (task_index >= pool->n_tasks) break;
+             cuda_expert_pread_task *t = &pool->tasks[task_index];
+             pthread_mutex_unlock(&pool->mutex);
+-            t->ok = device >= 0 && cuda_expert_pread_task_run(ctx, t);
++            t->ok = device >= 0 && cuda_expert_pread_task_run(pool, ctx, t);
+             pthread_mutex_lock(&pool->mutex);
+             if (task_index < pool->stage_boundary &&
+                 ++pool->stage_done == pool->stage_boundary) {
+@@ -2643,6 +2643,7 @@ static void *cuda_expert_pread_worker(void *arg) {
+             }
+         }
+         if (pool->remaining > 0 && --pool->remaining == 0) {
++            pool->drained_at = cuda_wall_sec();
+             pool->tasks = NULL;
+             pool->n_tasks = 0;
+             pool->active = 0;
+@@ -2748,6 +2749,11 @@ static int cuda_pread_pool_dispatch_start_staged(cuda_pread_pool *pool,
+                                                  cuda_expert_pread_task *tasks,
+                                                  uint32_t n_tasks,
+                                                  uint32_t stage_boundary);
++static int cuda_pread_pool_dispatch_start(cuda_pread_pool *pool,
++                                          cuda_expert_pread_task *tasks,
++                                          uint32_t n_tasks) {
++    return cuda_pread_pool_dispatch_start_staged(pool, tasks, n_tasks, 0);
++}
+ static int cuda_expert_pread_pool_dispatch_start(cuda_expert_pread_task *tasks, uint32_t n_tasks) {
+     return cuda_pread_pool_dispatch_start_staged(&g_expert_pread, tasks, n_tasks, 0);
+ }
+@@ -27848,16 +27854,19 @@ static float *cuda_hf_partials(uint64_t floats) {
+ }
+ static int cuda_hits_first_enabled(void) {
+     static int cached = -1;
+-    /* On by default.  DS4_CUDA_HITS_FIRST=0 disables it and restores the plain
+-     * wait-for-every-miss order, which is the A/B arm the numbers below come
+-     * from.  The two orders are bit-identical: only when the gate/up kernel of
+-     * a resident expert runs changes, never what it computes. */
+-    if (cached < 0) { const char *e = getenv("DS4_CUDA_HITS_FIRST"); cached = !(e && e[0] == '0'); }
++    /* OFF by default in the stacked tree.  This lever measured a NULL, and the
++     * reason is structural rather than a bad implementation: the decode path's
++     * shared-expert kernels already occupy the window it wanted to fill.  It is
++     * kept compiled in so the A/B stays reproducible - DS4_CUDA_HITS_FIRST=1
++     * turns it on for a run.  The two orders are bit-identical: only when the
++     * gate/up kernel of a resident expert runs changes, never what it computes. */
++    if (cached < 0) { const char *e = getenv("DS4_CUDA_HITS_FIRST"); cached = (e && e[0] != '0'); }
+     return cached;
+ }
+ static int cuda_hits_first_staged_enabled(void) {
+     static int cached = -1;
+-    if (cached < 0) { const char *e = getenv("DS4_CUDA_HITS_FIRST_STAGED"); cached = !(e && e[0] == '0'); }
++    /* Same default as the primary order: off unless asked for. */
++    if (cached < 0) { const char *e = getenv("DS4_CUDA_HITS_FIRST_STAGED"); cached = (e && e[0] != '0'); }
+     return cached;
+ }
+ /* Finish a hits-first load: wait for the pool, then the same per-miss
+@@ -28300,6 +28309,10 @@ static int cuda_stream_selected_cache_begin_load(
+             g_stream_expert_by_gate[gate] = victim;
+             slots[i] = (int32_t)victim;
+         }
++        /* Buffered path only (a no-op under O_DIRECT): let the kernel start
++         * every miss's read before the first pread waits on it. */
++        for (size_t k = 0; k < tasks.size(); k++)
++            cuda_model_readahead_range(tasks[k].offset, tasks[k].bytes);
+         int hits_first_started = 0;
+         if (!tasks.empty() && slot_count <= 8u && cuda_hits_first_enabled()) {
+             g_hits_first.staged = 0;
+@@ -28363,11 +28376,12 @@ static int cuda_stream_selected_cache_begin_load(
+         }
+         if (getenv("DS4_CUDA_EXPERT_CACHE_STATS") && g_stream_expert_lookups &&
+             g_stream_expert_lookups / 4000u != (g_stream_expert_lookups - unique.size()) / 4000u)
+-            fprintf(stderr, "ds4: [expert-cache] %llu lookups, hit_rate=%.3f, resident=%zu/%zu, evictions=%llu, read %.1f s\n",
++            fprintf(stderr, "ds4: [expert-cache] %llu lookups, hit_rate=%.3f, resident=%zu/%zu, evictions=%llu, read %.1f s, armed_readbacks=%llu\n",
+                     (unsigned long long)g_stream_expert_lookups,
+                     (double)g_stream_expert_hits / (double)g_stream_expert_lookups,
+                     g_stream_expert_by_gate.size(), g_stream_expert_slots.size(),
+-                    (unsigned long long)g_stream_expert_evictions, g_stream_expert_sec_read);
++                    (unsigned long long)g_stream_expert_evictions, g_stream_expert_sec_read,
++                    (unsigned long long)g_selected_readback_taken);
+         g_stream_prefill_ids = remap;
+         g_stream_prefill_slots = slots;
+         for (auto &id : remap) id = slots[id];
+@@ -28460,6 +28474,8 @@ static void cuda_stream_prefetch_stats_report(void) {
+             (unsigned long long)st.published,
+             (unsigned long long)st.dropped,
+             (unsigned long long)st.slots_published);
++}
++
+ /* Task size for the pooled read-ahead, which is also the per-worker staging
+  * size the pool allocates.  Pinned cost is threads * (this + 2 * align). */
+ static uint64_t cuda_stream_prefetch_chunk_bytes(void) {

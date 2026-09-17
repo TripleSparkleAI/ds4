@@ -1,0 +1,150 @@
+# <claudes_code_comments>
+# ** THE LINE KINDS **
+# base    <sha>                          the tree every lever is applied onto. a SHA, never a
+#                                        branch: a branch moves and a sha does not.
+# paths   <pathspec> ...                 the BUILD SURFACE. --check compares exactly these.
+#                                        docs are outside it on purpose: the stack's own note
+#                                        says "README.md excluded from every patch".
+# lever   <branch> <sha> <on|off>        one lever. its code is the diff of <sha> against
+#                                        lever-base, applied in file order below. on|off is the
+#                                        RUNTIME default of its switch in the built tree, not
+#                                        whether the code is applied - every lever is compiled in.
+# lever-base <sha>                       the tree each following lever's diff is taken against.
+#                                        MAY APPEAR MORE THAN ONCE: it rebinds for the levers
+#                                        below it, because lever branches do not all share one
+#                                        base. see DERIVATION.
+# resolve <file> <NN> <ours|theirs|both|bothrev>
+#                                        one conflict hunk, numbered in file order within the
+#                                        lever whose apply raised it. ours = the tree so far
+#                                        (base plus earlier levers), theirs = the incoming
+#                                        lever, both = keep ours then theirs, bothrev = the
+#                                        reverse. a hunk with no resolve line STOPS the build.
+# local   <sha> <label>                  a code commit that exists only on the stack's own
+#                                        branch. no lever carries it.
+# patch   <file> <label>                 recorded hand-edit, applied last, stored under
+#                                        stack.patches/. it is data, not memory.
+#
+# ** WHAT THIS FILE IS **
+# The definition of the tree on branch triple-all-fastest at ea7920032, derived from the
+# repository rather than written from memory, so that the stack stops being a curated artifact
+# and becomes a build product. 2026-09-16-PLAN-integration-the-stack-must-be-built-not-curated.md
+# is the design; this is its first instance.
+#
+# ** DERIVATION - the command behind every line **
+#   base            git rev-parse 84ba6ef1b
+#                   read from README.md "How this tree was built": base is tip-latest
+#                   9139e2ae5 + PR #1034 + #1035. 84ba6ef1b is that tree.
+#   lever-base      git diff --stat 84ba6ef1b backup/triple-newtip-v41   ->  EMPTY
+#                   the two trees are identical, so a lever diff taken against
+#                   backup/triple-newtip-v41 is a diff against the base. it is named
+#                   separately because every backup lever branch descends from it and none
+#                   descends from 84ba6ef1b (both are siblings off 9139e2ae5), so a diff
+#                   against the commit would carry the fork as noise.
+#   lever list      README.md, the "How this tree was built" figure, ten names in apply order
+#   lever shas      git rev-parse backup/triple-<name>
+#                   the BACKUP refs, not the live branches. six live branches were rebased onto
+#                   triple-tip-2026-09-16 on 2026-09-17, so their diffs against this base carry
+#                   the whole Qwen tip delta. every lever's own code commit is dated
+#                   2026-09-14 11:36 to 2026-09-15 14:31, all before the stack was cut at
+#                   2026-09-15 21:20, so the backup heads are what the stack was built from:
+#                   git log --format='%h %ad %s' --date=iso \
+#                       backup/triple-newtip-v41..backup/triple-<name> -- '*.c' '*.h' '*.cu'
+#   on|off          git show ea7920032:ds4_cuda.cu | grep -o 'DS4_[A-Z0-9_]*' | sort -u
+#                   compared against the same over 84ba6ef1b, then each new switch traced to
+#                   the one lever that introduces it:
+#                       git diff backup/triple-newtip-v41 backup/triple-<name> \
+#                           -- '*.c' '*.h' '*.cu' | grep '^+' | grep -o 'DS4_[A-Z0-9_]*'
+#                   every switch in the stack resolves to exactly one lever except
+#                   DS4_CUDA_PREFETCH_SWEEP_ORDER, which is the `local` line below.
+#   resolve         derived once, by applying each lever with `git apply --3way` and choosing,
+#                   per conflict hunk, the side that brings the file closest to ea7920032.
+#                   40 hunks, in four files-worth of conflict across four levers.
+#   local           git grep -c DS4_CUDA_PREFETCH_SWEEP_ORDER over every triple-* and
+#                   backup/triple-* ref returns a hit on triple-all-fastest ALONE.
+#   patch           git diff -R ea7920032 -- ds4.c ds4_cuda.cu, taken in the built tree after
+#                   the ten levers and the local commit. 12 hunks that no lever carries.
+#
+# ** THE CHECK **
+#   bash build_stack.sh stack.manifest --check ea7920032
+#   code paths byte-identical, 2026-09-17. The full tree differs by 8 documentation and
+#   tooling files and that difference is reported, not hidden: see the check's own output.
+# </claudes_code_comments>
+
+base        84ba6ef1b3e78c924274311f55371302c71f1552
+lever-base  06cd63786ce39f92910ba3ecf193b6d53c18af26
+
+paths       *.c *.h *.cu *.cuh *.inc Makefile tests/ cuda/ speed-bench/*.c gguf-tools/
+
+# --- the ten levers, in the apply order README.md's own figure gives -------------------
+# the five that went on together first
+lever   triple-pool                     b3993818ed4e4d1566c0636de093b4731e83733b   on
+lever   triple-margin                   4c0750872a1f08e5fd4afd986c256062e25ff74d   on
+lever   triple-draincut                 e108fd71f4f8f49a957485d84eef673ea2fd6a2d   on
+lever   triple-pagecache                a17de28c342edd9baffb8a3e685b5551ae5379be   on
+resolve ds4_cuda.cu 00 ours
+lever   triple-hotlist                  0f0ef20683496e3bd3a6017fddda1af4b8cd419d   on
+
+# the two Engram levers
+lever   triple-engram-lead              42ff8f9043b2934229f17f96f66a2aad867e5bd0   on
+lever   triple-engram-read-threads      0d2b566af70c7e70b75c7179f5aa337455cbd292   on
+resolve ds4.c 00 both
+
+# the read-ahead order, which has no off switch
+lever   triple-prefill-readahead-order  bfa997a0bf178c2ecfedcdb39edacf2bfadd11d0   on
+
+# hits-first: compiled in, default flipped on -> off. it measured a null solo.
+lever   triple-hitsfirst                1edd479941860c6b097f5a681aa907e7af146668   off
+resolve ds4_cuda.cu 00 theirs
+resolve ds4_cuda.cu 01 theirs
+resolve ds4_cuda.cu 02 theirs
+resolve ds4_cuda.cu 03 theirs
+resolve ds4_cuda.cu 04 theirs
+resolve ds4_cuda.cu 05 theirs
+resolve ds4_cuda.cu 06 theirs
+resolve ds4_cuda.cu 07 theirs
+resolve ds4_cuda.cu 08 theirs
+
+# the prefetch pool, the tenth lever, and the expensive one to merge
+lever   triple-prefetch-pool            944d4af7e19a80a38f82fbd4e0904bf8eb05ce73   on
+resolve ds4_cuda.cu 00 theirs
+resolve ds4_cuda.cu 01 theirs
+resolve ds4_cuda.cu 02 both
+resolve ds4_cuda.cu 03 theirs
+resolve ds4_cuda.cu 04 theirs
+resolve ds4_cuda.cu 05 theirs
+resolve ds4_cuda.cu 06 theirs
+resolve ds4_cuda.cu 07 theirs
+resolve ds4_cuda.cu 08 theirs
+resolve ds4_cuda.cu 09 theirs
+resolve ds4_cuda.cu 10 ours
+resolve ds4_cuda.cu 11 theirs
+resolve ds4_cuda.cu 12 theirs
+resolve ds4_cuda.cu 13 theirs
+resolve ds4_cuda.cu 14 theirs
+resolve ds4_cuda.cu 15 ours
+resolve ds4_cuda.cu 16 theirs
+resolve ds4_cuda.cu 17 theirs
+resolve ds4_cuda.cu 18 both
+resolve ds4_cuda.cu 19 both
+resolve ds4_cuda.cu 20 theirs
+resolve ds4_cuda.cu 21 ours
+resolve ds4_cuda.cu 22 theirs
+resolve ds4_cuda.cu 23 both
+resolve ds4_cuda.cu 24 both
+resolve ds4_cuda.cu 25 ours
+resolve ds4_cuda.cu 26 both
+resolve ds4_cuda.cu 27 both
+resolve ds4_cuda.cu 28 theirs
+
+# --- stack-local code, carried by no lever branch --------------------------------------
+# the victim order follows the measurement: least-recently-routed is the default.
+# it introduces DS4_CUDA_PREFETCH_SWEEP_ORDER, which appears on triple-all-fastest alone.
+local   dd189b2d7                       victim-order-least-recently-routed
+
+# --- the hand assembly, recorded -------------------------------------------------------
+# 12 hunks over two files that no lever and no local commit accounts for: the hits-first
+# default flip, the stage_boundary bookkeeping, the readahead call at begin_load, the
+# expert-cache stats field, the serial Engram decode read, and five comment rewordings.
+# This is the hand-curation the plan exists to remove. It is written down so the next
+# rebase can decide each hunk on purpose instead of rediscovering it.
+patch   stack.patches/99-hand-assembly.patch   hand-assembly-12-hunks

@@ -1,0 +1,126 @@
+# THE NEW-TIP CONFLICT LIST - 61 hunks owed, 2026-09-17, lane MANIFEST
+#
+# Produced by:  bash build_stack.sh stack-on-newtip.manifest --survey
+# NOT decisions. Every choice reads ??? because a survey enumerates and never decides.
+# Six of the ten levers conflict; four apply clean. Three files carry all of it.
+#
+#   lever                           file          hunks
+#   triple-pool                     -                 0   clean
+#   triple-margin                   -                 0   clean
+#   triple-draincut                 -                 0   clean
+#   triple-pagecache                ds4_cuda.cu       1
+#   triple-hotlist                  ds4_cuda.cu       1
+#   triple-engram-lead              -                 0   clean
+#   triple-engram-read-threads      ds4.c             1
+#   triple-prefill-readahead-order  Makefile          1
+#   triple-prefill-readahead-order  ds4_cuda.cu       1
+#   triple-hitsfirst                Makefile          6
+#   triple-hitsfirst                ds4_cuda.cu      16
+#   triple-prefetch-pool            Makefile          3
+#   triple-prefetch-pool            ds4_cuda.cu      31
+#                                                  ----
+#                                                    61
+#
+# The Makefile hunks are a different animal from the .cu ones and should be decided
+# first: they are test-binary rules for the six pure headers the 2026-09-16 repair lanes
+# added (ds4_prefill_hold.h, ds4_hitsfirst_logic.h, ds4_hotcache.h and siblings). Two
+# levers each add their own rule in the same place, so the answer is almost certainly
+# both for every one of the ten. They are listed as ??? anyway, because almost certainly
+# is what a guess sounds like.
+#
+# The ds4_cuda.cu hunks between hits-first and prefetch-pool are the real work: both
+# levers rewrite the pread pool's staging and both were repaired independently on
+# 2026-09-16, so the conflict is now larger than the 30 hunks the old base needed.
+
+manifest  stack-on-newtip.manifest
+base      12997e9c84b39258f28781b808d18ea0069af2ac
+leverbase 12997e9c84b39258f28781b808d18ea0069af2ac
+paths     *.c *.h *.cu *.cuh *.inc Makefile tests/ cuda/ speed-bench/*.c gguf-tools/
+build dir /Users/happyrobot/Code/TripleSparkle/_flows/dwarfstar/_worktrees/stack-build-20260917T085909Z
+
+  *** SURVEY MODE: this enumerates conflicts. The tree it leaves is NOT a build
+  *** and must not be measured. Nothing here is a resolution decision.
+
+  triple-pool                      1b80adae3 ... clean
+  triple-margin                    4c0750872 ... clean
+  triple-draincut                  e108fd71f ... clean
+  triple-pagecache                 a17de28c3 ... conflicts in: ds4_cuda.cu 
+    resolve ds4_cuda.cu 00 ???   # [triple-pagecache] /* Misses go to the pread pool: every tensor of every miss reads
+    # triple-pagecache: 1 hunks owed in ds4_cuda.cu
+  triple-hotlist                   ce886cddb ... conflicts in: ds4_cuda.cu 
+    resolve ds4_cuda.cu 00 ???   # [triple-hotlist] /* Buffered path only (a no-op under O_DIRECT): let the kernel s
+    # triple-hotlist: 1 hunks owed in ds4_cuda.cu
+  triple-engram-lead               42ff8f904 ... clean
+  triple-engram-read-threads       37b2962a7 ... conflicts in: ds4.c 
+    resolve ds4.c 00 ???   # [triple-engram-read-threads] /* Attribute the blocking Engram table read against the step tha
+    # triple-engram-read-threads: 1 hunks owed in ds4.c
+  triple-prefill-readahead-order   f552eb3c1 ... conflicts in: Makefile ds4_cuda.cu 
+    resolve Makefile 00 ???   # [triple-prefill-readahead-order] tests/test_layer_pack tests/test_engine_mgpu_placement tests/tes
+    # triple-prefill-readahead-order: 1 hunks owed in Makefile
+    resolve ds4_cuda.cu 00 ???   # [triple-prefill-readahead-order] /* ONE VICTIM PASS FOR THE WHOLE BATCH.
+    # triple-prefill-readahead-order: 1 hunks owed in ds4_cuda.cu
+  triple-hitsfirst                 c5eb891aa ... conflicts in: Makefile ds4_cuda.cu 
+    resolve Makefile 00 ???   # [triple-hitsfirst] tests/test_layer_pack tests/test_prefill_hold tests/test_engine_
+    resolve Makefile 01 ???   # [triple-hitsfirst] ./tests/test_prefill_hold
+    resolve Makefile 02 ???   # [triple-hitsfirst] tests/test_prefill_hold: tests/test_prefill_hold.c ds4_prefill_h
+    resolve Makefile 03 ???   # [triple-hitsfirst] tests/test_layer_pack tests/test_prefill_hold tests/test_engine_
+    resolve Makefile 04 ???   # [triple-hitsfirst] ./tests/test_prefill_hold
+    resolve Makefile 05 ???   # [triple-hitsfirst] rm -f tests/test_prefill_hold ds4 ds4-server ds4-bench ds4-eval 
+    # triple-hitsfirst: 6 hunks owed in Makefile
+    resolve ds4_cuda.cu 00 ???   # [triple-hitsfirst] #include "ds4_prefill_hold.h"
+    resolve ds4_cuda.cu 01 ???   # [triple-hitsfirst] *
+    resolve ds4_cuda.cu 02 ???   # [triple-hitsfirst] /* STAGED batches: tasks [0, stage_boundary) form a first stage 
+    resolve ds4_cuda.cu 03 ???   # [triple-hitsfirst] if (direct_fd >= 0 && align > 1 && g_model_file_size != 0 &&
+    resolve ds4_cuda.cu 04 ???   # [triple-hitsfirst] /* Once per fd: every later chunk skips the direct attempt. */
+    resolve ds4_cuda.cu 05 ???   # [triple-hitsfirst] if (task_index < pool->stage_boundary &&
+    resolve ds4_cuda.cu 06 ???   # [triple-hitsfirst] static int cuda_pread_pool_dispatch_start(cuda_pread_pool *pool,
+    resolve ds4_cuda.cu 07 ???   # [triple-hitsfirst] pool->stage_boundary = stage_boundary <= n_tasks ? stage_boundar
+    resolve ds4_cuda.cu 08 ???   # [triple-hitsfirst] /* Block until every task below the stage boundary has finished 
+    resolve ds4_cuda.cu 09 ???   # [triple-hitsfirst] static int cuda_expert_pread_pool_wait(void) { return cuda_pread
+    resolve ds4_cuda.cu 10 ???   # [triple-hitsfirst] cuda_fetch_uring_shutdown();
+    resolve ds4_cuda.cu 11 ???   # [triple-hitsfirst] /* Loop-invariant for every victim scan below: derive it once. *
+    resolve ds4_cuda.cu 12 ???   # [triple-hitsfirst] /* Claim the slot now so a later miss in this batch cannot take 
+    resolve ds4_cuda.cu 13 ???   # [triple-hitsfirst] if (!tasks.empty()) {
+    resolve ds4_cuda.cu 14 ???   # [triple-hitsfirst] if (t3[0].ok && t3[1].ok && t3[2].ok) {
+    resolve ds4_cuda.cu 15 ???   # [triple-hitsfirst] cuda_hf_partials_release();
+    # triple-hitsfirst: 16 hunks owed in ds4_cuda.cu
+  triple-prefetch-pool             dd72115ee ... conflicts in: Makefile ds4_cuda.cu 
+    resolve Makefile 00 ???   # [triple-prefetch-pool] ./tests/test_hitsfirst_logic
+    resolve Makefile 01 ???   # [triple-prefetch-pool] tests/test_layer_pack tests/test_hitsfirst_logic tests/test_engi
+    resolve Makefile 02 ???   # [triple-prefetch-pool] rm -f tests/test_hitsfirst_logic ds4 ds4-server ds4-bench ds4-ev
+    # triple-prefetch-pool: 3 hunks owed in Makefile
+    resolve ds4_cuda.cu 00 ???   # [triple-prefetch-pool] #include "ds4_hotcache.h"
+    resolve ds4_cuda.cu 01 ???   # [triple-prefetch-pool] * --------------------------------------------------------------
+    resolve ds4_cuda.cu 02 ???   # [triple-prefetch-pool] const char *enable_env; /* env var that turns this pool off */
+    resolve ds4_cuda.cu 03 ???   # [triple-prefetch-pool] /* Resolved from the two env vars above on first use, then reuse
+    resolve ds4_cuda.cu 04 ???   # [triple-prefetch-pool] /* STAGED batches: tasks [0, stage_boundary) form a first stage 
+    resolve ds4_cuda.cu 05 ???   # [triple-prefetch-pool] } cuda_pread_pool;
+    resolve ds4_cuda.cu 06 ???   # [triple-prefetch-pool] static int cuda_expert_stage_read_mt(void *stage, uint64_t stage
+    resolve ds4_cuda.cu 07 ???   # [triple-prefetch-pool] return cuda_pread_full(g_model_fd, stage, bytes, offset);
+    resolve ds4_cuda.cu 08 ???   # [triple-prefetch-pool] static int cuda_expert_pread_task_run(cuda_expert_pread_ctx *ctx
+    resolve ds4_cuda.cu 09 ???   # [triple-prefetch-pool] if (!cuda_expert_stage_read_mt(ctx->stage, ctx->stage_bytes,
+    resolve ds4_cuda.cu 10 ???   # [triple-prefetch-pool] "ds4: CUDA expert pread pool upload failed for %s at %.2f MiB: %
+    resolve ds4_cuda.cu 11 ???   # [triple-prefetch-pool] /* Read under the mutex the worker already holds to take a task,
+    resolve ds4_cuda.cu 12 ???   # [triple-prefetch-pool] t->ok = device >= 0 && cuda_expert_pread_task_run(ctx, t);
+    resolve ds4_cuda.cu 13 ???   # [triple-prefetch-pool] const uint64_t pool_align = pool->use_private_fds ? pool->align 
+    resolve ds4_cuda.cu 14 ???   # [triple-prefetch-pool] const uint64_t raw_bytes = stage_bytes + (g_model_direct_align >
+    resolve ds4_cuda.cu 15 ???   # [triple-prefetch-pool] ctx->stage = cuda_align_ptr(ctx->stage_raw, g_model_direct_align
+    resolve ds4_cuda.cu 16 ???   # [triple-prefetch-pool] if (pool->failed || !cuda_expert_pread_pool_enabled() || n_threa
+    resolve ds4_cuda.cu 17 ???   # [triple-prefetch-pool] static int cuda_pread_pool_dispatch_start_staged(cuda_pread_pool
+    resolve ds4_cuda.cu 18 ???   # [triple-prefetch-pool] const uint64_t align = g_model_direct_align > 1 ? g_model_direct
+    resolve ds4_cuda.cu 19 ???   # [triple-prefetch-pool] pool->cancel = 0;
+    resolve ds4_cuda.cu 20 ???   # [triple-prefetch-pool] pool->stage_boundary = stage_boundary <= n_tasks ? stage_boundar
+    resolve ds4_cuda.cu 21 ???   # [triple-prefetch-pool] /* Block until every task below the stage boundary has finished 
+    resolve ds4_cuda.cu 22 ???   # [triple-prefetch-pool] if (direct_unsupported && g_model_direct_fd >= 0) {
+    resolve ds4_cuda.cu 23 ???   # [triple-prefetch-pool] static void cuda_expert_pread_pool_wait_stage(void) { cuda_pread
+    resolve ds4_cuda.cu 24 ???   # [triple-prefetch-pool] /* The SSD read-ahead's own instance. It is SEPARATE from the ex
+    resolve ds4_cuda.cu 25 ???   # [triple-prefetch-pool] /* The miss set is only ever read inside the hits-first block be
+    resolve ds4_cuda.cu 26 ???   # [triple-prefetch-pool] int hits_first_started = 0;
+    resolve ds4_cuda.cu 27 ???   # [triple-prefetch-pool] if (stats_on) g_stream_expert_sec_read += cuda_wall_sec() - t_re
+    resolve ds4_cuda.cu 28 ???   # [triple-prefetch-pool] /* The read-ahead can decline a layer for a dozen reasons and us
+    resolve ds4_cuda.cu 29 ???   # [triple-prefetch-pool] g_stream_prefetch_stats.started++;
+    resolve ds4_cuda.cu 30 ???   # [triple-prefetch-pool] cuda_hf_partials_release();
+    # triple-prefetch-pool: 31 hunks owed in ds4_cuda.cu
+
+SURVEY COMPLETE. Every hunk above is a decision owed to the manifest.
+(survey worktree removed: it was never a build)
