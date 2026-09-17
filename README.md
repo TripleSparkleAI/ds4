@@ -286,7 +286,11 @@ it rock.
   │             tree from the manifest alone. Nine levers on, hits-first off,
   │             victim order used-ascending (the measured default).
   │
-  │  LATEST     round 4 · 2026-09-17 · BEATS · +4.65 % (kept +6.87 %) ·
+  │  LATEST     round 9 · 2026-09-17 · +DS4_CUDA_HITS_FIRST=1 · TIES · +3.77 %
+  │             2/3 under a 17.27 floor · median 9.93, the lowest median in both
+  │             rounds it ran ·
+  │             2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
+  │             round 4 · 2026-09-17 · BEATS · +4.65 % (kept +6.87 %) ·
   │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
   │             round 8 · +DS4_CUDA_HITS_FIRST=1 · TIES · +5.46 % (+0.33 sens)
   │             round 8 · +DS4_PREFILL_READAHEAD_HOLD=1 · TIES · +6.64 % (+5.54)
@@ -324,6 +328,20 @@ it rock.
   │             prefill round 8, reported not a verdict, min-across medians vs
   │             the tip's 84.34 t/s, n=4 each: +hits 137.00, +hold 147.16,
   │             +both 144.86 t/s
+  │
+  │             ─── round 9, +hits only, TIES, and it is last of the five arms:
+  │             +3.77 %  floor 17.27 %  sign 2/3  n=3
+  │             raw: arm min-across median 9.93 t/s (8.99 to 10.29, spread 1.30)
+  │             vs the tip's 9.42 t/s (8.51 to 9.98). LOWEST median of the round,
+  │             as in round 8, and the widest spread of any arm measured
+  │             ⚠ the instrument sets that floor, not the arm: the five control
+  │             runs span 8.51 to 9.98 t/s because the page cache holds 2.9 GB of
+  │             an 81 GB model and the bench streams 842 MB/s from the NVMe, so
+  │             identical binaries swing about 8 % run to run
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 14:41-15:36Z · DGX Spark GB10 · native
+  │             24.94 MB .text (r9-allfastestne, 24,943,300; tip 24.86 MB) · lean
+  │             regime 4096/6144 · quiet box, warm-up run discarded
   │
   │  VERDICT    POSITIVE - beats the new tip on both readings, +4.65 % no-drop and
   │             +6.87 % kept, sign 4 of 4. First measurement of this tree, and it
@@ -427,3 +445,18 @@ Sealed rule `2026-09-17-R4-PREREGISTERED-RULE.txt` @`3914a3226`, result `2026-09
 Sealed rule `2026-09-17-R8-PREREGISTERED-RULE.txt` @`c173ad6d7`, result
 `2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md`,
 raw CSVs and runlog in `sweeps/r8/`.
+
+## Round 9, 2026-09-17: lowest median in both rounds it ran
+
+- **With hits-first on, this ten-lever tree reads 9.93 t/s, +3.77 %, sign 2 of 3, TIES.** It is
+  the LOWEST median of the round's five arms, exactly as it was in round 8, and its spread of 1.30
+  is the widest measured. Round 4's +4.65 % stays the card's own number.
+- **The comparison that matters is with the same lever alone.** hitsfirst solo reads 10.41 with a
+  spread of 0.19 in this same session. The ten-lever tree carrying that lever reads 9.93 with a
+  spread of 1.30, so the other nine levers carry something that costs, in two sealed rounds.
+- **The default does not come back here.** `triple-all-fastest` is the new tip plus hitsfirst, and
+  round 9 confirms it rather than leaving it provisional.
+
+Sealed rule `2026-09-17-R9-PREREGISTERED-RULE.txt` @`60d1bd06a`, result
+`2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md`,
+raw CSVs and runlog in `sweeps/r9/`.
