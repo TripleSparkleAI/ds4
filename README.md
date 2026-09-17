@@ -284,29 +284,30 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-hitsfirst                                    POSITIVE
+  │  BRANCH     triple-hitsfirst                              POSITIVE
   │
   │  WHAT       launches gate/up/down for the experts already resident
   │             before the miss reads land, so a token does not stall on
   │             the slowest read in the batch
   │
-  │  LATEST     attrib phase 2 · 2026-09-16 · LOSES AT 4096, TIES ELSEWHERE:
-  │             -4.23 % at ctx 4096, sign 0/6, floor 2.89 %, cleared 1.5x;
-  │             -0.57 / -0.76 / -0.95 % at 6144 / 8192 / min, all inside it;
-  │             min-vs-min 9.55 vs 9.55 = +0.00 %
-  │             (2026-09-16-triple-all-fastest-attrib-hits-first-on.txt)
-  │             ⚠ that arm is the NINE-lever binary at dd82361a, not this branch
-  │             round 3 is measuring this branch now: in flight, unresolved
+  │  LATEST     round 4 · 2026-09-17 · BEATS · +6.47 % (kept +7.93 %) ·
+  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
   │
-  │  GEN        10.35 t/s  vs control 9.56  +8.3 %  floor 4.9 %  n=2
-  │             control = unpatched tip, interleaved, same native vintage
-  │             session = 2026-09-15 · DGX Spark GB10 · native 23.1 MB .text · unstamped
-  │  PREFILL    not measured
+  │  GEN        +6.47 % (kept +7.93 %)  floor 2.71 % (no-drop)  sign 4/4  n=4
+  │             raw: arm median 10.37 t/s vs tip median 9.65 t/s, gen_steady
+  │             at min across 4096/6144; the delta is each run against the
+  │             mean of its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
+  │             bracket per cycle
+  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
+  │             native 24.89 MB .text · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 83.47 t/s min-across median vs the
+  │             tip's 80.73 t/s, n=4. Round 4 makes no prefill verdict.
   │
-  │  VERDICT    POSITIVE - the only solo generation delta in the five-branch
-  │             series that cleared its own floor, +8.3 % against 4.9 % at n=2.
-  │             In the stack it ties the tip at three readings of four and loses
-  │             -4.23 % at 4096. The repair ca5232d40 is unmeasured everywhere.
+  │  VERDICT    POSITIVE - beats the new tip on both readings, +6.47 % no-drop
+  │             and +7.93 % kept, with all four repeats above +6.4 %. The
+  │             2026-09-15 solo win reproduces on the new tip, and bigger. The two
+  │             readings agree here, so nothing turns on the straggler rule.
   │
   │  SWITCH     DS4_CUDA_HITS_FIRST=1 (default OFF in the stack; =0 is wait-then-launch)
   │             DS4_CUDA_HITS_FIRST_STAGED=0 keeps hits-first, single-stage read order
@@ -456,3 +457,11 @@ independent control each.
   branch diff, or at an untested switch.
 - A CUDA build, and a measurement on the new tip `triple-tip-2026-09-16`. Nothing on this
   branch has been measured since the repair landed, so the card's numbers all pre-date it.
+
+## Round 4, 2026-09-17: on the new tip, in a sealed round
+
+- **First measurement of this branch on the new tip, and it wins.** +6.47 % no-drop, +7.93 % kept, sign 4 of 4, against a no-drop floor of 2.71 %. Raw min-across medians 10.37 t/s arm against 9.65 t/s tip.
+- The two readings agree, so the round-4 straggler-rule problem (section 3 of the result) changes nothing on this card.
+- This answers the two items the Still open list below asks for: there is now a CUDA build at `3e477367` and a measurement on `triple-tip-2026-09-16`. The 4096 deficit inside the nine-lever stack is untouched by round 4, which measured this branch solo.
+
+Sealed rule `2026-09-17-R4-PREREGISTERED-RULE.txt` @`3914a3226`, result `2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md`, raw CSVs and runlog in `sweeps/r4/`.
