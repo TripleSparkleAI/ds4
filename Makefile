@@ -724,6 +724,17 @@ speed-bench/engram_decode_bench: speed-bench/engram_decode_bench.c ds4_engram.c 
 .PHONY: engram-decode-bench
 engram-decode-bench: speed-bench/engram_decode_bench
 
+# THE CUDA EXPERT CACHE'S DECISIONS.  Pure C, no CUDA, no model, no GPU:
+# proves the decay rule refuses a value it cannot read whole, and that the
+# victim scan picks exactly the slots the per-miss scan picked while reading
+# the slot vector once per batch instead of once per miss.  See ds4_hotcache.h.
+tests/test_hotcache: tests/test_hotcache.c ds4_hotcache.h
+	$(CC) -O2 -g -Wall -Wextra -std=c11 -I. -o $@ tests/test_hotcache.c
+
+.PHONY: test-hotcache
+test-hotcache: tests/test_hotcache
+	./tests/test_hotcache
+
 tests/test_engram: tests/test_engram.c ds4_engram.c ds4_engram.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -o $@ tests/test_engram.c ds4_engram.c $(LDLIBS)
 
@@ -1104,6 +1115,7 @@ clean:
 	rm -f tests/test_glm_attention tests/test_glm_attention_rocm
 	rm -f speed-bench/engram_decode_bench
 	rm -f tests/test_ssd_cache tests/test_engram
+	rm -f tests/test_hotcache
 	rm -f tests/test_session_state tests/test_session_state_gpu tests/test_tp_commands
 	rm -f tests/test_tp_rdma tests/test_tp_link tests/test_tp_tcp
 	rm -f tests/test_metal_tp_spec
