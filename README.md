@@ -267,3 +267,109 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
+
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+
+Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29 verdicts all pass (it stops at ds4_test, whose model is absent in a worktree, identically before and after), no C files touched. ⚠ Re-counted on this Mac 2026-09-17: **26** verdicts, all pass, stopping at ds4_test as before. Counting the run's `PASS` and `ok` verdict lines does not reproduce 29, on this branch or on any of the eight, so 26 is the current figure and 29 is superseded. `granule_discrimination.py --selftest` re-run the same day: **21/21 PASS**.
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-granule                                      NEGATIVE
+  │
+  │  WHAT       offline, CPU only: does a sparse-distributed (SDR) expansion
+  │             make a cheap front-cache lookup more discriminative than a
+  │             plain hash at the same address budget? Run on the committed
+  │             track-3 token streams
+  │
+  │  LATEST     granule run of record · 2026-09-16 · KILLED: the plain hash
+  │             wins 10 of 10 matched-entropy contrasts and 16 of 16
+  │             matched-byte contrasts, every one by more than the sealed
+  │             SESOI of 0.010; dDISCR -0.0414 to -0.2629 and -0.0294 to
+  │             -1.6357 (experiments/granule/MEASURED_GRANULE_sparse-expansion
+  │             -vs-plain-hash-discrimination_2026-09-16.md, run of record
+  │             @466ad0ed8, laptop CPU, 10.0 s wall)
+  │             ⚠ this is the branch's own prereg-sealed run, not one of the
+  │             named sealed rounds - no round has ever carried this branch
+  │
+  │  GEN        not measured - there is no engine code, no switch and no
+  │             binary on this branch, so the quantity does not exist for it
+  │  PREFILL    not measured - same reason
+  │
+  │  VERDICT    NEGATIVE - killed by its own measurement. The expansion's
+  │             effective address space plateaus near 2^15 whatever it is
+  │             given, so it loses every contrast at matched budget
+  │
+  │  SWITCH     NONE - an offline experiment under experiments/granule/, no
+  │             DS4_* knob exists and none is proposed
+  │  OUTPUT     not re-run - the engine files are byte-identical to the tip
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+## The mechanism, and what the measurement found
+
+- Both arms key a 3-gram of token ids.
+- The plain hash XORs three multiplied words through a splitmix64 finalizer into a dense code.
+- The expansion unions three `SDR.random` per-token codes (from `wikis/WIKI_SDR/canonical/`,
+  imported read-only) into a k-of-m sparse code.
+- One readout serves both: popcount distance, HIT iff distance <= D, with D fitted per arm on a
+  calibration split and frozen on held-out, ties going to the smaller D.
+- `DISCR = TMR - max(FMR_rand, FMR_conf)`.
+- Two budget readings: matched entropy (`log2 C(m,k) = b`) and matched bytes (both W bits wide).
+
+| measurement | value | reading |
+| --- | ---: | --- |
+| dDISCR, matched entropy (5 budgets x 2 streams) | -0.0414 to -0.2629 | hash wins 10 of 10 |
+| dDISCR, matched bytes (8 widths x 2 streams) | -0.0294 to -1.6357 | hash wins 16 of 16 |
+| expansion effective bits, b=28 / W=1024 | 14.71 / 14.96 | nominal 28.00 / 144.23 |
+| NEAR_ENTRY at FMR_conf = 0.05, expansion against hash | 0.0098-0.0398 against 0.0000-0.0010 | above SESOI at 9 of 10 |
+| `false_match_probability` closed form against measured collisions | understates 1.24x to 1025x | addresses are not independent draws |
+
+```
+   THE ADDRESS SPACE STOPS LISTENING - effective bits as the budget rises
+
+   plain hash   12.15 ──▶ 15.83 ──▶ >20     tracks b, zero collisions from b=20
+   expansion    11.55 ──▶ 13.29 ──▶ 14.05 ──▶ 14.57 ──▶ 14.71
+                                                          ▲ and stops
+
+   at W=1024 it realises 14.96 bits of a nominal 144.23
+
+   why: one active bit per token maps a token id onto ONE of m bits, and the
+   store's 2048 keys come from only 589 distinct ids, so 61 of 2048 keys share
+   an address at m=467 and at m=1174 alike. more width buys nothing.
+```
+
+## What it kills, and what it leaves
+
+- The sealed prediction P1 was a NULL (within +/-0.010) and FAILED. P2 and P3 held. P4 failed in
+  both directions.
+- `experiments/granule/PREREG_GRANULE_2026-09-16.md` was committed at `11dc10e92` before any
+  number existed. Two amendments record instrument repairs that moved no prediction, metric,
+  threshold or budget.
+- The prior was already against this family: presence is 27-45x content (`WIKI/theory/167`, the
+  content control), the encoder was never the axis (T3-69), and a counted shortlist held while a
+  cost claim did not (T3-58).
+- The expansion's one real property is STRUCTURED FALSE ROUTING: 1 to 4 % of never-stored keys
+  land on the perturbed-from entry. That is what makes the loss readable, and it is also the
+  failure a front cache cannot afford ("a cache you cannot miss cleanly is a bug",
+  `NEW_IDEA_THE_CEREBELLAR_FRONT_CACHE_2026-09-01.md`).
+- It closes ONE construction, the union of three random per-token codes. The `k = 6` diagnostic is
+  ahead only at the smallest budget, and that is named rather than swept under the verdict.
+- Every plain-hash-shaped address we already hold, the hot list, the Engram hash and the draft
+  table, is the right shape by this result. That is the result's positive content.
+
+## The record
+
+- Corpus: `experiments/track3-semiotic-codebook/corpus_artifacts/code_tokens.npy` (1,324,191
+  tokens) and `book_tokens.npy` (314,997).
+- Record: `experiments/granule/MEASURED_GRANULE_sparse-expansion-vs-plain-hash-discrimination_2026-09-16.md`.
+- Instrument: `granule_discrimination.py`, `--selftest` **21/21 PASS** re-run 2026-09-17 on this
+  Mac.
+- Data: `granule_results.json`, `granule_run_of_record.log`.
+- ⚠ Nothing here has been re-run on the Spark and nothing needs to be: the experiment is CPU only
+  and its verdict does not depend on the box.
