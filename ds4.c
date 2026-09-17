@@ -40751,6 +40751,17 @@ static bool ds41_moe_partial(ds41_gpu_graph *g, const ds4_model *m,
             m->map, m->size, bias->abs_offset, 0, 0, token,
             DS4_N_EXPERT, DS4_N_EXPERT_USED, DS4_EXPERT_WEIGHT_SCALE, 0, 0, true, false,
             g->route_logits)) return false;
+#if !defined(__APPLE__) && !defined(DS4_ROCM_BUILD)
+    /* Streaming reads the selected ids back on the host before the routed
+     * experts can run.  Queue that readback now, before the shared expert
+     * below, so the wait inside the routed MoE covers the router only and
+     * the shared-expert kernels keep the GPU busy while the host primes the
+     * expert cache.  A refused arm (graph capture, DS4_CUDA_SELECTED_DRAIN_SYNC)
+     * leaves the blocking read in place. */
+    if (g->streaming && g->tp_world != 2)
+        (void)ds4_gpu_selected_readback_begin(g->selected, 0,
+                                              (uint64_t)DS4_N_EXPERT_USED * sizeof(int32_t));
+#endif
     const bool shared_here = !shared_owner || g->tp_rank == (il & 1u);
     bool shared_queued = false;
 #if !defined(__APPLE__) && !defined(DS4_ROCM_BUILD)
