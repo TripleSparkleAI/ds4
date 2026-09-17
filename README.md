@@ -360,7 +360,7 @@ it rock.
   │             ★ the ten-lever stack is no longer the all-fastest default; the
   │             default is hitsfirst alone as of round 8 (round 8 section 5:
   │             `triple-all-fastest` becomes the new tip plus the hitsfirst
-  │             lever, from a one-lever manifest), provisional on round 9
+  │             lever, from a one-lever manifest), and round 9 confirms it
   │
   │  SWITCH     ten levers, see the table below; plus
   │             DS4_CUDA_PREFETCH_SWEEP_ORDER=1 restores the sweep-aware order
