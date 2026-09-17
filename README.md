@@ -267,3 +267,116 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
+
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+
+Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make climbingfibre-check 51 checks 0 failed, cc -fsyntax-only clean on 3 touched C files. `make test` now reaches 26 verdicts, all pass, and stops at ds4_test, which wants a model a worktree does not have; before this branch added ds4_climbingfibre.o to the host CPU object lists it stopped earlier, at the tests/test_session_state link, a failure reproduced at the pre-rebase sha d93005082.
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-climbingfibre                                 NOT YET
+  │
+  │  WHAT       a front cache in front of the frozen model that learns from the
+  │             speculative verifier's own REJECTIONS, online, with a retention
+  │             horizon. It proposes one draft token; it never injects anything
+  │
+  │  LATEST     never in a sealed round
+  │
+  │  GEN        not measured
+  │  PREFILL    not measured
+  │
+  │  VERDICT    NOT YET - no CUDA build of this branch exists, so no arm has
+  │             ever run against a control. The only acceptance figures come
+  │             from a scripted 61-token target, +139 accepted tokens cold and
+  │             +0 with every entry poisoned, which is a mechanism check
+  │
+  │  SWITCH     DS4_CLIMBINGFIBRE=1, default 0. Off allocates nothing, never
+  │             learns and never proposes
+  │             DS4_CLIMBINGFIBRE_HORIZON=session|day|week|forever|<steps>
+  │             _DECAY=hard|half|none · _NGRAM 4 · _CAP 16384
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+## The mechanism
+
+- Every speculative verify already computes the correction and throws it away. At a rejection the
+  engine holds (context, drafted token, the target's actual token): a labelled pair at zero
+  marginal cost.
+- This branch writes that pair into a plain 4-gram table keyed on token ids and demotes the token
+  that was refused.
+- It consults the table in the DSpark proposer ONLY when the engine offered no draft of its own.
+- The verifier that accepts or refuses the proposal is the same model it always ran, so a wrong
+  entry costs work and cannot change an output.
+- Hook sites in `ds4.c`: the first-token refusal (`sample_argmax` against `drafts[0]`), the
+  within-block refusal (`row_tops[i-1] != drafts[i]`, which fires only at a real mismatch), and
+  the proposer inside the DSpark path.
+- `climb_key` takes an explicit prefix bound, so a correction landing late still lands on the
+  context that was actually verified.
+- A ring of 8 outstanding proposals attributes each rejection to its own proposal, which is what
+  an asynchronous drafter (Saguaro, 2026) would otherwise break.
+- Design: `experiments/track3-semiotic-codebook/NEW_IDEA_THE_CEREBELLAR_FRONT_CACHE_2026-09-01.md`
+  section 5.
+
+```
+   THE SIGNAL IS ALREADY ON THE FLOOR, once per rejection
+
+   verify step   drafted ─▶ [ target says NO ] ─▶ correction computed
+                                                  │
+                            as shipped ───────────┴──▶ discarded
+                            this branch ──────────┴──▶ demote(drafted)
+                                                       write(context -> actual)
+
+   and the read side is fenced: consulted ONLY when the engine drafted nothing,
+   so a wrong entry buys a wasted verify pass and never an output byte
+```
+
+## What is measured, and what is not
+
+- `tests/test_climbingfibre.c`, 775 lines, `make climbingfibre-check`: **51 checks, 0 failed**.
+  OFF, ON-cold and ON-with-every-entry-wrong emit the same stream; a 64-key table too small for
+  its keys is inert rather than corrupting; a source guard strips comments and fails on any
+  deep-path name in `ds4_climbingfibre.c`, which is 617 lines.
+- The degrade arm is in that count: after 4x cap distinct inserts the table still has EMPTY slots,
+  used 820 of cap 1024 with 13 rehashes, 25.27 probes per miss, and its own vacuity control
+  asserts the probe counter moved at all.
+- ⚠ An earlier card said 39 checks. That was before the retirement-and-tombstone-sweep repair
+  (`465934e49`) added its arm; 51 is the current run on this Mac, 2026-09-17.
+- Scripted target, 4000 tokens: **+139 extra accepted tokens cold, +0 with a poisoned table**.
+  These come from a 61-token vocabulary, not the model, and are not a t/s claim.
+- The prior on effect size is about 4 %, not 27: `MEASURED_DECAYVSDEMOTE_*_2026-09-01.md` found
+  uniform decay delivers 22.2 of the 26.7 points once credited to the rejection signal, leaving
+  3.7 % as an upper bound.
+- The substrate is not the claim: `MEASURED_DRAFTMEMORY_*_2026-09-01.md` found the token-id n-gram
+  beat a centred hidden-state address on both corpora, z +11.17 on code and z +5.58 on prose.
+- Retrieval drafting is occupied (REST, DReSD at 4.64x, RASD, ReSpec). The narrow claim left is
+  online write-back of REJECTIONS with a retention policy.
+- The `session`, `day` and `week` step budgets are placeholders. ROLLINGSPLIT (design doc
+  section 6) would price them and has not been run on this branch.
+
+## The Makefile repair this branch owed, and the half of it still owed
+
+- `ds4_climbingfibre.o` was added to `CORE_OBJS` and not to the CPU object lists, so
+  `tests/test_session_state`, `tests/test_engine_mgpu_placement` and `tests/test_sampling` failed
+  to link on `ds4_climbingfibre_free`.
+- The list is spelled out in FOUR places, not one: `CPU_CORE_OBJS` under `ifeq Darwin`,
+  `CPU_CORE_OBJS` in the `else` (CUDA) branch, and literally again in the two test rules that do
+  not use the variable. All four now carry the object.
+- ⚠ Only the Darwin path is PROVEN. The else branch's line is the same edit and has never been
+  compiled, because this host has no CUDA toolkit.
+
+## Owed
+
+- A CUDA build on the Spark, then an interleaved A/B against the unpatched tip at one power mode,
+  then the greedy-identical check.
+- What has been verified is a `-Wall -Wextra -std=c99` compile of `ds4.c` with the hooks in place
+  plus the host self test. That is a compile check, not a gate.
+- Reach is the graph backends and the greedy path only.
+- Files: `ds4_climbingfibre.h` (222 lines), `ds4_climbingfibre.c` (617),
+  `ds4.c` (three hooks, two helpers), `tests/test_climbingfibre.c` (775), `Makefile`, `.gitignore`.
