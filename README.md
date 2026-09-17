@@ -267,3 +267,134 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
+
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+
+Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42 pass lines, 5 pre-existing failures (the Qwen3.8 and GLM 5.3 model-absent skips, counted as failures by ds4_test and identical on every branch); cc -fsyntax-only clean on ds4_server.c and ds4_help.c.
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-prefix-cache                                  CONTROL
+  │
+  │  WHAT       the prefix cache the engine already ships (ds4_kvstore.c), read
+  │             out of the code, plus the one thing it lacked: an off path.
+  │             --prefix-cache off rewinds the live session at every request
+  │
+  │  LATEST     never in a sealed round, and the standing bench cannot put it in
+  │             one. The arm lists of 2026-09-17-ROUND3-, -R4- and
+  │             -R5-PREREGISTERED-RULE.txt name this branch zero times, and
+  │             every round's argv is ds4-bench (R4 rule, THE DESIGN), a
+  │             different binary from the ds4-server this switch lives on
+  │
+  │  GEN        not measured. The sealed rounds drive ds4-bench and this switch
+  │             is a ds4-server flag, so no round exercises it
+  │  PREFILL    not measured, same reason. Prefill is also the half a prefix hit
+  │             actually moves, so a ds4-bench row would miss the effect twice
+  │
+  │  VERDICT    CONTROL - a duplicate of the shipped prefix cache, re-scoped as
+  │             its control arm. The on-versus-off sweep needs a server harness
+  │             that does not exist yet, not a slot in the current round
+  │
+  │  SWITCH     --prefix-cache on|off on ds4-server, default on. off means
+  │             rewind to token zero, nothing read from disk, no checkpoint
+  │             written
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+## Why the measurement pass cannot reach this branch
+
+- Every sealed round since 2026-09-16 runs one argv: `ds4-bench --cuda --ssd-streaming
+  --ssd-streaming-cache-experts 90GB --prompt-file speed-bench/promessi_sposi.txt --ctx-start 2048
+  --ctx-max 6144 --step-incr 2048 --gen-tokens 128` (`2026-09-17-R4-PREREGISTERED-RULE.txt`, THE
+  DESIGN).
+- `ds4-bench` is its own binary and takes no `--prefix-cache`. The flag is parsed in
+  `ds4_server.c` and printed by `ds4_help.c`, and reaches nothing else.
+- The rounds do build `ds4-server` and record its `.text` size for the JIT-vintage refusal gate, so
+  the branch would pass the build gate and still be measured on a binary its change does not touch.
+- ⇒ this branch's number is owed to a SERVER A/B, and saying "not measured" without saying why
+  would invite somebody to slot it into a round where it can only report the tip.
+
+## What already shipped, read from the code at HEAD
+
+- The disk KV cache is `ds4_kvstore.c`: files named by the SHA1 of the rendered byte prefix, a hit
+  re-hashed and byte-compared on load by `ds4_kvstore_byte_prefix_match`, so a match is anchored at
+  token zero by construction.
+- `ds4-server` enables it with `--kv-disk-dir` and tries, per request, the exact token prefix, then
+  the live rendered-byte prefix, then disk (`generate_job_inner`, `live_text_prefix_prompt`,
+  `kv_cache_try_load_text`).
+- One live in-memory checkpoint per slot is reused even with disk off.
+- `ds4-agent` keeps its own `sysprompt.kv` bootstrap checkpoint in `~/.ds4/kvcache`; the CLI keeps a
+  live checkpoint across turns.
+- `docs/SERVER.md`, disk KV cache section, and `WIKI/theory/07-engine-and-ops.md` section 4 describe
+  it. The wiki records a repeated prefix of about 22k tokens reloading in about 58 ms on the M5 Max
+  instead of a full re-prefill. ⚠ That is upstream's measurement, not re-measured here, and it is
+  not a GB10 number.
+- So the 1.86x win named in the brief
+  (`experiments/track3-semiotic-codebook/NEW_IDEA_THE_CEREBELLAR_FRONT_CACHE_2026-09-01.md`
+  section 4, tracked at `408695d0b`, not in this branch's tree; prefix cache 1.86x on repeated
+  context against prefill work 1.25x and DSpark 0.93x) is not unbuilt. It ships. What was missing is
+  the arm to measure it against.
+
+## What this branch adds
+
+- `--prefix-cache on|off` on `ds4-server`.
+- With `off`, `generate_job()` rewinds the live session to zero before every request, the five
+  live-prefix helpers return zero, the disk load refuses, and every save funnels through one wrapper
+  that refuses. So the control cannot warm the prefix the arm reads, which is what makes the A/B
+  valid in one process and one cache directory.
+- One log line per request, `prefix cache hit|miss source=<...> read=<n> write=<n> prompt=<n>`, a
+  startup line naming the arm, and the `--help` entry.
+- Code: `ds4_server.c` +44 and `ds4_help.c` +1, so **45 insertions and zero deletions**, unchanged
+  from the previous card's figure and re-counted with `git diff --numstat` at HEAD. ⚠ The previous
+  card said "Two files"; the branch also carries `docs/SERVER.md` +5 beside `README.md`, so it is
+  two code files and two prose files.
+
+```
+   request ─┬── --prefix-cache on  ──▶ exact token prefix (live)
+            │                          rendered bytes (live)
+            │                          disk SHA1(first N bytes)
+            │                          hit: prefill only the suffix
+            │                          miss: prefill from zero, write a checkpoint
+            │
+            └── --prefix-cache off ──▶ ds4_session_rewind(session, 0)
+                                       full prefill · nothing read · nothing written
+
+   a hit is byte-exact from token zero      [ 0 ──── N ][ N+1 ──── end
+   one byte inserted at the front, or tool schemas reordered
+   ──▶ different SHA1 ──▶ no hit, at any N
+```
+
+## The serving discipline
+
+- A prefix hit is a byte-for-byte match from token zero. Never semantic, never fuzzy. Reordering
+  context at the front kills it.
+- That is why a serial tool-call harness beats a parallel one: DeepSeek's `dsh` appends schemas and
+  history in immutable sequence and exposes `maxParallelToolCalls`, with reported hit rates of 97 to
+  99 percent third party and up to 99.93 percent vendor best case, a 1,024-token activation
+  threshold and 256-token block alignment (the NEW_IDEA file above, section 4). ⚠ Those are that
+  document's reported figures for another system, not ours.
+- In our engine, read from `ds4_kvstore.c` at HEAD: writes need `min_tokens`, default
+  `KV_CACHE_DEFAULT_MIN_TOKENS` 512; cold saves trim `KV_CACHE_DEFAULT_BOUNDARY_TRIM_TOKENS` 32 tail
+  tokens and align down by `KV_CACHE_DEFAULT_BOUNDARY_ALIGN_TOKENS` 2048.
+- No front fudge exists, because a front fudge is a different prefix.
+
+## Run locally, not a build
+
+- `clang -fsyntax-only -std=c99 -D_GNU_SOURCE -I. -Wall -Wextra` on both code files: clean.
+
+## Owed and not done
+
+- The CUDA build and the on-versus-off sweep, which needs a `ds4-server` harness rather than a
+  `ds4-bench` slot.
+- A hit-rate count from the new log line.
+- The switch does not reach `ds4-agent`'s own checkpoints.
+- Lookup is still a full directory scan opening every cache file header per request. A radix index
+  is the obvious next step.
+- One live checkpoint per slot, so two interleaved conversations cannot both be warm in memory.
