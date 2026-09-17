@@ -490,7 +490,7 @@ first measurement of the ten-lever tree, and it has not been taken.
 One card per branch, the box copied from that branch's own README at its HEAD by
 `rebuild_index.py`, grouped by the status the card itself declares. Regenerate,
 never hand-edit: a hand-edited row drifts from the branch it describes.
-Regenerated 2026-09-17 11:07Z, 25 cards.
+Regenerated 2026-09-17 11:29Z, 25 cards.
 
 ## POSITIVELY MEASURED
 
@@ -525,10 +525,12 @@ Regenerated 2026-09-17 11:07Z, 25 cards.
   │  VERDICT    POSITIVE - beats the new tip on both readings, +4.65 % no-drop and
   │             +6.87 % kept, sign 4 of 4. First measurement of this tree, and it
   │             compiled first time at 24.94 MB .text, which refuted prediction P4.
-  │             ⚠ It ships the WRONG SIDE of both levers round 4 measured solo:
-  │             prefill-readahead-order ON at -11.38 % solo, and hits-first OFF at
-  │             +6.47 % solo. Nothing here attributes the stack's number to any
-  │             lever; the seal forbids it. ROUND 7 asks the question directly.
+  │             ⚠ Both levers round 4 measured solo are OFF in this tree by default:
+  │             hits-first (+6.47 % solo, the wrong side) and the readahead arm
+  │             (-11.38 % solo, the right side; corrected 11:25Z from a source read
+  │             at the sealed sha, the card had said ON). Nothing here attributes the
+  │             stack's number to any lever; the seal forbids it. ROUND 7 flips both
+  │             switches on this same binary.
   │
   │  SWITCH     ten levers, see the table below; plus
   │             DS4_CUDA_PREFETCH_SWEEP_ORDER=1 restores the sweep-aware order
