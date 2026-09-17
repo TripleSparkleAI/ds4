@@ -279,22 +279,31 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │
-  │  BRANCH     triple-hippocampal-warmset                           NOT YET
+  │  BRANCH     triple-hippocampal-warmset                        WORTH ZERO
   │
   │  WHAT       gives the persisted expert hot list a longer horizon: carried
   │             free inside a day, halved once per day boundary, promoted to a
   │             durable set when a (layer, expert) pair is demanded on three
   │             distinct days
   │
-  │  LATEST     never in a sealed round
+  │  LATEST     round 6 · 2026-09-17 · TIES · -1.54 % ·
+  │             2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
   │
-  │  GEN        not measured
-  │  PREFILL    not measured
+  │  GEN        -1.54 %  floor 3.35 %  sign 0/3  n=3
+  │             raw: arm min-across median 9.57 t/s (9.76 · 9.48 · 9.38 · 9.66)
+  │             vs the tip's 9.69 t/s (9.67 · 9.56 · 9.88 · 9.70 kept, 9.45
+  │             contention-dropped; the result file's figure line reads 9.67).
+  │             gen_steady at min across 4096/6144. The delta is each run
+  │             against its bracketing TIP runs, not against that median
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 11:12-11:58Z · DGX Spark GB10 ·
+  │             native 24.89 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │  PREFILL    reported, not a verdict: 83.97 t/s min-across median vs the
+  │             tip's 89.16 t/s, n=4. Round 6 makes no prefill verdict.
   │
-  │  VERDICT    NOT YET - no CUDA build of this branch exists, so `session`
-  │             has never been run against `day` on a box. The only runs are
-  │             host tests of the rules, and the default tier reproduces
-  │             today's behaviour exactly
+  │  VERDICT    WORTH ZERO - inside the floor at -1.54 %, repeat range -3.5 to
+  │             -1.3 %, every repeat negative. The largest negative of the three
+  │             tied arms, and still inside the floor. Both rules agree
   │
   │  SWITCH     DS4_WARMSET_TIER=session|day, default session, which IS
   │             today's behaviour: one file, halved at every load
@@ -303,6 +312,16 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29
   │
   └──────────────────────────────────────────────────────────────────────
 ```
+
+## Round 6, and what a one-session sweep can say about a multi-day rule
+
+- Measured: **-1.54 % gen, 0 of 3, inside a 3.35 % floor**. The CUDA build the card said did not
+  exist now exists and ran.
+- ⚠ **A one-session sweep cannot exercise the branch's own subject.** The day and durable horizons
+  need runs on distinct calendar days; round 6 ran 21 runs inside 46 minutes, so what it measured is
+  the cost of carrying the machinery, not the value of a longer horizon.
+- ⇒ Read the tie as the overhead being inside the floor, which is the precondition for the horizon
+  experiment, not as a verdict on the horizon.
 
 ## The mechanism
 
