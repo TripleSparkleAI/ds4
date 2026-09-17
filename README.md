@@ -343,7 +343,8 @@ Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42
   │             -0.98 %, level with the tip, 1 of 4 under a 10.69 % floor. That
   │             is a TIE, so it retracts nothing, and round 6's floor was 3.35
   │             against this round's 10.69: the two rounds disagree and the
-  │             noisier one is round 8. Round 9 re-measures it on a quiet box
+  │             noisier one is round 8, and round 9 on a quiet box read +7.02 %
+  │             at 10.11 t/s, which is round 6's level rather than round 8's
   │
   │  SWITCH     the six levers' own switches, verified present in this tree's
   │             diff: DS4_CUDA_STREAMING_EXPERT_PREAD_POOL and _PREAD_THREADS,
