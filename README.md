@@ -267,3 +267,122 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+
+
+
+
+**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
+
+
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
+
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+
+Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29 verdicts all pass (it stops at ds4_test, whose model is absent in a worktree, identically before and after), no C files touched (ds4_cuda.cu does not compile on this Mac). ⚠ Re-counted on this Mac 2026-09-17: **26** verdicts, all pass, stopping at ds4_test as before. Counting the run's `PASS` and `ok` verdict lines does not reproduce 29, on this branch or on any of the eight, so 26 is the current figure and 29 is superseded.
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-pagecache                                  WORTH ZERO
+  │
+  │  WHAT       releases staged model pages madvise-then-fadvise so the drop
+  │             actually lands, and hints WILLNEED over a layer's miss ranges
+  │             on the buffered read path
+  │
+  │  LATEST     attrib series · 2026-09-16 · JOINT, NOT ATTRIBUTABLE: this
+  │             branch's switch is one of the SEVEN turned off together, and
+  │             the seven together are a net GAIN of +7.62 pp against their own
+  │             off state at min-across-frontiers, floor max 2.18, cleared 3.5x.
+  │             Nothing in that file says what THIS lever did
+  │             (2026-09-16-triple-all-fastest-attrib-SUMMARY-levers-attribution.txt)
+  │             ⚠ that arm is the NINE-lever binary at dd82361a, not this branch
+  │
+  │  GEN        9.62 t/s  vs control 9.56  +0.6 %  floor 4.9 %  n=2
+  │             control = unpatched tip, interleaved, same native vintage
+  │             session = 2026-09-15 · DGX Spark GB10 · native 23.1 MB .text · unstamped
+  │  PREFILL    not measured
+  │
+  │  VERDICT    WORTH ZERO - the ordering repair is correct by the Linux
+  │             semantics and worth +0.6 % against a 4.9 % floor, which is
+  │             nothing. It buys a resident set that stops growing, and that
+  │             is an argument about memory, not a measured speed
+  │
+  │  SWITCH     DS4_CUDA_KEEP_MODEL_PAGES=1 disables both drops
+  │             DS4_CUDA_NO_EXPERT_READAHEAD=1 disables the hint
+  │  OUTPUT     greedy-identical sha256 bb06e711bc498bb9 (long d3355c94c70a4bb1,
+  │             2026-09-15, before the rebase)
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+## Change 1, the release order
+
+- After each staged chunk is copied to the device, in both `cuda_model_copy_to_device_streamed`
+  and `cuda_model_range_ptr_from_fd`, upstream calls `posix_fadvise(DONTNEED)` first and
+  `posix_madvise(DONTNEED)` second.
+- `FADV_DONTNEED` skips any page still mapped into a process, and the model file is mmap'd by the
+  loader. So the drop never lands.
+- The resident set therefore grows across a streaming run and competes with the expert slots for
+  the same unified-memory pool.
+- `cuda_model_release_read_range` wraps both calls and zaps our PTEs first, so the fadvise that
+  follows has an unmapped page to drop.
+- On the O_DIRECT path nothing is cached and both calls are cheap no-ops, which is why the default
+  configuration may see none of this.
+
+## Change 2, the readahead hint
+
+- `cuda_model_readahead_range` issues `posix_fadvise(WILLNEED)` for a range about to be pread,
+  bounds-checked against the model size, buffered path only. Once the O_DIRECT fd is open it is a
+  no-op.
+- It fires in `cuda_stream_selected_cache_begin_load` for every unique miss's gate, up and down
+  ranges before the staged upload loop.
+- It fires again in `cuda_stream_prefetch_read` for every merged range before its chunked read loop.
+- One file: `ds4_cuda.cu`, +52/-5.
+
+```
+   DOES THE DROP LAND? the question is one syscall's ordering
+
+   page state          fadvise(DONTNEED)      madvise(DONTNEED)
+   ─────────────────────────────────────────────────────────────
+   mapped by mmap      SKIPPED, silently      zaps our PTEs
+   unmapped            drops it               nothing left to do
+
+   as shipped   fadvise ─▶ SKIPPED ─▶ madvise ─▶ too late, page stays cached
+   this branch  madvise ─▶ unmapped ─▶ fadvise ─▶ the page cache shrinks
+
+   the kernel returns 0 in both arms, so the broken order never reported an error
+```
+
+## The numbers
+
+- 2026-09-15 native pass, all binaries `make cuda-spark -j12`, interleaved control then arm, two
+  repeats, ctx 2048 discarded as warmup, minimum across repeats: **9.62 vs 9.56 gen t/s, +0.6 %**.
+- Control-to-control floor of that native generation set: 3.3 to 4.9 %. The delta is a seventh of
+  the floor's lower edge.
+- Earlier JIT-fallback figures (29.6 MB .text, prefill about 37 against 86 t/s native) are
+  superseded and are not comparable to any native number.
+- No comparison against the 2026-09-16 tip baseline, and none against `triple-tip-2026-09-16`, has
+  been run for this branch alone.
+
+## In the sealed attrib series, as one of seven
+
+- `DS4_CUDA_KEEP_MODEL_PAGES=1` is in the seven-switch off block
+  (`2026-09-16-ATTRIB-PREREGISTERED-RULE.txt`), beside the hotlist write, the drain sync, the
+  Engram lead, the pread pool and the Engram read threads.
+- All-off read -12.13 % against the clean tip; as-shipped -4.51 %; from the same brackets, so
+  `L = -7.62 pp` is the seven levers' joint contribution and its sign says they HELP.
+- The series names no single lever's share, and this card claims none.
+- ⚠ The measured binary is `tb-afstack @dd82361a`, nine levers, on a line of history that is not
+  this branch's (`2026-09-16-CORRECTION-the-measured-stack-is-nine-levers-and-has-diverged.md`).
+
+## Still open
+
+- An isolated A/B of change 1 against change 2. They were measured together and only together.
+- The value of the ordering repair on the default O_DIRECT path, which may be nil, because both
+  calls are no-ops there.
+- Whether the resident set actually stops growing. That is the claim the repair rests on and it has
+  never been observed, only reasoned from the kernel's documented behaviour.
+- A measurement on the new tip, and the greedy-identical check re-run on the rebased tree.
