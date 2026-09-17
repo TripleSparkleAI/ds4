@@ -290,7 +290,10 @@ it rock.
   │             before the miss reads land, so a token does not stall on
   │             the slowest read in the batch
   │
-  │  LATEST     round 8 · 2026-09-17 · BEATS · +12.31 % 4/4 (floor 10.69;
+  │  LATEST     round 9 · 2026-09-17 · TIES · +12.09 % 4/4 under a 17.27 floor ·
+  │             median 10.41, spread 0.19, every run above every control ·
+  │             2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
+  │             round 8 · 2026-09-17 · BEATS · +12.31 % 4/4 (floor 10.69;
   │             +11.54 with the cold first run excluded) ·
   │             2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
   │             round 4 · 2026-09-17 · BEATS · +6.47 % (kept +7.93 %) ·
@@ -309,6 +312,20 @@ it rock.
   │             control = triple-tip-2026-09-16 @12997e9c, interleaved
   │             session = 2026-09-17 13:24-14:37Z · DGX Spark GB10 ·
   │             native 24.89 MB .text (tip 24.86 MB) · lean regime 4096/6144
+  │             ─── round 9, TIES, and it confirms the ranking not a magnitude:
+  │             +12.09 %  floor 17.27 %  sign 4/4  n=4
+  │             raw: arm min-across median 10.41 t/s (four runs, 10.32 to 10.51,
+  │             spread 0.19) vs the tip's 9.42 t/s (8.51 to 9.98). Every arm run
+  │             read above every control run, and the next-tightest arm of the
+  │             round spans 0.76
+  │             ⚠ the instrument sets that floor, not the arm: the five control
+  │             runs span 8.51 to 9.98 t/s because the page cache holds 2.9 GB of
+  │             an 81 GB model and the bench streams 842 MB/s from the NVMe, so
+  │             identical binaries swing about 8 % run to run
+  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
+  │             session = 2026-09-17 14:41-15:36Z · DGX Spark GB10 · native
+  │             24.89 MB .text (r9-hitsfirst, 24,886,127; tip 24.86 MB) · lean
+  │             regime 4096/6144 · quiet box, warm-up run discarded
   │  PREFILL    reported, not a verdict: 86.55 t/s min-across median vs the
   │             tip's 84.34 t/s, n=4. Round 8 makes no prefill verdict.
   │
@@ -318,7 +335,7 @@ it rock.
   │             the win does not depend on which control run is kept. By the
   │             standing rule that the default follows the measured number, the
   │             shipped default is now the new tip plus this one lever
-  │             (round 8 section 5), provisional on a quiet round 9
+  │             (round 8 section 5), and round 9 confirms it on a quiet box
   │
   │  SWITCH     DS4_CUDA_HITS_FIRST=1 (default OFF in the stack; =0 is wait-then-launch)
   │             DS4_CUDA_HITS_FIRST_STAGED=0 keeps hits-first, single-stage read order
@@ -495,3 +512,21 @@ Sealed rule `2026-09-17-R4-PREREGISTERED-RULE.txt` @`3914a3226`, result `2026-09
 Sealed rule `2026-09-17-R8-PREREGISTERED-RULE.txt` @`c173ad6d7`, result
 `2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md`,
 raw CSVs and runlog in `sweeps/r8/`.
+
+## Round 9, 2026-09-17: the default holds, and this is the tightest tree measured
+
+- **Three sealed rounds put this lever first.** Round 4 +6.47 % through a 2.71 floor, round 8
+  +12.31 % through a 10.69 floor, round 9 **+12.09 %, 4/4, median 10.41 t/s** against the tip's
+  9.42. Round 9 reads TIES because the sealed floor is 17.27, so it confirms the ranking and not
+  a magnitude.
+- **Its spread of 0.19 is the finding of the round.** Its four runs span 10.32 to 10.51 while the
+  five control runs span 8.51 to 9.98 and every other arm spans 0.76 to 1.30. The hypothesis
+  already on this card, that launching the resident experts early hides SSD miss latency, would
+  explain a tight tree as well as a fast one. Not proven here.
+- **The default is confirmed, not provisional.** `triple-all-fastest` stays the new tip plus this
+  one lever; pool is second again at 10.35 with a 1.06 spread, and the ten-lever stack carrying
+  this lever is the lowest median of the round at 9.93.
+
+Sealed rule `2026-09-17-R9-PREREGISTERED-RULE.txt` @`60d1bd06a`, result
+`2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md`,
+raw CSVs and runlog in `sweeps/r9/`.
