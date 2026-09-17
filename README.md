@@ -267,3 +267,164 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+---
+
+**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
+
+**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │
+  │  BRANCH     triple-pool                                           NOT YET
+  │
+  │  WHAT       serves expert reads from a parallel SSD pool instead of one
+  │             serial reader, with an io_uring O_DIRECT ring in front of the
+  │             pool so queue depth is a switch, not the worker count.
+  │
+  │  LATEST     never in a sealed round
+  │             round 3 is measuring this branch now: in flight, unresolved.
+  │             Its build in that round, 2026-09-17, is the first CUDA compile
+  │             this branch has ever had.
+  │
+  │  GEN        not measured
+  │  PREFILL    not measured
+  │
+  │  VERDICT    NOT YET, and further back than most. The io_uring engine had no
+  │             build behind it until round 3 compiled it, and the last A/B this
+  │             branch holds describes the pthread-only pool, a fetch engine the
+  │             tree no longer has, so it is superseded and off this card.
+  │
+  │  SWITCH     DS4_CUDA_FETCH_QD=<n> ring queue depth, default 64, clamped 8-512
+  │             DS4_CUDA_FETCH_URING=0 falls back to the pread pool
+  │             DS4_CUDA_FETCH_BUFFERED=1 forces buffered reads
+  │             DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS=<n> pool workers, default 8, cap 16
+  │             DS4_CUDA_STREAMING_EXPERT_PREAD_POOL=0 restores the serial path
+  │  OUTPUT     not re-run
+  │
+  └──────────────────────────────────────────────────────────────────────
+```
+
+### The repair: one missing store hung the whole run
+
+`cuda_uring_prep_read` advanced a private tail counter. It never stored to `*r->sq_tail`, the
+only tail the kernel reads. So:
+
+```
+   THE DEFECT, and the single store that closes it
+
+   prep_read fills SQE 0..4         PRIVATE tail          SHARED *r->sq_tail
+                                    ▔▔▔▔▔▔▔▔▔▔▔▔          ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   before the fix                   5                     0    never stored
+                                                          ▲
+       io_uring_enter(to_submit=5) ──────────────────────  the kernel reads THIS one
+       kernel admits what the SHARED tail admits  =  0 SQEs
+       returns 0, waits for nothing, nothing ever drains
+       ⇒ the FIRST cache miss of the run busy-spins forever
+
+   after the fix, in ds4_uring_sq.h
+       ds4_uring_sq_publish:  __atomic_store_n(sq_tail, tail, RELEASE)
+       called before EVERY enter, so the SQE writes are visible first
+       the loop is BOUNDED at sq.entries + 8 rounds
+       a ring that accepts nothing is DECLINED, and the pread pool takes the batch
+```
+
+Three defects were fixed in one commit, all from review R2:
+
+- **The ring never submitted.** The tail fix above. The SQ accounting moved into
+  `ds4_uring_sq.h`, which publishes the tail with release ordering, fills the SQ index array per
+  SQE, and bounds the submit loop. The drained test is wrap-safe. `cuda_uring_peek_cqe` now loads
+  the CQ tail with acquire ordering before reading the CQE it admits.
+- **A slot was claimed before its read.** `cuda_stream_selected_cache_begin_load` published
+  gate -> victim before the bytes arrived. Its mid-loop `victim == UINT32_MAX` return left every
+  earlier claim published over device memory nothing had written, and the next call routing to one
+  of those experts took the hit path and ran the layer on stale bytes. Claims now go through
+  `ds4_expert_claim_ledger`: provisional until `commit()`, withdrawn on every exit. Withdrawal is
+  exact - a claim erases its own gate, and only while that gate still names the slot it claimed.
+- **The O_DIRECT rejection was retried per chunk.** A worker cannot close the global direct fd, so
+  the disable waited for the join, and until then every 8 MiB chunk of every task paid its own
+  failing `pread`. The rejection is now recorded once against the fd that took it
+  (`g_model_direct_rejected_fd`), read by both the pool's chunk loop and the ring's job prepare,
+  and cleared by `ds4_gpu_set_model_fd` when a new fd is opened.
+
+Tests are host-side, because this engine only builds under `nvcc` on Linux. Both are in `make test`:
+
+- `tests/test_uring_sq.cpp` - 7 cases, driving the submit loop against a fake kernel that reads
+  the shared tail as the real one does. Planting the unpublished tail back fails 9 verdicts;
+  planting the unfilled index array fails 1.
+- `tests/test_expert_claims.cpp` - 6 cases on the ledger. Planting a no-op withdrawal back fails 7.
+
+### ⚠ What the repair makes reachable
+
+The bounded loop is correct and it changes which failure you get. The lane that wrote it said so
+in its own review, and the card carries the warning rather than burying it:
+
+- Before the bound, a ring that accepted nothing **hung** in `cuda_uring_enter`. The process
+  stopped there and never reached the code below it.
+- With the bound, that same ring **declines**. The decline path in `cuda_expert_uring_dispatch`
+  returns every job's host buffer to the freelist with `cuda_fetch_buf_put` and closes the ring.
+- Those buffers can still carry `inflight = 1` from SQEs already handed to the kernel. So the
+  freelist may take back a buffer the kernel could still complete into, and hand it to the next
+  task.
+- **Neither state has ever been observed.** The branch had no CUDA build at all until round 3
+  compiled it on 2026-09-17, and its runs in that round are still in flight. The hang is gone;
+  whether the decline is clean is an open question and the first thing that build's runs answer.
+
+**Re-check it by name, not by line.** This was read-verified in `ds4_cuda.cu`, in
+`cuda_expert_uring_dispatch`: the queueing loop sets `j->inflight = 1` before `cuda_uring_enter`,
+and the `if (!touched)` branch taken when that enter fails calls `cuda_fetch_buf_put` on every
+`jobs[i].host_buf` and then `cuda_uring_ring_close`, with no wait for the inflight completions.
+The bound that makes the branch reachable is `max_rounds` in `ds4_uring_sq_submit`
+(`ds4_uring_sq.h`), passed as `r->sq.entries + 8u`. Four names, all unique, all greppable.
+
+### The three engines, in order
+
+`cuda_expert_pread_pool_dispatch` tries them on every miss batch:
+
+- **The io_uring ring** (`cuda_expert_uring_dispatch`). It speaks the kernel UAPI directly -
+  `io_uring_setup` / `io_uring_enter`, mmap'd SQ and CQ. No liburing, no Makefile change. It
+  compiles out unless `<linux/io_uring.h>` and both syscall numbers exist.
+  `DS4_CUDA_NO_IO_URING` forces it out; `DS4_CUDA_HAVE_IO_URING=1` forces it in.
+- **The pthread pread pool**, N workers, each doing `pread` -> H2D -> sync -> drop pages.
+- **The serial ring**, unchanged from upstream: one tensor at a time, 4-chunk staging.
+
+Per task the ring's geometry matches `cuda_expert_stage_read_mt`: an aligned O_DIRECT bracket on
+the direct fd when the window fits the file, otherwise a buffered read. A rejected direct read
+(`EINVAL`, `EFAULT`, `ENOTSUP`, `EOPNOTSUPP`) is re-read buffered once in batch. Aligned buffers
+recycle through a process-wide freelist (`cuda_fetch_buf_get` / `cuda_fetch_buf_put`, cap 128
+buffers, 512 MiB).
+
+The pool declines a batch when the lever is off, the batch holds one task or none, an allocation
+fails, or a batch is already in flight. Then the serial path takes it. When all three tensors
+land the layer remaps; when they do not, the slot is rolled back and the load fails.
+
+### Failure is a decline, never a fault
+
+- A ring that cannot init, a batch of one task, or a batch it cannot stage all decline **before a
+  byte is read**, and the pool takes the work.
+- A ring that breaks mid-batch reports the failed tasks through their `ok` flags. That is the
+  contract the pool already uses.
+- Unchanged from upstream: the resident slot cache, gate-indexed lookup, LFU-with-stamp eviction,
+  look-ahead protection, per-tensor error reporting.
+- `ds4_gpu_stream_expert_cache_release_resident` joins the pool, destroys the ring and the upload
+  stream, and drains the freelist.
+
+### Two notes on what is NOT here
+
+- **Not ported, on purpose.** Upstream donates a completed read buffer to a disk-to-host-RAM
+  expert cache and reclaims it on eviction. This tree's cache is the VRAM slot table keyed by gate
+  offset, so there is nothing to donate to.
+- **A dead switch name.** An earlier card named `DS4_SSD_READERS=<n>`. No source file reads that
+  name. The worker count is `DS4_CUDA_STREAMING_EXPERT_PREAD_THREADS`.
+
+### Owed, in order
+
+1. `make cuda-spark` on the Spark. This branch has never compiled anywhere, so the build is the
+   first fact, not the last.
+2. One interleaved A/B of the ring against the pool, `DS4_CUDA_EXPERT_CACHE_STATS=1` on both arms.
+3. A greedy-identity check.
+4. Point the first run at the decline path above and find out whether it is clean.
+
+The line to clear: the clean tip reads **9.65 t/s median**
+(`2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md`).
