@@ -698,6 +698,26 @@ tests/test_ssd_cache: tests/test_ssd_cache.c ds4_ssd.c ds4_ssd.h
 test-ssd-cache: tests/test_ssd_cache
 	./tests/test_ssd_cache
 
+# Host-side gates on the CUDA SSD read path's bookkeeping.  The engine they
+# belong to only builds under nvcc on Linux, so the accounting they cover is
+# factored into headers that compile anywhere and is tested here.
+CXX ?= c++
+CXXTESTFLAGS ?= -O2 -g -Wall -Wextra -std=c++11
+
+tests/test_uring_sq: tests/test_uring_sq.cpp ds4_uring_sq.h
+	$(CXX) $(CXXTESTFLAGS) -I. -o $@ tests/test_uring_sq.cpp
+
+.PHONY: test-uring-sq
+test-uring-sq: tests/test_uring_sq
+	./tests/test_uring_sq
+
+tests/test_expert_claims: tests/test_expert_claims.cpp ds4_expert_claims.h
+	$(CXX) $(CXXTESTFLAGS) -I. -o $@ tests/test_expert_claims.cpp
+
+.PHONY: test-expert-claims
+test-expert-claims: tests/test_expert_claims
+	./tests/test_expert_claims
+
 speed-bench/engram_decode_bench: speed-bench/engram_decode_bench.c ds4_engram.c ds4_engram.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -I. -o $@ $< ds4_engram.c -lm
 
@@ -992,7 +1012,8 @@ tests/test_web_recovery: tests/test_web_recovery.c ds4_web.c ds4_web.h
 
 test: ds4_test ds4_agent_test ds4-eval q4k-dot-test mxfp4-dot-test test-session-state test-linux-memory test-engram test-web-recovery \
 	tests/test_layer_pack tests/test_engine_mgpu_placement tests/test_gpu_args \
-	tests/test_deepseek4_vision_image tests/test_prompt_prefix $(SAMPLING_TEST) ds4 ds4-server ds4-bench ds4-agent
+	tests/test_deepseek4_vision_image tests/test_prompt_prefix $(SAMPLING_TEST) ds4 ds4-server ds4-bench ds4-agent \
+	tests/test_uring_sq tests/test_expert_claims
 	./ds4-eval --validate-cases
 	./ds4-eval --self-test-extractors
 	./ds4_agent_test
@@ -1004,6 +1025,8 @@ test: ds4_test ds4_agent_test ds4-eval q4k-dot-test mxfp4-dot-test test-session-
 	./tests/test_prompt_prefix
 	./tests/test_sampling
 	./tests/test_deepseek4_vision_image
+	./tests/test_uring_sq
+	./tests/test_expert_claims
 
 dspark-acceptance: ds4
 	DS4_DSPARK_MODEL="$(DS4_DSPARK_MODEL)" \
