@@ -1,5 +1,5 @@
-- A tie says the structure did not move the token rate on this tip, not that LFU beats LRU.
-- The cache can only skip a read, so a wrong entry costs a fetch and never a wrong output.
-- make test-host-range-cache: PASS, 36 check assertions, host compiler, run 2026-09-17.
-- On the GB10 the device arena is already host RAM, so this is a second tier for the same memory.
-- Owed: the three arms interleaved from one binary, control first, the 2048 frontier discarded.
+- Theory: keying cached bytes by file offset should hit more often, and reuse counts should beat recency.
+- Test: interleaved against the tip, ctx 4096 and 6144, 3 repeats, round 6, whose floor was 3.35 percent.
+- Result: -0.20 percent with one repeat of three above the tip; the structure did not move the token rate.
+- Caveat: only one of the three modes ran, and on this box the device cache is already host memory.
+- Owed: the three modes interleaved from one binary, control first, so reuse can be compared with recency.

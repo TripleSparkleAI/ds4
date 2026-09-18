@@ -2,9 +2,9 @@
   "branch": "triple-lfu-offsetkey",
   "status": "WORTH ZERO",
   "what": [
-    "ports upstream's host expert cache: byte ranges keyed by",
-    "file offset, a 16-way table, a per-slot uses counter halved",
-    "every 4096 inserts. Three arms isolate the eviction policy"
+    "a host cache of expert byte ranges keyed by file offset: 16",
+    "ways, a use counter per slot halved every 4096 inserts. Three",
+    "modes so the eviction policy can be compared on its own"
   ],
   "switch": "DS4_EXPERT_CACHE_MODE=hotlist|offsetkey|offsetkey-lru",
   "output": {
@@ -29,5 +29,17 @@
       "note": "one arm of three ran; offsetkey against offsetkey-lru is still owed"
     }
   ],
-  "prefill": "85.90 t/s median against the tip's 89.16, n=4; no prefill verdict in round 6"
+  "prefill": "85.90 t/s median against the tip's 89.16, n=4; no prefill verdict in round 6",
+  "tried": [
+    {
+      "branch": "triple-hitsfirst",
+      "best": "+12.3%",
+      "line": "the lever that won on this box: launch resident experts before the miss reads land"
+    },
+    {
+      "branch": "triple-pool",
+      "best": "+9.6%",
+      "line": "parallel SSD reads with an io_uring ring; fast alone, loses under CPU load"
+    }
+  ]
 }
