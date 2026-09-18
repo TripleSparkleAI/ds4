@@ -73,3 +73,6 @@ resolve ds4_cuda.cu 11 ours
 resolve ds4_cuda.cu 12 hand:pair/hitsfirst-ds4_cuda.cu-12.txt
 resolve ds4_cuda.cu 13 hand:pair/hitsfirst-ds4_cuda.cu-13.txt
 resolve ds4_cuda.cu 14 theirs
+
+# ring queue depth 16 by default (lane QD16, 2026-09-18; round 10: QD 64 dipped once, QD 16 never)
+local   0e7d4f883c8363a0399b76f08c9a1593b8abb96d   ring-qd16
