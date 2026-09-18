@@ -268,149 +268,30 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
----
-
-**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
-
-**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
-
-Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42 pass lines, 5 pre-existing failures (the Qwen3.8 and GLM 5.3 model-absent skips, counted as failures by ds4_test and identical on every branch); cc -fsyntax-only clean on ds4.c; test_deepseek41_graph --engram-prestage-zeroed 1 PASS.
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-engram-prestage                            WORTH ZERO
-  │
-  │  WHAT       moves the host-side Engram row lookup out of the forward pass
-  │             into a prepare phase that runs before it, so the forward carries
-  │             no disk read and no hash of its own
-  │
-  │  LATEST     round 6 · 2026-09-17 · TIES · -1.40 % ·
-  │             2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
-  │
-  │  GEN        -1.40 %  floor 3.35 %  sign 0/3  n=3
-  │             raw: arm min-across median 9.54 t/s (9.62 · 9.50 · 9.57 · 9.52)
-  │             vs the tip's 9.69 t/s (9.67 · 9.56 · 9.88 · 9.70 kept, 9.45
-  │             contention-dropped; the result file's figure line reads 9.67).
-  │             gen_steady at min across 4096/6144. The delta is each run
-  │             against its bracketing TIP runs, not against that median
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
-  │             session = 2026-09-17 11:12-11:58Z · DGX Spark GB10 ·
-  │             native 24.85 MB .text (tip 24.86 MB) · lean regime 4096/6144
-  │  PREFILL    reported, not a verdict: 87.18 t/s min-across median vs the
-  │             tip's 89.16 t/s, n=4. Round 6 makes no prefill verdict.
-  │
-  │  VERDICT    WORTH ZERO - inside the floor at -1.40 %, repeat range -2.8 to
-  │             -1.2 %, every repeat negative. That is what the card predicted
-  │             for a precondition that takes host I/O out of the forward
-  │             without hiding it behind anything. Both rules agree
-  │
-  │  SWITCH     DS4_ENGRAM_PRESTAGE=1 enables the prepare; unset or 0 is the
-  │             shipped inline path. DS4_ENGRAM_PRESTAGE_DEBUG=1 names every
-  │             demand-read miss. Read per call, not latched
-  │  OUTPUT     not re-run
-  │
+  │  BRANCH   triple-engram-prestage                            WORTH ZERO
+  │  WHAT     moves the host-side Engram row lookup out of the forward
+  │           pass into a prepare phase that runs before it, so the
+  │           forward carries no disk read and no hash of its own
+  │  SWITCH   DS4_ENGRAM_PRESTAGE=1; unset or 0 is the shipped inline path
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r6     2026-09-17     9.54     9.69   -1.40%   0/3    3.35  TIES     3
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - 87.18 t/s median against the tip's 89.16, n=4; no prefill verdict in round 6
+  r6  2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
 ```
 
-## Round 6, and the prediction it confirms
-
-- Measured at last: **-1.40 % gen, 0 of 3, inside a 3.35 % floor**. The card's own VERDICT had said
-  a clean A/B "would be expected to read near zero", and it read near zero on the negative side.
-- Every repeat is negative, which is a sign pattern rather than a delta: the prepare phase is not
-  free, and nothing yet overlaps the read it moved.
-- The 12.04 % engram share below is still the size of the TARGET, not of any win. It remains
-  available to a branch that hides the read rather than relocating it.
-
-## The cost it attacks
-
-- `ds41_graph_step` hashes the token into 24 row ids per table and makes two blocking
-  `ds4_engram_read` calls before `ds4_gpu_begin_commands()`, so the GPU is idle for the whole read.
-- Measured on the GB10 with the Q2 GGUF: engram mean **23.922 ms** of a **198.636 ms** step, so
-  **12.04 %**, over **31 steps**, 45-token prompt, first run after model load.
-- ⚠ **That is a measurement of the SHIPPED path, not of this branch.** It is the size of the target,
-  and this card claims nothing from it.
-- ⚠ **Citation corrected here.** The previous card sourced it to `speed-bench/v41_engram_lead_gb10.md`,
-  which is **not in this branch's tree**: that file was added on `triple-engram-lead` at commit
-  `0194696b1`. On the dwarfstar working branch the same four figures sit in
-  `CUDA_LANES_CHANNEL.md:1635`, which also carries the caution "QUOTE THE 12.04, NOT THE 8.54" about
-  its own confounded second run. The 12.04 is the quoted one, and it is the cold-run figure.
-
-## The mechanism
-
-- `ds41_graph_prepare_inputs` does the whole lookup ahead of the forward: hash against a copy of the
-  history, read both tables, park the rows in a separate 48 KiB host buffer `g->prestage_rows`, and
-  stamp them.
-- The buffer is `calloc(2, sizeof(float[DS4_ENGRAM_COLS * DS4_ENGRAM_DIM]))`, so 2 x 24 x 256 x 4 B =
-  49,152 B, which is the 48 KiB the static context reserve grows by.
-- It is **exact, not speculative**: it is handed the token the caller already has. That is the
-  difference from `triple-engram-lead`, which guesses from an argmax.
-- `ds41_graph_engram_ready` matches **all three** stamped fields before use: `prestage_token ==
-  token`, `prestage_pos == g->pos`, and a `memcmp` of the whole `prestage_history`.
-- A miss, meaning a rejected token, a rewind, a restored checkpoint or a fork, falls back to the
-  inline read, so the step is never wrong.
-- The rows live apart from `g->rows` because `g->rows` is what the forward uploads from, and a
-  prepare writing into it could never overlap a step in flight.
-- One call site is wired, the session decode path. The imatrix loop and the batch step keep the
-  demand read.
-
-**⚠ Two file figures corrected here**, both re-counted with `git diff --numstat 12997e9c8 HEAD`:
-
-- The previous card said "One file, `ds4.c`, +113/-7". The branch touches **two code files**:
-  `ds4.c` **+128/-7** and `tests/test_deepseek41_graph.c` **+123/-1**, beside `README.md` +83.
-- The test is the reason the second file exists: `check_engram_prestage_zeroed` re-executes the
-  binary with `--engram-prestage-zeroed` and asserts what the allocation left at an unread image
-  position, and it is the `1 PASS` in the rebase line above.
-
-```
-   W H E R E   T H E   R E A D   S I T S ─────────────────────────────
-
-   as shipped   ds41_graph_step ─┬─ hash 24 ids x 2 tables
-                                 ├─ ds4_engram_read  BLOCKS   ┐ 23.922 ms
-                                 ├─ ds4_engram_read  BLOCKS   ┘ GPU idle
-                                 └─ ds4_gpu_begin_commands()
-
-   this branch  ds41_graph_prepare_inputs
-                     hash ─▶ two blocking preads ─▶ prestage_rows, stamped
-                     with (token, pos, history)
-                          │
-                          ▼
-                ds41_graph_step   all THREE stamps match?
-                     yes ──▶ rows already in hand, forward touches no disk
-                     no  ──▶ demand read, exactly as shipped
-
-   ⚠ still inside the step: ds4_gpu_tensor_write(g->engram_rows)
-     so the lookup is OUT and the capture is still OWED
-```
-
-## The ceiling, stated plainly
-
-- Whole-step CUDA-graph capture is rated MODEST on our box in
-  `WIKI/theory/48-decode-speedup-levers.md` section 8a: the step is long, so the launch tax a graph
-  removes is a small share of it, and the larger half of the 56 % gap is the inter-kernel memory
-  bubble, which fusion removes and graphs do not.
-- Today only three per-layer islands are captured (`ds41_decode_island`, gated by
-  `ds4_gpu_decode_graphs_supported()`). The lookup, the row upload, positional attention and the TP
-  gates all stay outside.
-- ⚠ The 200 ms per step that motivates the pattern elsewhere is a 4x-Spark vLLM rig's number
-  (`research/v41-flash-landscape/04-quad-spark-native-mxfp4/`), not ours. Our own step is 198.636 ms
-  for an unrelated reason and the two must not be read as the same fact.
-- ⚠ The `WIKI/` and `research/` paths are not in this branch's tree, which is rooted on the upstream
-  tip.
-
-## Conflict
-
-- `triple-engram-lead` and `triple-engram-read-threads` land on the same two calls in the same
-  function. Lead puts a reader and its join in `ds4.c`; threads changes the reader the miss path
-  falls into.
-- Folding all three is a merge, not a rebase. `triple-engram-read-threads` is in rounds 3 and 4 and
-  `triple-engram-lead` is in round 5, so both of those will have numbers on the new tip before this
-  branch does.
-
-## Owed
-
-- The CUDA build. Only `cc -fsyntax-only -std=c99 -Wall -Wextra ds4.c` has been run, clean.
-- The A/B, `DS4_ENGRAM_PRESTAGE=1` against `0`, interleaved on one host and one vintage.
-- A measured miss count on a real run, from `DS4_ENGRAM_PRESTAGE_DEBUG=1`.
-- The overlap itself, which is the payoff and needs the prepare for step N+1 issued while N is in
-  flight, and a token this branch deliberately does not guess.
+NOTES
+- Every repeat is negative: the prepare phase is not free and nothing overlaps the read it moved.
+- The lookup is exact, handed the token the caller already has, never guessed from an argmax.
+- Three stamps (token, pos, whole history) must match or the step falls back to the inline read.
+- The 12.04 percent Engram share is the size of the target, not of any win.
+- Owed: the CUDA build, a measured miss count, and the overlap that is the actual payoff.
