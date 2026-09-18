@@ -1,10 +1,10 @@
 {
   "branch": "triple-winners",
-  "status": "WORTH ZERO",
+  "status": "POSITIVE",
   "what": [
     "pool, hitsfirst and prefetch-pool stacked, hits-first ON",
     "the three levers that won round 4 solo, and nothing else",
-    "read below hitsfirst alone in both rounds it ran"
+    "on a quiet box it beats the tip by 6.5 to 6.9 per cent"
   ],
   "switch": "DS4_CUDA_HITS_FIRST=0, _FETCH_URING=0, _SSD_PREFETCH_POOL=0",
   "output": {
@@ -17,6 +17,32 @@
     "sha": "12997e9c"
   },
   "results": [
+    {
+      "round": "r10",
+      "date": "2026-09-18",
+      "tip_tps": 9.73,
+      "floor_pct": 2.18,
+      "n": 4,
+      "file": "2026-09-18-R10-RESULT-the-combination-works-on-a-quiet-box-and-hitsfirst-alone-dipped-twice.md",
+      "arm_tps": 10.4,
+      "delta_pct": 6.53,
+      "sign": "3/4",
+      "verdict": "BEATS",
+      "note": "ring QD 64 as built; one dip to 9.03"
+    },
+    {
+      "round": "r10",
+      "date": "2026-09-18",
+      "tip_tps": 9.73,
+      "floor_pct": 2.18,
+      "n": 4,
+      "file": "2026-09-18-R10-RESULT-the-combination-works-on-a-quiet-box-and-hitsfirst-alone-dipped-twice.md",
+      "arm_tps": 10.4,
+      "delta_pct": 6.86,
+      "sign": "4/4",
+      "verdict": "BEATS",
+      "note": "DS4_CUDA_FETCH_QD=16: the tightest arm of the campaign, spread 0.07"
+    },
     {
       "round": "r9",
       "date": "2026-09-17",
@@ -44,5 +70,5 @@
       "note": "-0.54 with the cold first control run excluded, 7.17 floor"
     }
   ],
-  "prefill": "r8 135.1 vs tip 84.3, reported not a verdict"
+  "prefill": "r8 135.1 vs tip 84.3"
 }

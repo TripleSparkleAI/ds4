@@ -1,4 +1,5 @@
-- Greedy output is byte-identical to the tip on both reference prompts, so the combination is safe, not fast.
-- The parts beat the tip in the same session and the tree carrying both did not: the two pread levers fight.
-- Not attributed. The claim ledger, NVMe queue depth and the hits-first drain are all still candidates.
-- Neither round is a loss: both tie their floor, so what is measured twice is a ranking, not a regression.
+- The combination WORKS: on round 10's quiet box every pool + hitsfirst tree beat the tip by 5.6 to 6.9 %.
+- Rounds 8 and 9 read it below its parts on loud instruments, floors 10.69 and 17.27. Round 10 retracts that.
+- The ring's queue depth is the knob: QD 16 removed the dip, spread 0.07. QD 8 is +6.58, ring off is +6.48.
+- G1 gated on this tip: greedy output is byte-identical on both reference prompts, shas in the box above.
+- Owed: a quiet-box round with more repeats against the default. Round 12 carries QD 16 beside it.
