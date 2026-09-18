@@ -1,0 +1,33 @@
+{
+  "branch": "triple-hotlist",
+  "status": "NEGATIVE",
+  "what": [
+    "seeds the next session's SSD expert cache from the previous",
+    "run's demand, so the opening tokens start warm. A warm-up",
+    "device, not a selection device"
+  ],
+  "switch": "DS4_CUDA_EXPERT_HOTLIST_WRITE=0 turns the writer off",
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
+  "results": [
+    {
+      "round": "r4",
+      "date": "2026-09-17",
+      "arm_tps": 9.42,
+      "tip_tps": 9.65,
+      "delta_pct": -2.73,
+      "sign": "0/4",
+      "floor_pct": 2.71,
+      "verdict": "LOSES",
+      "n": 4,
+      "file": "2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md",
+      "note": "kept reading -3.34; both readings agree, so the straggler rule is not in it"
+    }
+  ],
+  "prefill": "r4 82.3 vs tip 80.7"
+}

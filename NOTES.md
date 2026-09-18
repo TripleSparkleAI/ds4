@@ -1,0 +1,5 @@
+- The session writes every expert it demanded, and the next session seeds empty cache slots from that list.
+- Presence beats content for a slot cache: a wrong seed wastes one slot and corrupts nothing.
+- It loses on this tip: -2.73 percent with not one of four repeats above the control.
+- The repair in the same branch cut a full 4096-slot victim walk per miss down to one pass per batch.
+- Owed: the warm-cache reading it was re-scoped for, the first 64 tokens warm against cold.
