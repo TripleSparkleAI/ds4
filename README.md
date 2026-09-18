@@ -290,3 +290,27 @@ NOTES
 - Source: MEASURED_WORDFINISHER_lookup-drafter-acceptance-offline_2026-09-15.md, on this branch.
 - Result: the token overlap is real and buys nothing, because the experts it would share are already resident.
 - Closed: a second, separately written path reached the same numbers, so no engine work is owed.
+
+✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+the card below is ours; the README above is antirez's, unchanged
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │  BRANCH   triple-word-finisher                              TOOLING
+  │  WHAT     an offline experiment, finished and closed: draft the next
+  │           few tokens from what followed the same short phrase earlier,
+  │           check them in one pass, keep the longest prefix that holds
+  │  SWITCH   none
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
+  └──────────────────────────────────────────────────────────────────────
+
+  RESULTS  none yet - never in a sealed round
+```
+
+NOTES
+- Contains: two python probes and a written record, and zero engine files, so no arm a bench could time.
+- Numbers: acceptance 2.37x on code and 1.17x on prose, 0 of 1,219 reuses after a miss, 0.0000 bytes saved.
+- Source: MEASURED_WORDFINISHER_lookup-drafter-acceptance-offline_2026-09-15.md, on this branch.
+- Result: the token overlap is real and buys nothing, because the experts it would share are already resident.
+- Closed: a second, separately written path reached the same numbers, so no engine work is owed.
