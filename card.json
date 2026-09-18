@@ -1,0 +1,33 @@
+{
+  "branch": "triple-engram-read-threads",
+  "status": "WORTH ZERO",
+  "what": [
+    "takes the decode step's Engram read off the batch machinery:",
+    "one token goes straight to the serial reader, with no malloc,",
+    "no qsort and no pool dispatch. The prefill read is unchanged"
+  ],
+  "switch": "DS4_ENGRAM_READ_THREADS=1 clamps the prefill read to serial",
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
+  "results": [
+    {
+      "round": "r4",
+      "date": "2026-09-17",
+      "arm_tps": 9.6,
+      "tip_tps": 9.65,
+      "delta_pct": -1.39,
+      "sign": "1/4",
+      "floor_pct": 2.71,
+      "verdict": "TIES",
+      "n": 4,
+      "file": "2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md",
+      "note": "kept reading +0.31 on one survivor; the no-drop column is the one to quote"
+    }
+  ],
+  "prefill": "r4 82.6 vs tip 80.7"
+}

@@ -1,0 +1,5 @@
+- A decode step's Engram read was 48 serial 264-byte reads behind a malloc, a qsort and a 32-worker wakeup.
+- That machinery cannot help a one-token read, so removing it should have freed time on the critical path.
+- It is correct and tested and worth nothing on the clock: -1.39 percent, positive on 1 of 4 repeats.
+- The measured cost it attacks is real: engram is 23.9 ms of a 198.6 ms step on this box, 12.0 percent.
+- Owed: the one-wave prefill read, which is the untested half, and a CUDA output gate on this revision.
