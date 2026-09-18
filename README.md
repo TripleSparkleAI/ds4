@@ -268,178 +268,31 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
----
-
-**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
-
-**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-winners                                WORTH ZERO
-  │
-  │  WHAT       the three levers round 4 measured as winners solo on the
-  │             new tip, stacked and nothing else: pool (+7.27 %), hitsfirst
-  │             (+6.47 %) and prefetch-pool (+2.28 %), with HITSFIRST ON.
-  │             Round 8 measured it level with the tip: the combination costs
-  │             what each part wins
-  │
-  │  LATEST     round 9 · 2026-09-17 · TIES · +5.03 % 3/3 under a 17.27 floor ·
-  │             median 10.20, between its parts ·
-  │             2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
-  │             round 8 · 2026-09-17 · TIES · +1.54 % (-0.54 sensitivity) ·
-  │             level with the tip while its parts read +8 to +12 in the same
-  │             session ·
-  │             2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
-  │
-  │  GEN        +1.54 %  floor 10.69 %  sign 2/3  n=3 of 4 paired
-  │             sensitivity, cold first control run excluded: -0.54 % against a
-  │             7.17 % floor, TIES either way (post hoc, labelled as such)
-  │             raw: arm min-across median 9.18 t/s (9.21 · 9.42 · 9.13 · 9.15)
-  │             vs the tip's 8.96 t/s (8.61 cold · 9.53 · 8.87 · 9.49 · 8.96).
-  │             gen_steady at min across 4096/6144. The delta is each run
-  │             against its bracketing TIP runs, not against that median
-  │             ⚠ the box was not quiet: the five tip runs spanned 8.61 to 9.53
-  │             and four arm runs ended at load 3.2 to 4.0 with no vitest alive,
-  │             which is what widened the floor to 10.69. But this arm's own
-  │             four runs span only 9.13 to 9.42, so its LEVEL reading is not a
-  │             noise artifact; the noise bounds how strongly it can be called
-  │             a loss, not whether it won
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
-  │             session = 2026-09-17 13:24-14:37Z · DGX Spark GB10 ·
-  │             native 24.90 MB .text (tip 24.86 MB) · lean regime 4096/6144
-  │             ─── round 9, TIES, and it reads higher than round 8 did:
-  │             +5.03 %  floor 17.27 %  sign 3/3  n=3
-  │             raw: arm min-across median 10.20 t/s (9.69 to 10.45, spread 0.76)
-  │             vs the tip's 9.42 t/s (8.51 to 9.98). That sits BETWEEN its parts,
-  │             below hitsfirst's 10.41 and pool's 10.35, which is the second
-  │             round to rank it under hitsfirst alone
-  │             ⚠ the instrument sets that floor, not the arm: the five control
-  │             runs span 8.51 to 9.98 t/s because the page cache holds 2.9 GB of
-  │             an 81 GB model and the bench streams 842 MB/s from the NVMe, so
-  │             identical binaries swing about 8 % run to run
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
-  │             session = 2026-09-17 14:41-15:36Z · DGX Spark GB10 · native
-  │             24.90 MB .text (r9-winners, 24,900,766; tip 24.86 MB) · lean
-  │             regime 4096/6144 · quiet box, warm-up run discarded
-  │  PREFILL    reported, not a verdict: 135.09 t/s min-across median vs the
-  │             tip's 84.34 t/s, n=4. Round 8 makes no prefill verdict.
-  │
-  │  VERDICT    WORTH ZERO - built correct, compiled, measured, and level with
-  │             the tip. The combination costs what each part wins: pool read
-  │             10.47 to 10.65 on its clean runs and hitsfirst read 10.29 to
-  │             10.49, all four of them above every control run, in this same
-  │             session, while this tree that carries both read 9.13 to 9.42.
-  │             So the answer to "why not combine pool and hitsfirst and
-  │             prefetch-pool" is measured, and it is no. The two pread-path
-  │             levers fight; the claim-ledger interaction the build lane
-  │             carried is the first suspect and round 8 does not prove it
-  │
-  │  SWITCH     DS4_CUDA_HITS_FIRST=0 turns hits-first off (ON here, the
-  │             lever's own default); DS4_CUDA_HITS_FIRST_STAGED=0 keeps it
-  │             single-stage
-  │             DS4_CUDA_FETCH_URING=0 falls back to the pread pool;
-  │             DS4_CUDA_STREAMING_EXPERT_PREAD_POOL=0 restores the serial path;
-  │             DS4_CUDA_FETCH_QD=<n> ring depth, default 64, clamped 8-512
-  │             DS4_CUDA_SSD_PREFETCH_POOL=0 or DS4_CUDA_SSD_PREFETCH_THREADS=1
-  │             reverts the prefetch pool; DS4_CUDA_SSD_PREFETCH_CHUNK_MB,
-  │             default 8, cap 64
-  │  OUTPUT     not re-run
-  │
+  │  BRANCH   triple-winners                                    WORTH ZERO
+  │  WHAT     pool, hitsfirst and prefetch-pool stacked, hits-first ON
+  │           the three levers that won round 4 solo, and nothing else
+  │           read below hitsfirst alone in both rounds it ran
+  │  SWITCH   DS4_CUDA_HITS_FIRST=0, _FETCH_URING=0, _SSD_PREFETCH_POOL=0
+  │  OUTPUT   greedy-identical to the tip: G1 short 5ed3e6dfe2177eca · long c5cb82566c628bed
+  │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r9     2026-09-17    10.20     9.42   +5.03%   3/3   17.27  TIES     3
+  r8     2026-09-17     9.18     8.96   +1.54%   2/3   10.69  TIES     3
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - r8 135.1 vs tip 84.3, reported not a verdict
+  r9  2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
+  r8  2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
 ```
 
-### Why this tree exists
-
-Round 4 (`2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md`)
-measured seven arms solo on the new tip. Three won. The ten-lever stack that carries all of them
-measured +4.65 % with hitsfirst OFF, and round 6 found the six-lever `triple-all`, which carries
-none of hitsfirst or prefetch-pool, at +6.50 %. So the open question is not "more levers" but
-"the winners, alone, with the one that was shipped off turned on". The navigator asked it
-directly: *"why not combine pool and hitsfirst and prefetch-pool?"* This branch is that tree.
-
-```
-   the arms round 4 measured solo, and the one this tree stacks   (gen, no-drop, vs the tip)
-
-   readahead-order   -11.38   ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫
-   hotlist            -2.73   ●━━━━━━━━━━━━┫
-   engram-read        -1.39   ●━━━━━━┫
-                                            ╵ tip
-   prefetch-pool      +2.28                 ┣━━━━━━━━━●     ✦ carried
-   newtip stack       +4.65                 ┣━━━━━━━━━━━━━━━━━━━●     (hitsfirst OFF)
-   triple-all         +6.50                 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━●     round 6
-   hitsfirst          +6.47                 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━●       ✦ carried, ON
-   pool               +7.27                 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●   ✦ carried
-
-   triple-winners     +1.54                 ┣━━━━━●     ROUND 8, level with the tip
-```
-
-### How this tree was built
-
-- Base `triple-tip-2026-09-16` at `12997e9c8`. One commit per lever, in manifest order, each
-  the lever's live rebased branch at its code sha: `triple-pool` `6371428b0` · `triple-hitsfirst`
-  `3e4773671` · `triple-prefetch-pool` `ed11cb474`. Every lever branch is already rebased onto
-  this tip, so each diff carries only its own code.
-- `winners.manifest` is the definition; `build_stack.sh` reproduces it into a fresh detached
-  worktree and `--check <sha>` asserts byte identity on the build surface. 49 conflict hunks,
-  every one decided and recorded: ours 14 · theirs 19 · both 3 · hand 13. The hand merges are
-  data under `stack.patches/winners/` and the manifest header says why each is a third text.
-- The claim-ledger hunk (hitsfirst `ds4_cuda.cu 12`) IS needed with hits-first on: when
-  hits-first takes the batch the pool owns the reads and `cuda_hits_first_wait` drops any slot
-  whose bytes do not land, so every claim is committed there, or pool's RAII ledger would
-  withdraw the slots on return while the reads are still in flight.
-- The prefetch victim order is the tip's own, `used` ascending. The sweep-aware comparator and
-  `DS4_CUDA_PREFETCH_SWEEP_ORDER` belong to prefill-readahead-order, which this tree does not
-  carry; there is no region here to gate.
-- Not carried, on purpose: margin, draincut, pagecache, hotlist, engram-lead,
-  engram-read-threads, prefill-readahead-order. Each has its own branch and its own number.
-- Tests here: `tests/test_hitsfirst_logic` 142 checks · `tests/test_pread_pool_config` 59
-  checks · `tests/test_uring_sq` PASS · `tests/test_expert_claims` PASS. Metal `make` rc 0.
-  `ds4_cuda.cu` cannot compile on this machine.
-
-## Round 8, 2026-09-17: the question is answered, and the answer is no
-
-- **It reads level with the tip: +1.54 %, 2 of 3, under a 10.69 % floor**, and -0.54 % on the
-  cold-run sensitivity against a 7.17 % floor. Its four runs span 9.13 to 9.42 t/s against a
-  control median of 8.96, so the LEVEL reading is its own, not the round's noise.
-- **Its parts beat, in the same session, on the same box.** hitsfirst alone read 10.29 to 10.49
-  (**+12.31 %, 4/4, BEATS**) and pool's two clean runs read 10.47 and 10.65. A tree carrying both
-  read below both. Prediction P7 ("winners highest delta") and P8 ("winners beats triple-all's
-  +6.50") were sealed at 0.5 each and both missed.
-- ⚠ **Not attributed.** pool and prefetch-pool touch the same expert-pread code and hitsfirst
-  calls the pool's own entry points, so three candidates remain open: the claim ledger, queue-depth
-  contention on one NVMe, and the hits-first drain interacting with the prefetch pool's own
-  in-flight batch. Round 8 separates none of them.
-
-```
-   T H E   P A R T S   B E A T ,   T H E   W H O L E   D O E S   N O T
-                                        (round 8, min-across gen, raw t/s)
-
-   control tip   8.61 ↑cold  8.87   8.96   9.49   9.53
-                              ╵      ╵      ╵      ╵
-   winners                 9.13  9.15 9.21 9.42        ◀ inside the control span
-   hitsfirst                                    9.43        10.29 10.38 10.49  ✦ above all five
-   pool                                   8.98      9.53          10.47 10.65
-
-   the two levers that clear the tip alone do not clear it together
-```
-
-Sealed rule `2026-09-17-R8-PREREGISTERED-RULE.txt` @`c173ad6d7`, result
-`2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md`,
-raw CSVs and runlog in `sweeps/r8/`.
-
-## Round 9, 2026-09-17: it reads between its parts, and the answer is still no
-
-- **Round 8's level-with-the-tip reading was the loaded window, and round 9 says so.** On a quiet
-  box this tree reads 10.20 t/s, +5.03 %, sign 3 of 3, against round 8's +1.54 %. Two of round 8's
-  four winners runs sat in that loaded window.
-- **The combination is still not better than hitsfirst alone, in either round.** 10.20 against
-  hitsfirst's 10.41 and pool's 10.35: it lands between its own parts. How much worse it is depends
-  on the day, and that is the honest width of the claim.
-- **What it is NOT is a loss.** Both readings TIE against their floors, so nothing here retracts
-  the tree's correctness or kills a lever; what is measured is a ranking, twice.
-
-Sealed rule `2026-09-17-R9-PREREGISTERED-RULE.txt` @`60d1bd06a`, result
-`2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md`,
-raw CSVs and runlog in `sweeps/r9/`.
+NOTES
+- Greedy output is byte-identical to the tip on both reference prompts, so the combination is safe, not fast.
+- The parts beat the tip in the same session and the tree carrying both did not: the two pread levers fight.
+- Not attributed. The claim ledger, NVMe queue depth and the hits-first drain are all still candidates.
+- Neither round is a loss: both tie their floor, so what is measured twice is a ranking, not a regression.
