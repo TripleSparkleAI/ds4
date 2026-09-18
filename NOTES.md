@@ -1,0 +1,5 @@
+- A control carries no delta: it is the zero point the levers are measured against, so it has no rows.
+- One object measured three times, 9.70 and 9.65 and 9.57, a 1.3 percent spread inside its own in-run floor.
+- In-run floor on this configuration: median 1.0 to 1.5 percent, max 2.2 to 4.1 percent.
+- A bracket median never re-baselines the control; a delta is taken against the brackets of its own round.
+- This is no longer the newest tip. triple-tip-2026-09-16 is the control for round 3 and after.

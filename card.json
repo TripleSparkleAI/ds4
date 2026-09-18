@@ -1,0 +1,19 @@
+{
+  "branch": "triple-antirez-tip-latest",
+  "status": "CONTROL",
+  "what": [
+    "upstream main 9139e2ae5 with PRs 1034 and 1035 folded in",
+    "no lever; every other branch was measured against this",
+    "about 9.6 to 9.8 gen t/s at min across frontiers"
+  ],
+  "switch": "none",
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-antirez-tip-latest",
+    "sha": "e6d9d3b8"
+  },
+  "results": [],
+  "prefill": "baseline 84.1 median, n=16 of 18"
+}
