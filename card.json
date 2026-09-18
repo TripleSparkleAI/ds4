@@ -1,0 +1,33 @@
+{
+  "branch": "triple-prefetch-pool",
+  "status": "POSITIVE",
+  "what": [
+    "cuts the prefill read-ahead into chunked tasks for a pool of",
+    "readers, each with its own pinned buffer and upload stream;",
+    "the single reader stays as the fallback when the pool declines"
+  ],
+  "switch": "DS4_CUDA_SSD_PREFETCH_POOL=0 reverts the whole pool",
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
+  "results": [
+    {
+      "round": "r4",
+      "date": "2026-09-17",
+      "arm_tps": 9.87,
+      "tip_tps": 9.65,
+      "delta_pct": 2.28,
+      "sign": "3/3",
+      "floor_pct": 2.71,
+      "verdict": "PARTIAL",
+      "n": 3,
+      "file": "2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md",
+      "note": "kept reading BEATS on n=1; no-drop ties the floor. One run dropped, load 3.28"
+    }
+  ],
+  "prefill": "r4 138.7 vs tip 80.7"
+}

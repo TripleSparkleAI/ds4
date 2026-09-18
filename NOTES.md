@@ -1,0 +1,5 @@
+- The prefill read-ahead's copies become 8 MiB tasks on their own reader pool instead of one serial read.
+- The foreground's blocking wait per layer fell from 398.0 ms at one reader to 196.5 ms at four readers.
+- Round 4 is its only clean interleaved reading: +2.28 percent, positive on all three kept runs.
+- That does not clear the round's 2.71 percent floor, so it needs repeats and not a new design.
+- Owed: the chunk-size axis, never run; a greedy-identity gate on this revision.
