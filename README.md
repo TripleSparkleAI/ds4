@@ -268,42 +268,10 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
-✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
-
 ```
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-lfu-offsetkey                              WORTH ZERO
-  │  WHAT     a host cache of expert byte ranges keyed by file offset: 16
-  │           ways, a use counter per slot halved every 4096 inserts. Three
-  │           modes so the eviction policy can be compared on its own
-  │  SWITCH   DS4_EXPERT_CACHE_MODE=hotlist|offsetkey|offsetkey-lru
-  │  OUTPUT   not gated
-  │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
-
-  RESULTS
-  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r6                            2026-09-17     9.71     9.69   -0.20%   1/3    3.35  TIES     3
-  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
-  prefill: reported, never a verdict - 85.90 t/s median against the tip's 89.16, n=4; no prefill verdict in round 6
-  r6  2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
-```
-
-NOTES
-- Theory: keying cached bytes by file offset should hit more often, and reuse counts should beat recency.
-- Test: interleaved against the tip, ctx 4096 and 6144, 3 repeats, round 6, whose floor was 3.35 percent.
-- Result: -0.20 percent with one repeat of three above the tip; the structure did not move the token rate.
-- Caveat: only one of the three modes ran, and on this box the device cache is already host memory.
-- Owed: the three modes interleaved from one binary, control first, so reuse can be compared with recency.
-
-ALSO TRIED
-  triple-hitsfirst       +12.3%  the lever that won on this box: launch resident experts before the miss reads land
-  triple-pool            +9.6%   parallel SSD reads with an io_uring ring; fast alone, loses under CPU load
-
 ✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
-the card below is ours; the README above is antirez's, unchanged
+  the card below is ours; the README above is antirez's, unchanged
 
-```
   ┌──────────────────────────────────────────────────────────────────────
   │  BRANCH   triple-lfu-offsetkey                              WORTH ZERO
   │  WHAT     a host cache of expert byte ranges keyed by file offset: 16
@@ -320,6 +288,9 @@ the card below is ours; the README above is antirez's, unchanged
   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
   prefill: reported, never a verdict - 85.90 t/s median against the tip's 89.16, n=4; no prefill verdict in round 6
   r6  2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
+  ALSO TRIED
+  triple-hitsfirst           +12.3%  the lever that won on this box: launch resident experts before the miss reads land
+  triple-pool                +9.6%   parallel SSD reads with an io_uring ring; fast alone, loses under CPU load
 ```
 
 NOTES
@@ -328,7 +299,3 @@ NOTES
 - Result: -0.20 percent with one repeat of three above the tip; the structure did not move the token rate.
 - Caveat: only one of the three modes ran, and on this box the device cache is already host memory.
 - Owed: the three modes interleaved from one binary, control first, so reuse can be compared with recency.
-
-ALSO TRIED
-  triple-hitsfirst       +12.3%  the lever that won on this box: launch resident experts before the miss reads land
-  triple-pool            +9.6%   parallel SSD reads with an io_uring ring; fast alone, loses under CPU load
