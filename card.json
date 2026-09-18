@@ -2,9 +2,9 @@
   "branch": "triple-engram-prestage",
   "status": "WORTH ZERO",
   "what": [
-    "moves the host-side Engram row lookup out of the forward",
-    "pass into a prepare phase that runs before it, so the",
-    "forward carries no disk read and no hash of its own"
+    "moves the lookup of the Engram memory rows out of the forward",
+    "pass into a step that runs before it, so the forward pass does",
+    "no disk read and computes no hashes of its own"
   ],
   "switch": "DS4_ENGRAM_PRESTAGE=1; unset or 0 is the shipped inline path",
   "output": {
@@ -29,5 +29,17 @@
       "note": "the read is relocated, not hidden; nothing yet overlaps it"
     }
   ],
-  "prefill": "87.18 t/s median against the tip's 89.16, n=4; no prefill verdict in round 6"
+  "prefill": "87.18 t/s median against the tip's 89.16, n=4; no prefill verdict in round 6",
+  "tried": [
+    {
+      "branch": "triple-hitsfirst",
+      "best": "+12.3%",
+      "line": "the lever that won on this box: launch resident experts before the miss reads land"
+    },
+    {
+      "branch": "triple-pool",
+      "best": "+9.6%",
+      "line": "parallel SSD reads with an io_uring ring; fast alone, loses under CPU load"
+    }
+  ]
 }

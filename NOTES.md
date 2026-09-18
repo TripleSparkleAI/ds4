@@ -1,5 +1,5 @@
-- Every repeat is negative: the prepare phase is not free and nothing overlaps the read it moved.
-- The lookup is exact, handed the token the caller already has, never guessed from an argmax.
-- Three stamps (token, pos, whole history) must match or the step falls back to the inline read.
-- The 12.04 percent Engram share is the size of the target, not of any win.
-- Owed: the CUDA build, a measured miss count, and the overlap that is the actual payoff.
+- Theory: a disk read inside the forward pass stalls it, so reading earlier should take it off that path.
+- Test: interleaved against the tip, ctx 4096 and 6144, 3 repeats, round 6, whose floor was 3.35 percent.
+- Result: -1.40 percent and every repeat below the tip; the read was moved, not hidden, and nothing covers it.
+- Caveat: round 6's floor came off a noisy box at 3.35 percent, so a small real effect would not show.
+- Owed: the CUDA build, a miss count, and real work placed over the read, where the win would come from.

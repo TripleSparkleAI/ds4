@@ -273,25 +273,29 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │  BRANCH   triple-engram-prestage                            WORTH ZERO
-  │  WHAT     moves the host-side Engram row lookup out of the forward
-  │           pass into a prepare phase that runs before it, so the
-  │           forward carries no disk read and no hash of its own
+  │  WHAT     moves the lookup of the Engram memory rows out of the forward
+  │           pass into a step that runs before it, so the forward pass does
+  │           no disk read and computes no hashes of its own
   │  SWITCH   DS4_ENGRAM_PRESTAGE=1; unset or 0 is the shipped inline path
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
 
   RESULTS
-  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r6     2026-09-17     9.54     9.69   -1.40%   0/3    3.35  TIES     3
+  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r6                            2026-09-17     9.54     9.69   -1.40%   0/3    3.35  TIES     3
   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
   prefill: reported, never a verdict - 87.18 t/s median against the tip's 89.16, n=4; no prefill verdict in round 6
   r6  2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
 ```
 
 NOTES
-- Every repeat is negative: the prepare phase is not free and nothing overlaps the read it moved.
-- The lookup is exact, handed the token the caller already has, never guessed from an argmax.
-- Three stamps (token, pos, whole history) must match or the step falls back to the inline read.
-- The 12.04 percent Engram share is the size of the target, not of any win.
-- Owed: the CUDA build, a measured miss count, and the overlap that is the actual payoff.
+- Theory: a disk read inside the forward pass stalls it, so reading earlier should take it off that path.
+- Test: interleaved against the tip, ctx 4096 and 6144, 3 repeats, round 6, whose floor was 3.35 percent.
+- Result: -1.40 percent and every repeat below the tip; the read was moved, not hidden, and nothing covers it.
+- Caveat: round 6's floor came off a noisy box at 3.35 percent, so a small real effect would not show.
+- Owed: the CUDA build, a miss count, and real work placed over the read, where the win would come from.
+
+ALSO TRIED
+  triple-hitsfirst       +12.3%  the lever that won on this box: launch resident experts before the miss reads land
+  triple-pool            +9.6%   parallel SSD reads with an io_uring ring; fast alone, loses under CPU load
