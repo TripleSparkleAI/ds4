@@ -268,9 +268,10 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
-✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
-
 ```
+✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+  the card below is ours; the README above is antirez's, unchanged
+
   ┌──────────────────────────────────────────────────────────────────────
   │  BRANCH   triple-all-fastest                                POSITIVE
   │  WHAT     the new tip plus hitsfirst, the measured fastest tree
