@@ -1,0 +1,5 @@
+- Upstream sorts victims by last use, so a prefill sweep ends holding late layers and decode restarts cold.
+- One comparator puts slots ahead of the sweep first and holds a band of the earliest layers last.
+- It loses by 11.38 percent, the largest loss measured on any lever here, on all four repeats.
+- Buying residency for decode costs decode throughput, and the price is four times the round's floor.
+- The off switch is real and restores upstream exactly, so the lever can be measured against itself.

@@ -1,0 +1,33 @@
+{
+  "branch": "triple-prefill-readahead-order",
+  "status": "NEGATIVE",
+  "what": [
+    "reorders the prefill read-ahead's victim choice and holds the",
+    "earliest layers of the scan, so the experts decode needs first",
+    "are the last evicted. Residency policy, no cache byte added"
+  ],
+  "switch": "DS4_PREFILL_READAHEAD_HOLD=0 restores upstream exactly",
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
+  "results": [
+    {
+      "round": "r4",
+      "date": "2026-09-17",
+      "arm_tps": 8.55,
+      "tip_tps": 9.65,
+      "delta_pct": -11.38,
+      "sign": "0/4",
+      "floor_pct": 2.71,
+      "verdict": "LOSES",
+      "n": 4,
+      "file": "2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md",
+      "note": "identical on both readings; every repeat between -9.7 and -13.3 percent"
+    }
+  ],
+  "prefill": "r4 86.3 vs tip 80.7"
+}
