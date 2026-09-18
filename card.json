@@ -1,0 +1,59 @@
+{
+  "branch": "triple-pool",
+  "status": "POSITIVE",
+  "what": [
+    "serves expert reads from a parallel SSD pool, not one serial",
+    "reader, with an io_uring O_DIRECT ring in front of the pool",
+    "so queue depth is a switch and not the worker count"
+  ],
+  "switch": "DS4_CUDA_STREAMING_EXPERT_PREAD_POOL=0 restores serial",
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
+  "results": [
+    {
+      "round": "r9",
+      "date": "2026-09-17",
+      "arm_tps": 10.35,
+      "tip_tps": 9.42,
+      "delta_pct": 9.59,
+      "sign": "4/4",
+      "floor_pct": 17.27,
+      "verdict": "TIES",
+      "n": 4,
+      "file": "2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md",
+      "note": "quiet box; second of five arms, spread 1.06 against hitsfirst's 0.19"
+    },
+    {
+      "round": "r8",
+      "date": "2026-09-17",
+      "arm_tps": 10.0,
+      "tip_tps": 8.96,
+      "delta_pct": 8.56,
+      "sign": "3/4",
+      "floor_pct": 10.69,
+      "verdict": "TIES",
+      "n": 4,
+      "file": "2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md",
+      "note": "loud box; +3.31 with the cold control run excluded, still a tie"
+    },
+    {
+      "round": "r4",
+      "date": "2026-09-17",
+      "arm_tps": 10.39,
+      "tip_tps": 9.65,
+      "delta_pct": 7.27,
+      "sign": "3/4",
+      "floor_pct": 2.71,
+      "verdict": "BEATS",
+      "n": 4,
+      "file": "2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md",
+      "note": "kept reading +7.75 on n=2; first run 9.24, the next three 10.34 to 10.47"
+    }
+  ],
+  "prefill": "r4 87.3 vs tip 80.7"
+}
