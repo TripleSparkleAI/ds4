@@ -117,3 +117,6 @@ resolve ds4_cuda.cu 26 ours
 resolve ds4_cuda.cu 27 ours
 resolve ds4_cuda.cu 28 ours
 resolve ds4_cuda.cu 29 both
+
+# ring queue depth 16 by default (lane QD16, 2026-09-18; round 10: QD 64 dipped once, QD 16 never)
+local   d3da089510d9ccaa80a6f17bd828c11031f65965   ring-qd16
