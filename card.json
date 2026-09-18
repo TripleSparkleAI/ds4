@@ -1,0 +1,19 @@
+{
+  "branch": "triple-spec-under-offload",
+  "status": "NOT YET",
+  "what": [
+    "does DSpark speculative decoding pay on a box whose weights",
+    "stream from disk? A residency axis crossed with a spec axis:",
+    "cold and warm working set, four legs, no engine code added"
+  ],
+  "switch": "--dspark --mtp-model FILE; the off leg is DS4_MTP_SPEC_DISABLE=1",
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
+  "results": [],
+  "prefill": ""
+}
