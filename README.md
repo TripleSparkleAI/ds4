@@ -268,99 +268,25 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
-**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
-
-**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-antirez-tip-latest                          CONTROL
-  │
-  │  WHAT       upstream main 9139e2ae5 with PRs 1034 and 1035 folded in,
-  │             squashed to one commit. No lever. Every other branch is
-  │             measured against this one.
-  │
-  │  RESULT     gen t/s   THREE READINGS OF ONE OBJECT, NOT A DISAGREEMENT
-  │             9.70 median (min 9.44, max 9.92, MAD 0.11)  n=16 of 18
-  │                the dedicated baseline session, 18 runs, sealed rule
-  │                (2026-09-16-triple-antirez-tip-latest-BASELINE.txt)
-  │             9.65 median   n=4 kept bracket runs
-  │                the bisect round 1 brackets, min-across-frontiers
-  │                (2026-09-16-BISECT-RESULT-one-comparator-carries-the-
-  │                 whole-loss.md)
-  │             9.57 median (band 9.47 - 9.62)  n=8 kept bracket runs
-  │                the round 2 brackets, min-across-frontiers
-  │                (2026-09-17-ROUND2-RESULT-the-revert-beats-the-tip.md)
-  │             ★ ALL THREE MEASURE THE SAME SHA, e6d9d3b8, on the same box
-  │               with the same argv. The spread 9.57 - 9.70 is 1.3 %, inside
-  │               this configuration's own floor, and the baseline session
-  │               already recorded a ~2.2 % drift between its own two passes.
-  │               ⇒ quote the level as ~9.6 - 9.8 and never treat a bracket
-  │               median as a re-baselining of the control.
-  │             ⚠ A DELTA IS ONLY EVER TAKEN AGAINST ITS OWN ROUND'S
-  │               BRACKETS, never against another round's absolute t/s.
-  │             prefill   84.06 median (79.13 - 87.19)   n=16 of 18
-  │             control = this branch IS the control; nothing to compare against
-  │             session  baseline 2026-09-16 04:27-05:38Z; round 1 2026-09-16;
-  │                      round 2 2026-09-17 15:06-16:30Z. DGX Spark GB10,
-  │                      native .text 23,118,434 B, box quiet by the harness
-  │                      gate (load < 2.0, memavail 117 GB, gpu < 50 %),
-  │                      ctx 2048 discarded
-  │
-  │  VERDICT    CONTROL
-  │             the zero point: ~9.6 - 9.8 gen t/s at min-across-frontiers,
-  │             in-run floor median 1.0 - 1.5 %, max 2.2 - 4.1 %.
-  │             ⚠ THIS IS NO LONGER THE NEWEST TIP. triple-tip-2026-09-16
-  │             (upstream f39675195 + our PR carry) is the control for round 3
-  │             and after; this branch stays the control for every number
-  │             already taken against it.
-  │
-  │  SWITCH     NONE - no lever in this tree
-  │  OUTPUT     not re-run
-  │
+  │  BRANCH   triple-antirez-tip-latest                         CONTROL
+  │  WHAT     upstream main 9139e2ae5 with PRs 1034 and 1035 folded in
+  │           no lever; every other branch was measured against this
+  │           about 9.6 to 9.8 gen t/s at min across frontiers
+  │  SWITCH   none
+  │  OUTPUT   not gated
+  │  BASE     triple-antirez-tip-latest @e6d9d3b8
   └──────────────────────────────────────────────────────────────────────
+
+  RESULTS  none yet - never in a sealed round
 ```
 
-**What it is.** Upstream `main` at `9139e2ae5` plus two upstream pull requests, squashed so
-every lever branch starts from one base: **PR 1034** (Dango233, Metal decode-queue sync, with
-its graph test and schedule bench) and **PR 1035** (Dango233, macOS Engram parallel reads,
-+5.2 % by its author, with bench and test). **PR 1031** (IQ2 selected-expert prefill tier) was
-read and not taken - the tip already carries an evolved form (`cuda_stream_compact_prefill`,
-the aligned fused SoA tier, `small_exact_batch` gating). **PR 1030** (Makefile link fix) is moot.
-
-**The numbers, with their sources.**
-- 9.70 gen t/s median, n=16 of 18 kept, sealed rule unamended, two prefill stragglers dropped
-  (both FAST, two-sided rule); keeping all 18 gives 9.69. Pass 1 median 9.80, pass 2 median
-  9.58, a ~2.2 % downward drift across the session; quote the level as ~9.6-9.8.
-  `2026-09-16-triple-antirez-tip-latest-BASELINE.txt`.
-- In-run floor, adjacent same-arm pairs (attribution series, 13 kept tip runs): median
-  1.23 / 1.03 / 1.46 %, max 3.14 / 2.70 / 4.05 % at ctx 4096 / 6144 / 8192.
-  `2026-09-16-triple-all-fastest-attrib-SUMMARY-levers-attribution.txt`.
-- Bracket median 9.65 gen t/s at min-across-frontiers, n=4 kept, from the bisect round 1
-  brackets on this same sha. `2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md`.
-- Bracket median 9.57 gen t/s, band 9.47-9.62, n=8 kept, from the round 2 brackets on this same
-  sha. `2026-09-17-ROUND2-RESULT-the-revert-beats-the-tip.md`. Those 8 runs are what the
-  comparator revert's +3.46 % was measured against, and the two bands never touch.
-- ★ The three readings 9.70 / 9.65 / 9.57 are one object measured three times, not three
-  claims. They span 1.3 %, which is inside this configuration's own in-run floor, and the
-  baseline session recorded a ~2.2 % drift between its own two passes. A bracket median is an
-  artefact of its round and never re-baselines the control; a delta is always taken against the
-  brackets of the round it belongs to.
-- Earlier figure: 9.56 gen t/s (minimum across repeats, first frontier discarded), from the
-  session before the 2026-09-16 baseline. Superseded by the 9.70 median above.
-- Cross-vintage sanity only, used for no delta: the 36 stack controls at dd82361a ran
-  8.92-9.57 (median 9.28); the tip's kept set sits above that band.
-
-**Refs.** upstream base `9139e2ae5` · PR 1034 `3974b3c97` + bench `03c192389` · PR 1035
-`a51510398` + bench `06cd63786` · this head `e6d9d3b83` (code tree as `84ba6ef1b`, the commit
-the other `triple-*` branches are cut from; the two differ only in `README.md`).
-
-```
-   upstream main  9139e2ae5
-        +-- #1034  Metal decode queue + test + bench
-        +-- #1035  macOS Engram parallel reads + bench + test
-        v
-   triple-antirez-tip-latest  e6d9d3b83   9.70 gen t/s   <- the one base
-        +-- triple-all-fastest and every triple-* lever branch
-```
+NOTES
+- A control carries no delta: it is the zero point the levers are measured against, so it has no rows.
+- One object measured three times, 9.70 and 9.65 and 9.57, a 1.3 percent spread inside its own in-run floor.
+- In-run floor on this configuration: median 1.0 to 1.5 percent, max 2.2 to 4.1 percent.
+- A bracket median never re-baselines the control; a delta is taken against the brackets of its own round.
+- This is no longer the newest tip. triple-tip-2026-09-16 is the control for round 3 and after.
