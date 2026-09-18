@@ -269,20 +269,19 @@ graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
 ```
-✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
   the card below is ours; the README above is antirez's, unchanged
 
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-spec-under-offload                         NEGATIVE
+  ┌─ triple-spec-under-offload ──────────────────────────────── NEGATIVE
   │  WHAT     does DSpark speculative decoding pay on a box whose weights
   │           stream from disk? Killed at the tip: the streaming target is
   │           V4.1 Flash Q2 and the engine has no DSpark path for V4.1
   │  SWITCH   --dspark --mtp-model FILE; the off leg is DS4_MTP_SPEC_DISABLE=1
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
+  └─
 
-  RESULTS  none yet - never in a sealed round
+  RESULTS   none yet - never in a sealed round
 ```
 
 NOTES
