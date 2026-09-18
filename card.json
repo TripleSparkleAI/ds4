@@ -1,0 +1,19 @@
+{
+  "branch": "triple-word-finisher",
+  "status": "TOOLING",
+  "what": [
+    "a suffix-lookup drafter, measured offline and closed: draft",
+    "k tokens from the continuation stored against the last n,",
+    "verify in one batched pass, commit the longest match"
+  ],
+  "switch": "none",
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
+  "results": [],
+  "prefill": ""
+}

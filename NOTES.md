@@ -1,0 +1,5 @@
+- No rows: an offline experiment of two python probes and a record, with zero engine files.
+- Offline: acceptance 2.37x on code and 1.17x on prose, miss reuse 0 of 1,219, bytes saved 0.0000.
+- Source: MEASURED_WORDFINISHER_lookup-drafter-acceptance-offline_2026-09-15.md, on this branch.
+- The overlap is real and the amortisation is not: the experts that union are already resident.
+- The finding was re-derived through a second, separately written path, which is why it is closed.
