@@ -268,155 +268,30 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
----
-
-**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
-
-**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
-
-Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test-mem-reserve PASS (Live memory reserve) and make test-ssd-cache PASS (SSD cache sizing), cc -fsyntax-only clean on 7 touched C files. `make test` now reaches 27 verdicts, all pass, and stops at ds4_test, which wants a model a worktree does not have; before this branch added ds4_mem_reserve.o to the host CPU object lists it stopped earlier, at the tests/test_session_state link, a failure reproduced at the pre-rebase sha 10040836e.
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-margin                                        TOOLING
-  │
-  │  WHAT       makes the memory reserve a live, checked, recorded value, and
-  │             expresses the cache budget as a split of one RAM pool across
-  │             three consumers. An instrument and a bound, not a speed lever
-  │
-  │  LATEST     round 5 - 2026-09-17 - TIES - +1.17 % 3/4 under a 5.69 floor -
-  │             2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
-  │
-  │  GEN        +1.17 %  floor 5.69 %  sign 3/4  n=4  (legacy rule +1.20)
-  │             raw: arm min-across median 9.66 t/s (9.72 / 9.60 / 9.40 / 9.74)
-  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
-  │             across 4096/6144, each run against its bracketing TIP runs
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
-  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
-  │             native 24.89 MB .text (tip 24.86 MB) - lean regime 4096/6144
-  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
-  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
-  │             that nothing clears it
-  │  PREFILL    reported, not a verdict: 89.49 t/s min-across median vs the
-  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
-  │
-  │  VERDICT    TOOLING - still tooling, and now with a number that agrees. Round 5
-  │             reads +1.17 % at 3 of 4 inside a 5.69 % floor, which is exactly what an
-  │             instrument that changes no arithmetic on the default path should read.
-  │             Nothing about t/s is claimed or owed here
-  │
-  │  SWITCH     DS4_MEM_RESERVE_MIB=N default 512 · DS4_MEM_RESERVE_ENFORCE=1|0
-  │             default 1 (a breach stops) · DS4_MEM_RESERVE_RECORD=FILE (one JSON
-  │             line per run) · DS4_MEM_RESERVE_FLOOR_HISTORY_MIB (ladder, record only)
-  │             DS4_SSD_PAGECACHE_FLOOR_PCT default 10 (range 1-40)
-  │             DS4_SSD_AUTO_CACHE_PCT default 80, now a SHARE, not a maximum
-  │  OUTPUT     not re-run
-  │
+  │  BRANCH   triple-margin                                     TOOLING
+  │  WHAT     makes the memory reserve a live, checked, recorded value
+  │           and expresses the cache budget as a split of one RAM pool
+  │           across three consumers: an instrument and a bound
+  │  SWITCH   DS4_MEM_RESERVE_MIB=N default 512; _ENFORCE=1; _RECORD=FILE
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r5     2026-09-17     9.66     9.60   +1.17%   3/4    5.69  TIES     4
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - r5 89.5 vs tip 84.6
+  r5  2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
 ```
 
-## Why there is no upside claim, and no withdrawn number either
-
-- `WIKI/theory/48-decode-speedup-levers.md` section 8 says the Spark lever is hot-expert prefetch
-  (Lever C), "not bigger cache (the knee proved size isn't it)".
-- So this branch does not frame the cache budget as something to raise. The old
-  "5,677 slots @0.918 vs 5,234 @0.901" headline is not carried.
-- An earlier reading of 8.68 against a 9.56 control, -9.2 %, is **RETIRED, not withheld**: it
-  belonged to a different knob, the expert-cache margin, on a different tree. It is named here so
-  nobody finds it in the history and mistakes it for this branch's number.
-
-## Part 1, the live reserve
-
-- `safety_margin_bytes` was a compile-time 512 MiB, subtracted once at packing time and never
-  re-checked. The integrated tree was OOM-killed 2 of 3 rounds under foreign memory pressure with
-  a smaller arena.
-- `ds4_mem_reserve.c` parses `DS4_MEM_RESERVE_MIB` once and records its authorization string.
-- It samples `MemAvailable - CmaFree` (via `ds4_linux_memory.h`) at startup, load, cache warm,
-  first long prefill and steady state: once per phase, then throttled to one per 2000 ms.
-- One value feeds all three consumers, the auto-probe subtraction (`ds4_gpu_args.c`), the packing
-  subtraction (`ds4.c`) and the live alarm, so the three cannot disagree.
-- `ds4_mem_reserve_status_line` prints FLOOR, AUTHORIZATION, OBSERVED MINIMUM with its phase,
-  AVAILABLE and `meets_headroom` at startup and at close.
-- `DS4_MEM_RESERVE_RECORD` appends one JSON record per run, also reachable through
-  `ds4_engine_mem_reserve()`.
-- A breach STOPS rather than clamps. The expert cache is sized once in `ds4_ssd_auto_cache_plan`
-  and has no runtime growth path, so a late clamp would change the cache under a running
-  measurement.
-- The default stays 512 MiB, not the reference's 13 GiB, which was sized for a resident model plus
-  resident Engram
-  (`research/v41-flash-landscape/06-octuple-spark-ceiling/HOW-WE-USE-IT.md` section 3).
-
-## What it measures, and what it cannot see
-
-- Whole-node `MemAvailable` against a human-authorized floor, at the phases where memory moves.
-- NOT residency inside the process. A clean floor is no evidence a warm-up experiment was
-  controlled: `WIKI/theory/48` section 4 separates warm resident 35.14 from cold 15.87 t/s and
-  the `--warm-weights` flag's +4.4 % on the M5 against -5.4 % on the Spark, and its section 4a
-  names the page-cache trap this instrument is blind to.
-
-```
-   ONE POOL, THREE CONSUMERS - what the split says at the default 80/10/10
-
-   pool  ├──────────── engine tier 80 % ────────────┼─ page cache 10 % ─┼─ host ─
-                                                      (backs the mmap'd
-                                                       Engram tables)
-
-   engine share 80 + floor 10 = 90        ──▶ under the cap, nothing binds
-   engine share 95 + floor 10 = 105       ──▶ CAPPED to 90, not granted
-   engine share 90 + floor 10 = 100       ──▶ granted, and WARNS: host tier gets 0
-
-   the guard binds only past an engine share of 90, so the shipped default is a no-op
-```
-
-## Part 2, the split
-
-- The engine tier, the pinned host tier and the page cache backing the memory-mapped Engram tables
-  all draw on one pool.
-- `DS4_SSD_AUTO_CACHE_PCT` is now the engine SHARE (`ds4_ssd.c`), not a maximum.
-- `DS4_SSD_PAGECACHE_FLOOR_PCT` holds a page-cache floor. The remainder is the host tier plus
-  transient prefill, printed as one line per streaming run.
-- An engine share above `100 - floor` is capped, not granted. A split that leaves the host tier
-  nothing warns.
-- Ground for caring: on a separate rig a pinned host tier above 72 GiB on a 125.7 GiB box is
-  SLOWER, because it steals page cache from Engram
-  (`research/v41-flash-landscape/08-rtx-cards/CODE.md`, the host-tier note).
-- The 10 % floor and the 40 % ceiling are conservative choices, not measured.
-
-## Built and tested off the box
-
-- `make test-mem-reserve`: **PASS** (Live memory reserve). Breach, observe-only, unknown-host,
-  ladder, record, clamp, out-of-range fallbacks, saturating arithmetic.
-- `make test-ssd-cache`: **PASS** (SSD cache sizing).
-- `make test`: **27 verdicts, all pass**, then it stops at `ds4_test`, which wants a model.
-- Files: `ds4_mem_reserve.c/.h` and `tests/test_mem_reserve.c` new; hooks in `ds4.c`,
-  `ds4_gpu_args.c`, `ds4_help.c`, `Makefile`; `ds4_ssd.c/.h`, `tests/test_ssd_cache.c`.
-
-## The Makefile repair this branch owed, and the half of it still owed
-
-- `ds4_mem_reserve.o` was added to `CORE_OBJS` and not to the CPU object lists, so
-  `tests/test_session_state`, `tests/test_engine_mgpu_placement` and `tests/test_sampling` all
-  failed to link on `ds4_mem_reserve_init`, `_sample`, `_floor_bytes`, `_log_status` and
-  `_write_record`.
-- The list is spelled out in FOUR places, not one: `CPU_CORE_OBJS` under `ifeq Darwin`,
-  `CPU_CORE_OBJS` in the `else` (CUDA) branch, and literally again in the two test rules that do
-  not use the variable. All four now carry the object.
-- ⚠ Only the Darwin path is PROVEN: the else branch's line is the same edit and has never been
-  compiled, because `ds4_cuda.cu` does not build on this Mac.
-
-## Owed and known
-
-- The CUDA build for sm_121a.
-- A reserve observed-minimum reading from a real run.
-- A split sweep. The 80/10/10 default is a no-op, so the guard has never bound in anger.
-- Any t/s at all.
-- The ROCm path still hardcodes a 2 GiB reserve in `ds4_rocm_allocation_fits`
-  (`ds4_rocm_memory.h`), left unconverted.
-- ⚠ Behaviour change: enforcement is ON by default, so a Linux launch with `MemAvailable` under
-  512 MiB now stops. `DS4_MEM_RESERVE_ENFORCE=0` restores the old behaviour.
-
-## Round 5, and the number this card now carries
-
-- **Round 5 built and ran this branch as an arm**: +1.17 % gen, 3 of 4 positive, TIES under a 5.69 % floor. The status word stays TOOLING, because a tie is the predicted reading for a default path that is arithmetic-identical, not a speed result.
-- The no-CUDA-build note above is discharged: a binary at 24.89 MB .text exists and ran four repeats, the largest .text of the seven arms.
-- Its prefill median, 89.49 t/s, is the highest of the seven arms and above the tip's 84.61, and round 5 makes no prefill verdict, so that is reported and nothing more.
+NOTES
+- An instrument and a bound, not a speed lever: the shipped default split is a no-op.
+- One sampled value feeds the auto-probe, the packing subtraction and the live alarm, so they agree.
+- It watches whole-node available memory, not residency inside the process, so a clean floor proves little.
+- Enforcement is ON by default, so a launch under the floor now stops; one switch restores the old way.
+- Owed: a split sweep, since the floor and ceiling are conservative choices rather than measured ones.
