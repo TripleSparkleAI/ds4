@@ -1,10 +1,10 @@
 {
   "branch": "triple-spec-under-offload",
-  "status": "NOT YET",
+  "status": "NEGATIVE",
   "what": [
-    "a runner, not a change: does speculative decoding still pay",
-    "when the weights stream from disk? Four legs, cold and warm",
-    "working set, with and without drafting. No engine code"
+    "does DSpark speculative decoding pay on a box whose weights",
+    "stream from disk? Killed at the tip: the streaming target is",
+    "V4.1 Flash Q2 and the engine has no DSpark path for V4.1"
   ],
   "switch": "--dspark --mtp-model FILE; the off leg is DS4_MTP_SPEC_DISABLE=1",
   "output": {

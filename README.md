@@ -272,10 +272,10 @@ it rock.
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-spec-under-offload                         NOT YET
-  │  WHAT     a runner, not a change: does speculative decoding still pay
-  │           when the weights stream from disk? Four legs, cold and warm
-  │           working set, with and without drafting. No engine code
+  │  BRANCH   triple-spec-under-offload                         NEGATIVE
+  │  WHAT     does DSpark speculative decoding pay on a box whose weights
+  │           stream from disk? Killed at the tip: the streaming target is
+  │           V4.1 Flash Q2 and the engine has no DSpark path for V4.1
   │  SWITCH   --dspark --mtp-model FILE; the off leg is DS4_MTP_SPEC_DISABLE=1
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
@@ -285,8 +285,8 @@ it rock.
 ```
 
 NOTES
-- Contains: a runner and four result templates whose every numeric cell is deliberately left blank.
-- Test: none run. An arm built here is the tip compiled twice, so a bench round would time nothing.
-- Blocker: the warm leg needs drafter and target resident together at 117.73 GiB, which does not fit.
-- Caveat: the answer can fall either way, which is the reason to measure it rather than argue it.
-- Owed: a CUDA build, the four legs and a repeat, accepted tokens per step, and the greedy-identical check.
+- Killed at the tip, never measured: the tool targets V4.1 Flash Q2 and ds4 refuses --dspark for V4.1 at open.
+- The bench takes --dspark --mtp-model, so the gate is the engine's; no dspark= arg was added to the tool.
+- The runner's default pairs V4.1 with the 0731 support file, a mix the docs forbid; ds4 exits 1 on load.
+- The spark holds the publisher's 6.0 GB 0731 support file, not the F16 Gate-A one; the fat caveat is moot.
+- Un-kill: a V4.1 DSpark path upstream, or a tool arm naming the 0731 Q2 target under a forced streaming cap.
