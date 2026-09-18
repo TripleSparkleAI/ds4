@@ -1,0 +1,59 @@
+{
+  "branch": "triple-all-fastest",
+  "status": "POSITIVE",
+  "what": [
+    "the new tip plus hitsfirst, the measured fastest tree",
+    "one lever, ON by default, and nothing else",
+    "set by rule from the sealed rounds, not by claim"
+  ],
+  "switch": "DS4_CUDA_HITS_FIRST=0 restores wait-then-launch",
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
+  "results": [
+    {
+      "round": "r9",
+      "date": "2026-09-17",
+      "arm_tps": 10.41,
+      "tip_tps": 9.42,
+      "delta_pct": 12.09,
+      "sign": "4/4",
+      "floor_pct": 17.27,
+      "verdict": "TIES",
+      "n": 4,
+      "file": "2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md",
+      "note": "highest median of five arms, spread 0.19, every arm run above every control"
+    },
+    {
+      "round": "r8",
+      "date": "2026-09-17",
+      "arm_tps": 10.34,
+      "tip_tps": 8.96,
+      "delta_pct": 12.31,
+      "sign": "4/4",
+      "floor_pct": 10.69,
+      "verdict": "BEATS",
+      "n": 4,
+      "file": "2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md",
+      "note": "+11.54 with the cold first control run excluded, 7.17 floor"
+    },
+    {
+      "round": "r4",
+      "date": "2026-09-17",
+      "arm_tps": 10.37,
+      "tip_tps": 9.65,
+      "delta_pct": 6.47,
+      "sign": "4/4",
+      "floor_pct": 2.71,
+      "verdict": "BEATS",
+      "n": 4,
+      "file": "2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md",
+      "note": "no-drop reading; the sealed straggler-filtered reading is +7.93"
+    }
+  ],
+  "prefill": ""
+}

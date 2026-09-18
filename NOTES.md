@@ -1,0 +1,5 @@
+- This tree IS the tip plus hitsfirst, so the rows above are that lever's own three sealed rounds.
+- Two wins and one tie, no sealed loss. Round 9 ties only because that session's floor was 17.27.
+- Round 9 ranked every rival below it, including the ten-lever tree carrying the same lever at 9.93 t/s.
+- Earlier trees held this name: a nine-lever stack read -4.51, and one comparator revert moved it to +3.46.
+- Not gated here: sha bb06e711bc498bb9 was taken on the hitsfirst tree before the rebase onto the new tip.
