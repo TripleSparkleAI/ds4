@@ -268,132 +268,30 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
----
-
-**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
-
-**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
-
-Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29 verdicts all pass (it stops at ds4_test, whose model is absent in a worktree, identically before and after), make test-warmset 102 checks passed, cc -fsyntax-only clean on 2 touched C files; one Makefile conflict resolved in the clean rule, two non-overlapping rm -f additions, both kept. ⚠ Re-counted on this Mac 2026-09-17: `make test` gives **26** verdicts, all pass, stopping at ds4_test as before. Counting the run's `PASS` and `ok` verdict lines does not reproduce 29, on this branch or on any of the eight, so 26 is the current figure and 29 is superseded. `make test-warmset` re-run the same day: **102 checks passed**.
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-hippocampal-warmset                        WORTH ZERO
-  │
-  │  WHAT       gives the persisted expert hot list a longer horizon: carried
-  │             free inside a day, halved once per day boundary, promoted to a
-  │             durable set when a (layer, expert) pair is demanded on three
-  │             distinct days
-  │
-  │  LATEST     round 6 · 2026-09-17 · TIES · -1.54 % ·
-  │             2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
-  │
-  │  GEN        -1.54 %  floor 3.35 %  sign 0/3  n=3
-  │             raw: arm min-across median 9.57 t/s (9.76 · 9.48 · 9.38 · 9.66)
-  │             vs the tip's 9.69 t/s (9.67 · 9.56 · 9.88 · 9.70 kept, 9.45
-  │             contention-dropped; the result file's figure line reads 9.67).
-  │             gen_steady at min across 4096/6144. The delta is each run
-  │             against its bracketing TIP runs, not against that median
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
-  │             session = 2026-09-17 11:12-11:58Z · DGX Spark GB10 ·
-  │             native 24.89 MB .text (tip 24.86 MB) · lean regime 4096/6144
-  │  PREFILL    reported, not a verdict: 83.97 t/s min-across median vs the
-  │             tip's 89.16 t/s, n=4. Round 6 makes no prefill verdict.
-  │
-  │  VERDICT    WORTH ZERO - inside the floor at -1.54 %, repeat range -3.5 to
-  │             -1.3 %, every repeat negative. The largest negative of the three
-  │             tied arms, and still inside the floor. Both rules agree
-  │
-  │  SWITCH     DS4_WARMSET_TIER=session|day, default session, which IS
-  │             today's behaviour: one file, halved at every load
-  │             DS4_WARMSET_DAYS 3 · _MAX <n> · _DIR <dir> · _PROFILE=1
-  │  OUTPUT     not re-run
-  │
+  │  BRANCH   triple-hippocampal-warmset                        WORTH ZERO
+  │  WHAT     persisted expert hot list gets a longer horizon: carried
+  │           free inside a day, halved at a day boundary, durable once
+  │           a (layer, expert) pair is demanded on three distinct days
+  │  SWITCH   DS4_WARMSET_TIER=session|day, default session, today's path
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r6     2026-09-17     9.57     9.69   -1.54%   0/3    3.35  TIES     3
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - 83.97 t/s median against the tip's 89.16, n=4; no prefill verdict in round 6
+  r6  2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
 ```
 
-## Round 6, and what a one-session sweep can say about a multi-day rule
-
-- Measured: **-1.54 % gen, 0 of 3, inside a 3.35 % floor**. The CUDA build the card said did not
-  exist now exists and ran.
-- ⚠ **A one-session sweep cannot exercise the branch's own subject.** The day and durable horizons
-  need runs on distinct calendar days; round 6 ran 21 runs inside 46 minutes, so what it measured is
-  the cost of carrying the machinery, not the value of a longer horizon.
-- ⇒ Read the tie as the overhead being inside the floor, which is the precondition for the horizon
-  experiment, not as a verdict on the horizon.
-
-## The mechanism
-
-- The hot list (`triple-hotlist`, this branch's pre-rebase base at `fe366d6f4`) already writes
-  `~/.cache/ds4/cuda_expert_hotlist.txt` at exit and seeds the next session's empty SSD
-  expert-cache slots from it before the first prefill, halving every entry on each load.
-- That is one file, one horizon, one decay rate. This branch adds two more horizons.
-- The RULES live in a pure C header, `ds4_warmset.h`: no I/O, no allocation, no CUDA, so they are
-  testable on any host.
-- The I/O lives in `ds4_cuda.cu` under `~/.cache/ds4/warmset/<model_size>/`: `day.txt` carries
-  everything with `days` and `last_day` provenance, and `durable.txt` carries pairs recurring on
-  at least `DS4_WARMSET_DAYS` days.
-- `session.txt` keeps the seeder's columns, so `ds4.c` is untouched by the tier.
-- Halving happens once per DAY boundary rather than once per load, which is what makes an
-  intra-day sequence of short sessions stop eroding the list.
-- The tier is read ONCE, not per call, so a run cannot straddle two tiers.
-
-```
-   THE THREE HORIZONS, and what each boundary costs an entry
-
-   session ─▶ session    everything, HALVED          today, unchanged
-   session ─▶ day        everything, FREE            same calendar day
-   day     ─▶ day        everything, HALVED; one-day pairs dropped
-   day     ─▶ durable    pairs demanded on >= 3 DISTINCT days
-   anything ─▶ forward   NOTHING. a slot, or nothing at all
-
-   merge rule when two sessions disagree
-     hits      ADD
-     absence   NOT a negative vote: kept, halved at the next boundary
-     recurrence  MAXIMUM, never the sum, so the merge can only UNDERSTATE
-     identity  (layer, expert) · order days > hits > layer > expert
-               makes the truncated set unique
-```
-
-- A missing or foreign file falls back to the session file, halved, which is the hot list's own
-  behaviour.
-
-## Safety, enforced in code rather than asserted
-
-- A `ds4_warmset_entry` is `(layer, expert, hits, days, last_day)`, five integers, and
-  `_Static_assert(sizeof(ds4_warmset_entry) == 24)` stops the build if that ever changes.
-- No float, value, weight, scale or gate exists anywhere in its vocabulary.
-- The only consumer is `ds4_gpu_stream_expert_cache_seed_experts`, which fills EMPTY slots only
-  and truncates to the free count. The size guarantee is enforced in the consumer, not only
-  promised by the producer.
-- `g_stream_expert_seeding` keeps a seed from being counted as demand.
-- A non-seed cache lookup sets `g_warmset_sealed` and the seeder refuses after it.
-- So a wrong entry costs ONE SLOT and can never reach an output byte.
-- This is the safe side of `WIKI/theory/167` (the content control: residual injection hurt at
-  z = +7.14, presence 27 to 45x content), because there is no residual to inject into.
-
-## What is measured, and what is not
-
-- `make test-warmset`: **102 checks, 0 failures**, host compiler, no GPU, re-run 2026-09-17.
-  Session boundary, day boundary, merge, consolidation threshold, deterministic truncation, and
-  the structural safety property.
-- ⚠ An earlier card said 92 checks. That was before the repair at `394c9c245` (halve once per DAY
-  boundary, read the tier once, enforce the size guarantee in the consumer) added its arms. 102 is
-  the current run.
-- A persistence harness extracted from `ds4_cuda.cu`, three simulated sessions across a hand-built
-  day boundary: 14 checks, 0 failures. NOT COMMITTED, because it needs static internals.
-- Nothing about the tier's effect on t/s is measured, at all.
-- The new block compiles as C++17 under `clang++ -Wall -Wextra`. That is not a CUDA build.
-- ROLLINGSPLIT, the staleness-against-gain curve, lives on `triple-hotlist` at `9fb0b64e7` behind
-  `DS4_CUDA_EXPERT_HOTLIST_ROLLING=1`, one commit after this branch's pre-rebase base. The two are
-  not yet in one tree.
-
-## Owed
-
-- `make cuda-spark` on the Spark, then an interleaved A/B of `session` against `day` at one power
-  mode, then the greedy-identical check.
-- ⚠ The A/B is slow by construction: `day` cannot differ from `session` inside one session, so the
-  measurement needs runs on at least two calendar days, and `durable` needs three.
-- Files: `ds4_cuda.cu` +653/-1, `ds4_warmset.h` (240 lines, new), `tests/test_warmset.c` (409,
-  new), `ds4.c` +26, `ds4_gpu.h` +4, `Makefile`, `.gitignore`.
+NOTES
+- Round 6 measured what carrying the machinery costs, not the longer horizon it adds.
+- The day and durable tiers need runs on distinct calendar days; round 6 ran 21 runs in 46 minutes.
+- make test-warmset: 102 checks, 0 failures, host compiler, re-run 2026-09-17.
+- A wrong entry costs one empty cache slot and can never reach an output byte.
+- Owed: make cuda-spark, a session against day A/B across two days, then the greedy check.
