@@ -273,8 +273,8 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │  BRANCH   triple-draft-gamma                                NOT YET
-  │  WHAT     an adaptive draft-length (gamma) controller for DSpark:
-  │           one EMA slot per active-lane bucket, gamma from 0 to 16,
+  │  WHAT     picks how many tokens to draft each step from a running
+  │           average of how many were accepted, per lane count, 0 to 16,
   │           so drafting switches itself off where it is not paying
   │  SWITCH   DS4_DRAFT_GAMMA_MODE=fixed|adaptive, default fixed
   │  OUTPUT   not gated
@@ -282,16 +282,19 @@ it rock.
   └──────────────────────────────────────────────────────────────────────
 
   RESULTS
-  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r5     2026-09-17     9.75     9.60   +3.83%   4/4    5.69  TIES     4
+  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r5                            2026-09-17     9.75     9.60   +3.83%   4/4    5.69  TIES     4
   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
   prefill: reported, never a verdict - r5 88.6 vs tip 84.6
   r5  2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
 ```
 
 NOTES
-- Gamma is fixed today from the support model's block size; this keeps an EMA of accept length per bucket.
-- Zero is a candidate and is not absorbing: a bucket at zero rests one interval and is then re-probed.
-- The unit tests are state traces with no model and no GPU, so none of them is a speedup.
-- The expected effect is a smaller loss where fixed gamma overspent, not a win; a win wants explaining.
-- Owed: a re-measure on a quiet box, at one and at many lanes, then the greedy-identical check.
+- Theory: one fixed draft length overspends when acceptance is low, so tracking acceptance should save that.
+- Test: interleaved against the tip, ctx 4096 and 6144, 4 repeats, round 5, whose floor was 5.69 percent.
+- Result: +3.83 percent with all four repeats above the tip, the largest delta of that round.
+- Caveat: round 5's floor came off a noisy box at 5.69 percent, so the number sits under it and is not a win.
+- Owed: a quiet re-run at one lane and at many; the +3.83 percent and its 4 of 4 stand until it happens.
+
+ALSO TRIED
+  triple-hitsfirst       +12.3%  the lever that won on this box: launch resident experts before the miss reads land

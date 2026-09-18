@@ -2,19 +2,24 @@
   "branch": "triple-draft-gamma",
   "status": "NOT YET",
   "what": [
-    "an adaptive draft-length (gamma) controller for DSpark:",
-    "one EMA slot per active-lane bucket, gamma from 0 to 16,",
+    "picks how many tokens to draft each step from a running",
+    "average of how many were accepted, per lane count, 0 to 16,",
     "so drafting switches itself off where it is not paying"
   ],
   "switch": "DS4_DRAFT_GAMMA_MODE=fixed|adaptive, default fixed",
-  "output": {"gated": false},
-  "base": {"branch": "triple-tip-2026-09-16", "sha": "12997e9c"},
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
   "results": [
     {
       "round": "r5",
       "date": "2026-09-17",
       "arm_tps": 9.75,
-      "tip_tps": 9.60,
+      "tip_tps": 9.6,
       "delta_pct": 3.83,
       "sign": "4/4",
       "floor_pct": 5.69,
@@ -24,5 +29,12 @@
       "note": "largest delta of the round; re-measure on a quiet box"
     }
   ],
-  "prefill": "r5 88.6 vs tip 84.6"
+  "prefill": "r5 88.6 vs tip 84.6",
+  "tried": [
+    {
+      "branch": "triple-hitsfirst",
+      "best": "+12.3%",
+      "line": "the lever that won on this box: launch resident experts before the miss reads land"
+    }
+  ]
 }
