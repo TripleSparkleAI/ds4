@@ -273,25 +273,28 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │  BRANCH   triple-climbingfibre                              WORTH ZERO
-  │  WHAT     a front cache in front of the frozen model that learns
-  │           from the speculative verifier's own rejections, online,
-  │           with a retention horizon. It proposes one draft token
+  │  WHAT     a small table in front of the model that learns from tokens
+  │           the verifier rejected, while it runs, and forgets them over
+  │           time. It offers one draft token when nothing else did
   │  SWITCH   DS4_CLIMBINGFIBRE=1, default 0; _HORIZON, _DECAY, _NGRAM, _CAP
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
 
   RESULTS
-  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r5     2026-09-17     9.58     9.60   +1.28%   4/4    5.69  TIES     4
+  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r5                            2026-09-17     9.58     9.60   +1.28%   4/4    5.69  TIES     4
   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
   prefill: reported, never a verdict - r5 83.1 vs tip 84.6
   r5  2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
 ```
 
 NOTES
-- The verifier's correction is already computed and discarded; this writes that labelled pair into a table.
-- Consulted only when the engine drafted nothing, so a wrong entry costs a verify pass, never an output byte.
-- Retrieval drafting is prior art; the narrow claim left is online write-back of rejections with retention.
-- The horizon step budgets are placeholders and have never been priced.
-- Owed: the greedy-identical check, and an A/B at other contexts and batch shapes.
+- Theory: the verifier computes the right token when it rejects a draft, and that correction is thrown away.
+- Test: interleaved against the tip, ctx 4096 and 6144, 4 repeats, round 5, whose floor was 5.69 percent.
+- Result: +1.28 percent with all four repeats above the tip, well under the floor, so it is not a win.
+- Caveat: round 5's floor came off a noisy box at 5.69 percent, and the forgetting budgets are placeholders.
+- Owed: the greedy-identical check, and a re-run on a quiet box at other context lengths and batch shapes.
+
+ALSO TRIED
+  triple-hitsfirst       +12.3%  the lever that won on this box: launch resident experts before the miss reads land

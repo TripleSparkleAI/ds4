@@ -1,5 +1,5 @@
-- The verifier's correction is already computed and discarded; this writes that labelled pair into a table.
-- Consulted only when the engine drafted nothing, so a wrong entry costs a verify pass, never an output byte.
-- Retrieval drafting is prior art; the narrow claim left is online write-back of rejections with retention.
-- The horizon step budgets are placeholders and have never been priced.
-- Owed: the greedy-identical check, and an A/B at other contexts and batch shapes.
+- Theory: the verifier computes the right token when it rejects a draft, and that correction is thrown away.
+- Test: interleaved against the tip, ctx 4096 and 6144, 4 repeats, round 5, whose floor was 5.69 percent.
+- Result: +1.28 percent with all four repeats above the tip, well under the floor, so it is not a win.
+- Caveat: round 5's floor came off a noisy box at 5.69 percent, and the forgetting budgets are placeholders.
+- Owed: the greedy-identical check, and a re-run on a quiet box at other context lengths and batch shapes.
