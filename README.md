@@ -268,171 +268,30 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
----
-
-
-
-
-
-**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
-
-
-**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
-
-**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-prefetch-pool                          POSITIVE
-  │
-  │  WHAT       cuts the prefill read-ahead into chunked tasks for a pool of
-  │             readers with their own pinned buffers and upload streams;
-  │             the single reader stays as the fallback when the pool declines
-  │
-  │  LATEST     round 4 · 2026-09-17 · PARTIAL · +2.28 % (kept +2.28 %) ·
-  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
-  │
-  │  GEN        +2.28 % (kept +2.28 %)  floor 2.71 % (no-drop)  sign 3/3  n=3
-  │             raw: arm median 9.87 t/s vs tip median 9.65 t/s, gen_steady
-  │             at min across 4096/6144; the delta is each run against the
-  │             mean of its bracketing TIP runs, not against that median
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
-  │             bracket per cycle
-  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
-  │             native 24.87 MB .text · lean regime 4096/6144
-  │  PREFILL    reported, not a verdict: 138.67 t/s min-across median vs the
-  │             tip's 80.73 t/s, n=3. Round 4 makes no prefill verdict.
-  │
-  │  VERDICT    POSITIVE, PARTIAL - the kept reading calls it BEATS on a single
-  │             survivor against a 0.21 % floor; the no-drop reading's +2.28 % TIES
-  │             a 2.71 % floor. Sign 3 of 3, one run dropped for box contention
-  │             (load 3.28 at the end of r4_prefetchpool_2, not the straggler rule).
-  │             Read it as a small real positive that THIS round cannot clear its
-  │             floor with. It needs repeats, not a new design.
-  │
-  │  SWITCH     DS4_CUDA_SSD_PREFETCH_CHUNK_MB, default 8, cap 64; 0 is ignored,
-  │             so the chunking has no off arm. DS4_CUDA_SSD_PREFETCH_POOL=0 or
-  │             DS4_CUDA_SSD_PREFETCH_THREADS=1 reverts the whole pool
-  │  OUTPUT     greedy-identical sha256 2f2dd7f89d107bbc (33,527 bytes, 12 runs)
-  │
+  │  BRANCH   triple-prefetch-pool                              POSITIVE
+  │  WHAT     cuts the prefill read-ahead into chunked tasks for a pool of
+  │           readers, each with its own pinned buffer and upload stream;
+  │           the single reader stays as the fallback when the pool declines
+  │  SWITCH   DS4_CUDA_SSD_PREFETCH_POOL=0 reverts the whole pool
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r4     2026-09-17     9.87     9.65   +2.28%   3/3    2.71  PARTIAL  3
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - r4 138.7 vs tip 80.7
+  r4  2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
 ```
 
-### What the branch measured
-
-From `speed-bench/v41_cuda_prefetch_pool_gb10.md` in this tree: twelve runs across seven
-configurations.
-
-```
-   THE FOREGROUND'S BLOCKING WAIT ON THE READ-AHEAD, per layer
-   38 layers · 3,822,059,520 bytes · same bytes on every arm
-
-   1 reader    ████████████████████████████████████████   398.0 ms   NVMe QD 1
-   4 readers   ███████████████████                        196.5 ms   NVMe QD 4
-               ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
-               7.65 s removed from one 4,392-token prefill
-
-   4 readers beat 8 and 16 by about 11 %, in both passes
-
-   THE DRIVE ITSELF, probed
-   single reader   7.6 GB/s  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
-   eight readers  10.1 GB/s  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
-
-   a prefetch moves WHEN a byte arrives, never HOW MANY arrive
-```
-
-### ⚠ A number that is not this branch's
-
-`+72 to +81 %` has been attached to this branch in conversation. It appears **zero times**
-anywhere in this branch's tree. It came from `triple-all-fastest`'s card. Do not carry it back
-here. What this branch itself measured is the wait figure above, and nothing more.
-
-### Why tokens/s is not measured
-
-- The 2026-09-15 native pass ran, and every arm read above its control, **including the arms with
-  the lever off**.
-- Two of three levers measured better off than on.
-- Its control read **9.17 to 9.46 t/s** against **9.56** in a later pass.
-- An off arm is the control, so a pass where the off arms win has a bad control, not a lever. The
-  figures are withheld.
-- No arm of the chunk-size axis has been run at all.
-
-### Mechanism
-
-- The read-ahead's copies are cut into `DS4_CUDA_SSD_PREFETCH_CHUNK_MB` MiB tasks and handed to
-  the read-ahead's own pool instance, `g_prefetch_pread`.
-- Each worker owns a pinned staging buffer and its own upload stream, so the drive sees the
-  layer's whole queue depth instead of one read at a time.
-- A 38-layer prefill creates **no** threads on the pooled path, where it previously created and
-  joined **38**.
-- The pool is separate from the demand pool because `cuda_pread_pool_dispatch_start` declines
-  while a batch is in flight.
-- Workers take private file descriptors per batch. So the foreground cannot close one underneath
-  them, and a rejected direct read cannot disable `O_DIRECT` for the demand path.
-- The read-ahead's invariants live outside the reader and survive: slots reserved
-  `used = UINT64_MAX`, publication one foreground act, the join still a join on cancellation and
-  teardown.
-
-### The env resolution, hoisted
-
-`cuda_pread_pool_dispatch_start` called `cuda_pread_pool_limit()` twice in four lines: once for
-the worker count it clamps to the batch, once, unclamped, for the pool's own size. Each call was
-a `getenv` plus a `strtoul`, and the dispatch runs once per expert prefetch batch.
-`cuda_pread_pool_enabled()` was a third `getenv` on the same path until the pool finished
-initializing.
-
-- **Both uses survive and are genuinely different.** The pool is persistent, so it is sized to the
-  configured limit, not to whatever the first batch happened to carry. It was the RESOLUTION that
-  was duplicated, and that is what went.
-- `ds4_pread_pool_workers()` now keeps the clamped and unclamped halves apart, so the distinction
-  is named instead of implied.
-- The rules moved to `ds4_pread_pool_config.h` as pure C99 - the parse, both clamps and the
-  read-once cache - because `ds4_cuda.cu` does not compile on a host with no CUDA toolkit and none
-  of this was reachable by any test.
-- The cache carries a `_resolved` flag per setting rather than a sentinel, so an all-zero struct
-  means "not resolved yet". That matters because it lives inside `cuda_pread_pool`, whose globals
-  are built by a positional initializer that leaves the tail zeroed.
-- A `static_assert` pins `DS4_PREAD_POOL_MAX` to `DS4_CUDA_EXPERT_PREAD_MAX`, since both index the
-  pool's fixed thread, args and ctx arrays.
-
-**Stated, because it is a behaviour change.** Read-once means a mid-run mutation of either
-variable no longer moves the next dispatch's worker count. It never moved the pool's size:
-`cuda_pread_pool_init` fixes that on first use and never revisits it. So the per-batch clamp is
-the only reachable difference.
-
-Tests: `tests/test_pread_pool_config.c`, 16 cases and 59 checks, wired into `make test`. A
-counting reader is substituted for `getenv`, so "resolved once" is a counted fact. Proven RED
-against the unhoisted resolver first: 3 assertions fire, exit 1, at 4,000 reads over 4,000 calls
-on each setting and 10 over ten dispatches. GREEN after: 0 failed, exit 0.
-
-No measurement is claimed for the hoist. Nothing CUDA compiles on the Mac host, so the Spark
-build is the gate for the `.cu` half.
-
-### In the stack
-
-Applying this branch's diff onto `triple-all-fastest` produced about thirty conflict regions
-(**30** by `git apply --3way`, **31** by `git merge-tree`), resolved by hand:
-
-- 8 took the stack's side
-- 16 took this branch's side
-- 6 were combined
-
-The merged tree built clean natively.
-
-### Owed
-
-- A clean interleaved A/B on a Spark build, both arms on one vintage, with a control that the off
-  arms do not beat.
-- The chunk-size axis, which has never been run.
-
-The line to clear: the clean tip reads **9.65 t/s median**
-(`2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md`).
-
-## Round 4, 2026-09-17: on the new tip, in a sealed round
-
-- **A small positive that does not clear its floor.** +2.28 % on both readings, sign 3 of 3. The kept reading calls it BEATS because the straggler rule shrank the floor to 0.21 %; the no-drop reading TIES a 2.71 % floor with the same number. PARTIAL is the honest word.
-- One of the four runs was dropped for box contention, not by the straggler rule: `r4_prefetchpool_2` ended at load 3.28. Raw min-across medians over the three kept runs are 9.87 t/s arm against 9.65 t/s tip.
-- The 2026-09-15 bad-control pass stays withheld and is not superseded by this: round 4 is the first clean interleaved reading this branch has. Prefill min-across median 138.67 t/s against the tip's 80.73 is reported and is not a verdict.
-
-Sealed rule `2026-09-17-R4-PREREGISTERED-RULE.txt` @`3914a3226`, result `2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md`, raw CSVs and runlog in `sweeps/r4/`.
+NOTES
+- The prefill read-ahead's copies become 8 MiB tasks on their own reader pool instead of one serial read.
+- The foreground's blocking wait per layer fell from 398.0 ms at one reader to 196.5 ms at four readers.
+- Round 4 is its only clean interleaved reading: +2.28 percent, positive on all three kept runs.
+- That does not clear the round's 2.71 percent floor, so it needs repeats and not a new design.
+- Owed: the chunk-size axis, never run; a greedy-identity gate on this revision.
