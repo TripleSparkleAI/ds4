@@ -1,0 +1,5 @@
+- Every repeat is negative: the prepare phase is not free and nothing overlaps the read it moved.
+- The lookup is exact, handed the token the caller already has, never guessed from an argmax.
+- Three stamps (token, pos, whole history) must match or the step falls back to the inline read.
+- The 12.04 percent Engram share is the size of the target, not of any win.
+- Owed: the CUDA build, a measured miss count, and the overlap that is the actual payoff.

@@ -1,0 +1,33 @@
+{
+  "branch": "triple-engram-prestage",
+  "status": "WORTH ZERO",
+  "what": [
+    "moves the host-side Engram row lookup out of the forward",
+    "pass into a prepare phase that runs before it, so the",
+    "forward carries no disk read and no hash of its own"
+  ],
+  "switch": "DS4_ENGRAM_PRESTAGE=1; unset or 0 is the shipped inline path",
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
+  "results": [
+    {
+      "round": "r6",
+      "date": "2026-09-17",
+      "arm_tps": 9.54,
+      "tip_tps": 9.69,
+      "delta_pct": -1.4,
+      "sign": "0/3",
+      "floor_pct": 3.35,
+      "verdict": "TIES",
+      "n": 3,
+      "file": "2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md",
+      "note": "the read is relocated, not hidden; nothing yet overlaps it"
+    }
+  ],
+  "prefill": "87.18 t/s median against the tip's 89.16, n=4; no prefill verdict in round 6"
+}
