@@ -269,20 +269,19 @@ graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
 ```
-✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
   the card below is ours; the README above is antirez's, unchanged
 
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-engram-4bit                                NOT YET
+  ┌─ triple-engram-4bit ──────────────────────────────────────── NOT YET
   │  WHAT     the two Engram tables re-encoded to 4 bits in a sidecar (132 B
   │           a row, was 264): a converter with a selftest, and a host dequant
   │           in ds4_engram_read behind a switch. Not measured on the GB10 yet
   │  SWITCH   DS4_ENGRAM_4BIT=<sidecar> turns it on; unset, the tip runs
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
+  └─
 
-  RESULTS  none yet - never in a sealed round
+  RESULTS   none yet - never in a sealed round
 ```
 
 NOTES
