@@ -269,29 +269,27 @@ graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
 ```
-✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
   the card below is ours; the README above is antirez's, unchanged
 
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-all                                        POSITIVE
+  ┌─ triple-all ─────────────────────────────────────────────── POSITIVE
   │  WHAT     six levers stacked in series on the expert-cache read path
   │           pool, drain sync, cache margin, hot list, page-drop, hits-first
   │           second best tree measured, below hitsfirst alone in round 9
   │  SWITCH   DS4_CUDA_HITS_FIRST=0, plus each lever's own env switch
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
+  └─
 
-  RESULTS
-  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r9                            2026-09-17    10.11     9.42   +7.02%   3/4   17.27  TIES     4
-  r8                            2026-09-17     9.10     8.96   -0.98%   1/4   10.69  TIES     4
-  r6                            2026-09-17    10.35     9.69   +6.50%   3/3    3.35  BEATS    3
-  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
-  prefill: reported, never a verdict - r8 85.3 vs tip 84.3
-  r9  2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
-  r8  2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
-  r6  2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
+  RESULTS   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10
+  round  variant       arm t/s  tip t/s    delta  sign  floor  verdict  n
+  r9                     10.11     9.42   +7.02%   3/4  17.27  TIES     4
+  r8                      9.10     8.96   -0.98%   1/4  10.69  TIES     4
+  r6                     10.35     9.69   +6.50%   3/3   3.35  BEATS    3
+  each repeat against its two bracketing tip runs · floor = max adjacent tip pair
+  prefill: r8 85.3 vs tip 84.3
+  files   r9 2026-09-17-R9-RESULT-*.md · r8 2026-09-17-R8-RESULT-*.md
+          r6 2026-09-17-R6-RESULT-*.md
 ```
 
 NOTES
