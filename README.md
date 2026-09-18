@@ -268,33 +268,10 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
-✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
-
 ```
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-prefix-cache                               CONTROL
-  │  WHAT     the prefix cache the server already has, written up from the
-  │           code, plus the one thing it lacked: a way to turn it off so
-  │           it can be measured. --prefix-cache off rewinds each request
-  │  SWITCH   --prefix-cache on|off on ds4-server, default on
-  │  OUTPUT   not gated
-  │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
-
-  RESULTS  none yet - never in a sealed round
-```
-
-NOTES
-- Contains: a server flag, 45 added lines across ds4_server.c and ds4_help.c, and no deletions.
-- Test: none possible here. Every bench round drives ds4-bench, which never goes through the server.
-- Behaviour: with off the session rewinds each request, the disk load refuses, and no checkpoint is written.
-- Caveat: a hit must match byte for byte from the first token, so moving context to the front kills it.
-- Owed: a server harness for the on against off sweep, and a hit rate read from the new log line.
-
 ✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
-the card below is ours; the README above is antirez's, unchanged
+  the card below is ours; the README above is antirez's, unchanged
 
-```
   ┌──────────────────────────────────────────────────────────────────────
   │  BRANCH   triple-prefix-cache                               CONTROL
   │  WHAT     the prefix cache the server already has, written up from the
