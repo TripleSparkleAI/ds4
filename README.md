@@ -303,3 +303,8 @@ NOTES
 - Result: +6.5, +12.3, +9.1 % on the three clean rounds, every repeat above the tip; round 10 tied (2 dips).
 - Noise: identical binaries swing about 8 % run to run here (the page cache holds none of the model).
 - Output: greedy identity vs the tip on this base is being gated now; the pre-rebase gate: bb06e711bc498bb9.
+
+ALSO TRIED
+  triple-pool            +9.6%   parallel SSD reads with an io_uring ring; fast alone, loses ~15 % under CPU load
+  triple-pool-and-hitsfirst +5.6%   pool plus this change; one quiet round, not measurably above hitsfirst alone
+  triple-winners         +10.3%  pool + hitsfirst + prefetch, ring QD 16; +6.9 and +10.3 on quiet boxes, same caveat

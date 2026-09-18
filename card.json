@@ -76,5 +76,22 @@
       "file": "2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md"
     }
   ],
-  "prefill": "unchanged within noise (r12 hitsfirst 89.0 vs tip 85.6 t/s)"
+  "prefill": "unchanged within noise (r12 hitsfirst 89.0 vs tip 85.6 t/s)",
+  "tried": [
+    {
+      "branch": "triple-pool",
+      "best": "+9.6%",
+      "line": "parallel SSD reads with an io_uring ring; fast alone, loses ~15 % under CPU load"
+    },
+    {
+      "branch": "triple-pool-and-hitsfirst",
+      "best": "+5.6%",
+      "line": "pool plus this change; one quiet round, not measurably above hitsfirst alone"
+    },
+    {
+      "branch": "triple-winners",
+      "best": "+10.3%",
+      "line": "pool + hitsfirst + prefetch, ring QD 16; +6.9 and +10.3 on quiet boxes, same caveat"
+    }
+  ]
 }
