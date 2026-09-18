@@ -1,5 +1,5 @@
 - Expert misses are served by a pthread pread pool with an io_uring O_DIRECT ring in front of it.
 - The drive gives about 10.1 GB/s at eight readers in flight against 7.6 GB/s at one, so depth is the lever.
 - Round 4 is the branch's number. Rounds 8 and 9 read higher but tie, because the box sets a wide floor.
-- The round-4 first run read 9.24 t/s: a cold ring and an ordinary straggler are not separable at n=4.
+- Round 10 measured this lever only inside the pair and winners trees, at +5.6 to +6.9; pool alone was no arm.
 - Owed: a greedy-identity gate on this tree, and one run aimed at the ring's decline path.
