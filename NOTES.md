@@ -1,0 +1,4 @@
+- The premise is that MoE routing is sticky token to token, so the last token's L+1 experts are a guess.
+- A scout read never takes a victim slot from a demand read, and lands at used=1 so a bad guess goes first.
+- The stats line reports scout reads and guess hits, so a false premise shows before any speed reading.
+- Not gated yet: ds4_cuda.cu is not compiled here, and G1 byte-identity on both reference prompts comes first.

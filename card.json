@@ -1,0 +1,19 @@
+{
+  "branch": "triple-scout",
+  "status": "NOT YET",
+  "what": [
+    "at layer L, also read the experts token t-1 used at L+1",
+    "reads only, never math; rides the hits-first batch",
+    "on top of triple-all-fastest, the measured default"
+  ],
+  "switch": "DS4_CUDA_SCOUT=0 restores triple-all-fastest exactly",
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-all-fastest",
+    "sha": "28f6f102"
+  },
+  "results": [],
+  "prefill": ""
+}
