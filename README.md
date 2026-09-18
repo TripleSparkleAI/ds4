@@ -290,3 +290,27 @@ NOTES
 - In-run floor on this configuration: median 1.0 to 1.5 percent, max 2.2 to 4.1 percent.
 - A bracket median never re-baselines the control; a delta is taken against the brackets of its own round.
 - This is no longer the newest tip. triple-tip-2026-09-16 is the control for round 3 and after.
+
+✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+the card below is ours; the README above is antirez's, unchanged
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │  BRANCH   triple-antirez-tip-latest                         CONTROL
+  │  WHAT     upstream main 9139e2ae5 with PRs 1034 and 1035 folded in
+  │           no lever; every other branch was measured against this
+  │           about 9.6 to 9.8 gen t/s at min across frontiers
+  │  SWITCH   none
+  │  OUTPUT   not gated
+  │  BASE     triple-antirez-tip-latest @e6d9d3b8
+  └──────────────────────────────────────────────────────────────────────
+
+  RESULTS  none yet - never in a sealed round
+```
+
+NOTES
+- A control carries no delta: it is the zero point the levers are measured against, so it has no rows.
+- One object measured three times, 9.70 and 9.65 and 9.57, a 1.3 percent spread inside its own in-run floor.
+- In-run floor on this configuration: median 1.0 to 1.5 percent, max 2.2 to 4.1 percent.
+- A bracket median never re-baselines the control; a delta is taken against the brackets of its own round.
+- This is no longer the newest tip. triple-tip-2026-09-16 is the control for round 3 and after.
