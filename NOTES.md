@@ -1,0 +1,5 @@
+- An instrument and a bound, not a speed lever: the shipped default split is a no-op.
+- One sampled value feeds the auto-probe, the packing subtraction and the live alarm, so they agree.
+- It watches whole-node available memory, not residency inside the process, so a clean floor proves little.
+- Enforcement is ON by default, so a launch under the floor now stops; one switch restores the old way.
+- Owed: a split sweep, since the floor and ceiling are conservative choices rather than measured ones.
