@@ -268,132 +268,30 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
----
-
-
-
-
-
-**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
-
-
-**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
-
-
-**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
-
-**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
-
-Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29 verdicts all pass (it stops at ds4_test, whose model is absent in a worktree, identically before and after), cc -fsyntax-only clean on 1 touched C file (ds4.c). ⚠ Re-counted on this Mac 2026-09-17: **26** verdicts, all pass, stopping at ds4_test as before. Counting the run's `PASS` and `ok` verdict lines does not reproduce 29, on this branch or on any of the eight, so 26 is the current figure and 29 is superseded.
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-engram-lead                                WORTH ZERO
-  │
-  │  WHAT       starts the Engram table read one token ahead of first use,
-  │             speculating on the current step's own argmax, so the read
-  │             overlaps the step instead of landing exposed inside it
-  │
-  │  LATEST     round 5 - 2026-09-17 - TIES - -1.04 % 1/4 under a 5.69 floor -
-  │             2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
-  │
-  │  GEN        -1.04 %  floor 5.69 %  sign 1/4  n=4
-  │             raw: arm min-across median 9.43 t/s (9.45 / 9.42 / 9.35 / 9.48)
-  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
-  │             across 4096/6144, each run against its bracketing TIP runs
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
-  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
-  │             native 24.86 MB .text (tip 24.86 MB) - lean regime 4096/6144
-  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
-  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
-  │             that nothing clears it
-  │  PREFILL    reported, not a verdict: 86.94 t/s min-across median vs the
-  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
-  │
-  │  VERDICT    WORTH ZERO - -1.04 % at 1 of 4 positive, the lowest delta and the
-  │             weakest sign of the round, and still inside a 5.69 % floor. Measured
-  │             correct and worth nothing. It is not carded NEGATIVE, because -1.04 %
-  │             does not clear the floor in either direction
-  │
-  │  SWITCH     DS4_V41_ENGRAM_LEAD_OFF - the lead is ON by default; set the
-  │             variable to anything to turn it off. Read once per process,
-  │             all-or-nothing
-  │  OUTPUT     not re-run
-  │
+  │  BRANCH   triple-engram-lead                                WORTH ZERO
+  │  WHAT     starts the Engram table read one token ahead of first use,
+  │           speculating on the current step's own argmax, so the read
+  │           overlaps the step instead of landing exposed inside it
+  │  SWITCH   DS4_V41_ENGRAM_LEAD_OFF turns it off; the lead is ON by default
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r5     2026-09-17     9.43     9.60   -1.04%   1/4    5.69  TIES     4
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - r5 86.9 vs tip 84.6
+  r5  2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
 ```
 
-## The cost it attacks
-
-- A V4.1 decode step reads both Engram tables at its head and finishes before
-  `ds4_gpu_begin_commands()`, so none of that read overlaps a GPU command.
-- Measured with `DS4_V41_ENGRAM_PROFILE` on the GB10: engram mean **23.922 ms of a 198.636 ms
-  step, 12.04 %**, over 31 decode steps (`speed-bench/v41_engram_lead_gb10.md`).
-- ⚠ That is a measurement of the SHIPPED path. It says how big the window is. It says nothing
-  about what this branch recovers from it.
-
-```
-   ONE DECODE STEP, 198.636 ms, profiled on the GB10
-
-   engram read  |@@@@@@@@@@@@                                          23.922 ms
-   the rest     |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@  174.714 ms
-
-   as shipped   the read sits INSIDE the step, before any GPU command is queued
-   this branch  the read starts at step N-1's tail and is joined at step N's head
-
-   so 23.922 ms is the SIZE OF THE WINDOW, and how much of it is recovered
-   is the number nobody has taken
-```
-
-## The mechanism
-
-- Row ids are a pure function of the token and a three-entry history tail (`ds4_engram_hash`), so
-  the next step's rows are computable from this step's argmax, and under greedy decoding that
-  argmax IS the next token.
-- `ds41_engram_lead_start` runs after the history is committed and `pos` advanced, hashes against
-  a copy of the history, and starts one reader over both tables.
-- `ds41_engram_lead_take` joins that reader unconditionally and publishes the rows only if
-  `(token, history, pos)` all match.
-- A rejected speculative token, a rewind or a fork misses and falls back to the demand read. A
-  miss is never wrong, only unhelpful.
-- `ds41_graph_free` and `ds41_graph_reset` join first, so a reader never outlives its sequence.
-- The prompt-warm callers and image positions pass `NULL` and keep the demand read.
-- A failed allocation leaves `g->lead` NULL and the step falls through.
-
-## Why the earlier figures are withheld
-
-- A native pass on 2026-09-15 read EVERY arm above its control, including the arms with this lever
-  OFF, and its control read 9.17 to 9.46 t/s against 9.56 in a later pass.
-- An off arm cannot beat its own control by several percent because of a lever that is off. That
-  is a bad control, and those numbers stay unpublished rather than being dressed as a result.
-- `triple-draincut` carries the same session's fingerprint: its dormant arm reads +5.9 % against
-  its own control.
-
-## In the sealed attrib series, as one of seven
-
-- `DS4_V41_ENGRAM_LEAD_OFF=1` is in the seven-switch off block
-  (`2026-09-16-ATTRIB-PREREGISTERED-RULE.txt`), beside the hotlist write, the page-keep, the drain
-  sync, the pread pool and the Engram read threads.
-- All-off read -12.13 % against the clean tip; as-shipped -4.51 %; from the same brackets, so
-  `L = -7.62 pp` is the seven levers' joint contribution and its sign says they HELP.
-- That is the only session this switch has ever been in, and it names no single lever's share.
-- In `triple-all-fastest` the lever coexists with the read-threads reader: the lead read stays and
-  the miss path goes through `ds4_engram_read_batch`.
-- ⚠ The measured binary is `tb-afstack @dd82361a`, nine levers, on a line of history that is not
-  this branch's (`2026-09-16-CORRECTION-the-measured-stack-is-nine-levers-and-has-diverged.md`).
-
-## Owed
-
-- Both gates: greedy identity and the distribution ladder.
-- The lead-on against lead-off A/B, interleaved, on one host, in one session, with a control that
-  holds still.
-- The end-to-end A/B against the tip, and now against `triple-tip-2026-09-16`.
-- A genuinely cold long-prompt measurement, where the read is not already in page cache.
-- Files: `ds4.c` +126/-1, `speed-bench/v41_engram_lead_gb10.md` new.
-
-## Round 5, and the number this card now carries
-
-- **Round 5 is the sound A/B this card said had never been run**: -1.04 % gen, 1 of 4 positive, TIES under a 5.69 % floor, against an interleaved tip control. The `NOT YET` is discharged.
-- It is the round's lowest arm on every reading, and its four repeats are the tightest of the seven, 9.35 to 9.48 t/s, so the tie is not the arm being noisy.
-- The 2026-09-15 numbers stay unpublished for the reason this card already gave, and nothing above them is retracted; round 5 simply supersedes them as the current measurement.
+NOTES
+- Row ids are a pure function of token and history tail, so the next step's rows are computable early.
+- A rewind, a fork or a rejected token falls back to the demand read, so a miss is unhelpful, never wrong.
+- The profiled read window is a property of the shipped path, not a measure of what this branch recovers.
+- The 2026-09-16 attribution series measured a nine-lever tree on another history, naming no lever's share.
+- Owed: both gates, greedy identity and the distribution ladder, and a genuinely cold long-prompt read.
