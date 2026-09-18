@@ -272,20 +272,24 @@ it rock.
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-pair                                       NOT YET
+  │  BRANCH   triple-pair                                       POSITIVE
   │  WHAT     pool plus hitsfirst and nothing else, hits-first ON
   │           drops prefetch-pool from the winners tree to price it
-  │           built and Metal-clean; no CUDA build, never measured
+  │           measured on a quiet box: +5.58 per cent, 3 of 4 runs up
   │  SWITCH   DS4_CUDA_HITS_FIRST=0, DS4_CUDA_FETCH_URING=0, _FETCH_QD=<n>
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
 
-  RESULTS  none yet - never in a sealed round
+  RESULTS
+  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r10    2026-09-18    10.27     9.73   +5.58%   3/4    2.18  BEATS    4
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  r10 2026-09-18-R10-RESULT-the-combination-works-on-a-quiet-box-and-hitsfirst-alone-dipped-twice.md
 ```
 
 NOTES
-- The question: is prefetch-pool the cost in the winners tree, or do pool and hitsfirst fight on their own.
+- prefetch-pool is not the culprit: this pair reads 10.27 and the winners tree reads 10.35 to 10.40.
+- One run of four dipped to 9.38; the other three are 10.17 to 10.34, against tips of 9.61 to 9.86.
 - The two lever shas are winners' own, and its 16 hitsfirst conflict hunks are resolved byte-identically.
-- Logic tests pass on a Mac: hitsfirst 142 checks, uring and expert-claims green. ds4_cuda.cu is uncompiled.
-- No number of any kind is claimed for this tree. The first spark build and a G1 gate come before any t/s.
+- Not gated: a greedy-identity run on this tree is owed before it can be a default candidate.

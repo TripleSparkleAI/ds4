@@ -1,4 +1,4 @@
-- The question: is prefetch-pool the cost in the winners tree, or do pool and hitsfirst fight on their own.
+- prefetch-pool is not the culprit: this pair reads 10.27 and the winners tree reads 10.35 to 10.40.
+- One run of four dipped to 9.38; the other three are 10.17 to 10.34, against tips of 9.61 to 9.86.
 - The two lever shas are winners' own, and its 16 hitsfirst conflict hunks are resolved byte-identically.
-- Logic tests pass on a Mac: hitsfirst 142 checks, uring and expert-claims green. ds4_cuda.cu is uncompiled.
-- No number of any kind is claimed for this tree. The first spark build and a G1 gate come before any t/s.
+- Not gated: a greedy-identity run on this tree is owed before it can be a default candidate.

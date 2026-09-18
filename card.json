@@ -1,10 +1,10 @@
 {
   "branch": "triple-pair",
-  "status": "NOT YET",
+  "status": "POSITIVE",
   "what": [
     "pool plus hitsfirst and nothing else, hits-first ON",
     "drops prefetch-pool from the winners tree to price it",
-    "built and Metal-clean; no CUDA build, never measured"
+    "measured on a quiet box: +5.58 per cent, 3 of 4 runs up"
   ],
   "switch": "DS4_CUDA_HITS_FIRST=0, DS4_CUDA_FETCH_URING=0, _FETCH_QD=<n>",
   "output": {
@@ -14,6 +14,20 @@
     "branch": "triple-tip-2026-09-16",
     "sha": "12997e9c"
   },
-  "results": [],
+  "results": [
+    {
+      "round": "r10",
+      "date": "2026-09-18",
+      "tip_tps": 9.73,
+      "floor_pct": 2.18,
+      "n": 4,
+      "file": "2026-09-18-R10-RESULT-the-combination-works-on-a-quiet-box-and-hitsfirst-alone-dipped-twice.md",
+      "arm_tps": 10.27,
+      "delta_pct": 5.58,
+      "sign": "3/4",
+      "verdict": "BEATS",
+      "note": "one dip to 9.38"
+    }
+  ],
   "prefill": ""
 }
