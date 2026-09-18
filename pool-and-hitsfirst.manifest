@@ -1,6 +1,6 @@
 # <claudes_code_comments>
 # ** WHAT THIS FILE IS **
-# The definition of branch triple-pair: EXACTLY TWO of round 4's measured winners, and
+# The definition of branch triple-pool-and-hitsfirst (renamed from triple-pair on 2026-09-18): EXACTLY TWO of round 4's measured winners, and
 # nothing else:
 #     triple-pool           +7.27 %   3/4    the io_uring ring over the pread pool
 #     triple-hitsfirst      +6.47 %   4/4    launch the resident experts before the miss reads land
@@ -45,7 +45,7 @@
 #   the tip; theirs on 01 04 06 07 14 is the hits-first staging the lever is.
 #
 # ** THE CHECK **
-#   bash build_stack.sh pair.manifest --check <HEAD of triple-pair>
+#   bash build_stack.sh pool-and-hitsfirst.manifest --check <HEAD of triple-pool-and-hitsfirst>
 #   ⚠ NOT COMPILED FOR CUDA. Assembled on a Mac with no nvcc; `make` here builds the Metal
 #   target only, which never sees ds4_cuda.cu. The first Spark build is the real gate.
 # </claudes_code_comments>

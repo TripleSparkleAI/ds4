@@ -1,5 +1,5 @@
 {
-  "branch": "triple-pair",
+  "branch": "triple-pool-and-hitsfirst",
   "status": "POSITIVE",
   "what": [
     "pool plus hitsfirst and nothing else, hits-first ON",

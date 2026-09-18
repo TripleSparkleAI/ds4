@@ -272,7 +272,7 @@ it rock.
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-pair                                       POSITIVE
+  │  BRANCH   triple-pool-and-hitsfirst                         POSITIVE
   │  WHAT     pool plus hitsfirst and nothing else, hits-first ON
   │           drops prefetch-pool from the winners tree to price it
   │           measured on a quiet box: +5.58 per cent, 3 of 4 runs up
@@ -289,8 +289,8 @@ it rock.
 ```
 
 NOTES
-- prefetch-pool is not the culprit: this pair reads 10.27 and the winners tree reads 10.35 to 10.40.
-- One run of four dipped to 9.38; the other three are 10.17 to 10.34, against tips of 9.61 to 9.86.
+- One dip to 9.38 in four, else 10.17 to 10.34; winners with prefetch-pool reads 10.35 to 10.40.
 - The two lever shas are winners' own, and its 16 hitsfirst conflict hunks are resolved byte-identically.
 - Not gated: a greedy-identity run on this tree is owed before it can be a default candidate.
 - ring queue depth 16 is the shipped default since 2026-09-18 (round 10: QD 64 dipped once, QD 16 never)
+- renamed from triple-pair on 2026-09-18; round 10 measured it under the old name
