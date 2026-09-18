@@ -268,193 +268,30 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
----
-
-
-
-
-
-**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
-
-**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-prefill-readahead-order                NEGATIVE
-  │
-  │  WHAT       reorders the prefill read-ahead's victim choice and holds the
-  │             earliest layers of the scan, so the experts decode needs first
-  │             are the last ones evicted: the prefill hit list survives into
-  │             decode. Residency policy only, no byte of cache added.
-  │
-  │  LATEST     round 4 · 2026-09-17 · LOSES · -11.38 % (kept -11.38 %) ·
-  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
-  │
-  │  GEN        -11.38 % (kept -11.38 %)  floor 2.71 % (no-drop)  sign 0/4  n=4
-  │             raw: arm median 8.55 t/s vs tip median 9.65 t/s, gen_steady
-  │             at min across 4096/6144; the delta is each run against the
-  │             mean of its bracketing TIP runs, not against that median
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
-  │             bracket per cycle
-  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
-  │             native 24.88 MB .text · lean regime 4096/6144
-  │  PREFILL    reported, not a verdict: 86.34 t/s min-across median vs the
-  │             tip's 80.73 t/s, n=4. Round 4 makes no prefill verdict.
-  │
-  │  VERDICT    NEGATIVE - loses by eleven percent, -11.38 % on BOTH readings, sign
-  │             0 of 4, every repeat between -9.7 and -13.3. THE LARGEST LOSS THIS
-  │             PROJECT HAS MEASURED ON ANY LEVER. The two readings are identical,
-  │             so the straggler rule does not enter into it. Holding the earliest
-  │             layers of the prefill scan buys residency and pays for it in decode
-  │             throughput, and the price is four times the floor.
-  │
-  │  SWITCH     DS4_PREFILL_READAHEAD_HOLD, default on; =0 (off/no/false)
-  │             restores upstream exactly. DS4_CUDA_SSD_PREFETCH_STATS=1 counts
-  │             only. The off switch is new: the previous revision reordered
-  │             unconditionally and could not be measured against itself.
-  │  OUTPUT     not re-run; expected output-invariant, residency changes when a
-  │             byte arrives and never which byte
-  │
+  │  BRANCH   triple-prefill-readahead-order                    NEGATIVE
+  │  WHAT     reorders the prefill read-ahead's victim choice and holds the
+  │           earliest layers of the scan, so the experts decode needs first
+  │           are the last evicted. Residency policy, no cache byte added
+  │  SWITCH   DS4_PREFILL_READAHEAD_HOLD=0 restores upstream exactly
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r4     2026-09-17     8.55     9.65  -11.38%   0/4    2.71  LOSES    4
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - r4 86.3 vs tip 80.7
+  r4  2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
 ```
 
-### The problem: decode restarts cold
-
-Upstream sorts victims by `used` ascending. During a prefill sweep `used` rises with the layer.
-So the arena ends the prefill holding the LATE layers, and decode starts again at layer 0 with
-nothing it needs.
-
-Measured on the unpatched tip:
-
-- the first 32 decode tokens miss **32.22 experts/token at hit rate 0.8658**, against a steady
-  state of **9.16 at 0.9618**. A second run read **33.09 / 0.8621** against **9.19 / 0.9617**
-- the prefill takes **36,022** expert lookups and hits **35,377**. It evicts **zero** through the
-  demand path, with the arena full at **8,548 of 8,548**. The eviction that matters is the
-  read-ahead's own reservation loop, which a demand-only counter cannot see
-- **93.8 %** of the first decode step's misses are experts the prefill had selected and the cache
-  no longer holds. **65.9 %** of the last prefill batch is still resident
-- **98.4 %** of the opening's misses live in layers 0-19. Layers 20-39 miss **0.47 %**
-- WITHDRAWN: an earlier pair reading 4.7 % surviving and 92.7 % loaded-then-evicted. The replay
-  reconstructed residency from the demand path alone and read **645** where the engine printed
-  **8,548**
-
-⚠ Source caveat. These figures come from `plans/prs/PR_PREFILLHANDOFF.md` and
-`plans/prs/MEASURED_PREFETCH_PROBE.md` on branch `lane-pr-docs`, which is not published on this
-fork. They are attributable but not checkable from a clone.
-
-### The change: one comparator, plus a held band
-
-- One `stable_sort` comparator in `ds4_gpu_stream_expert_cache_prefetch`.
-- Slots ahead of the sweep go first. Then slots behind it, closest to the sweep first.
-- `used` stays the tie-break within a layer.
-- A held band is appended LAST, so the reserve loop releases it only when nothing else is left.
-- The demand path makes the same choice in two passes.
-- The victim SET is unchanged, so the starvation path `if (p.slots.size() >= victims.size())
-  throw 0;` fires exactly as often as upstream.
-- The band size is a chosen constant, not a tuned one.
-
-```
-   THE HELD BAND, and the divisions hoisted out of the scan
-
-   gate offset ───────────────────────────────────────────────────────▶
-   │◀── held ──▶
-   [ lowest layer the read-ahead was shown, + a quarter of the cache
-     ▲ one-sided: no lower bound below the low gate, so one cannot appear silently
-     ▲ released only when every unheld slot is gone
-
-   the cost of asking "is this slot held?", per victim scan over 4,096 slots
-
-   BEFORE   slot 0     ─▶ re-derive the band: 3 x 64-bit divide
-            slot 1     ─▶ re-derive the band: 3 x 64-bit divide
-            ...           and the hold is ON when the env is unset,
-            slot 4095  ─▶  so this WAS the default path
-            ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁  measured  12,291 divisions
-                                        RED: 22 checks, 3 failed, EXIT=1
-
-   AFTER    derive ONCE per scan  ─▶  band {on, low_gate, width}
-            slot 0..4095          ─▶  one compare each, zero divides
-            ▁▁▁▁                        measured  3 divisions
-                                        GREEN: 23 checks, 0 failed, EXIT=0
-                                        tests/test_prefill_hold.c, pure C99
-```
-
-### The hoist, and why it is legal
-
-Every input to the band is loop-invariant for the scan that consumes it. Read and checked by
-grepping every mutator of the three:
-
-- `table` belongs to the caller and is not written inside the loop
-- `g_stream_expert_slots` is resized only in the cache (re)allocation block, which runs before any
-  victim scan
-- `g_stream_prefill_low_gate` and `_set` are written only by `cuda_stream_prefill_low_gate_note`
-  and `_clear`, whose call sites are the cache release, the pre-scan reset and `prefetch_begin`.
-  None is reachable from inside a scan
-
-So the band is derived once per scan in `ds4_prefill_hold.h`, and the per-slot question becomes a
-compare. Both scans move: the `begin_load` victim search and the prefetch held/victims split.
-Behaviour is unchanged. `band.on` carries exactly the non-slot refusals the old predicate made
-(hold off, no low gate noted, degenerate table, both overflow guards), and the slot half is the
-same `used && gate < low_gate + band`.
-
-A work counter, `ds4_prefill_hold_divisions`, makes the hoist a test rather than a claim: a
-4,096-slot scan must add zero divisions after the derivation's three. Also pinned by the same
-suite: the OFF form pays nothing and holds nothing, the unset low gate, both overflow refusals,
-the degenerate table, the `hold_layers` floor of one, the band being gate-bytes, and the rule
-being one-sided.
-
-**A comment was wrong and is fixed.** It claimed the band was "a quarter of the cache, at least
-one layer". The band is measured in GATE-offset bytes, and consecutive layers' gate blocks are
-separated in the file by that layer's up, down and attention tensors, so it spans fewer layers
-than that. The comment now says what the code does. No behaviour change.
-
-### Two records point the same way
-
-- The Mac-mini reader: "Stable admission avoids thrashing during the full layer scan each token"
-  (`research/v41-flash-landscape/09-macs-and-dwarfstar/`, workspace only).
-- The measured knee in `WIKI/theory/48-decode-speedup-levers.md` § 5 and § 8: cache size is not
-  the lever, admission and victim policy are.
-
-Our arena is denominated in stored GGUF expert bytes
-(`ds4_streaming_cache_experts_for_byte_budget` divides by `per_expert_bytes`), the same currency
-as the disk read it removes. So the Mac-mini reader's dequantized-byte budget trap does not apply
-here.
-
-### What is held, and by what
-
-A host-side harness, outside the repo and not committed, splices the patched regions out of
-`ds4_cuda.cu`, compiles them with `clang++`, and replays 20,000 randomized cache states plus a
-tight-cache phase against upstream's own comparator. It asserts:
-
-- the order, with the switch off
-- the set, with it on
-- held-last placement
-- identical starvation counts in all three arms
-
-That harness is what caught the previous revision still reordering with its switch off.
-
-### ⚠ A related number, and it is NOT this branch's
-
-The prefill read-ahead's foreground blocking wait fell from **398.0 to 196.5 ms per layer**
-(single reader to four, `wait MIN` of two interleaved passes, output `2f2dd7f89d107bbc` on every
-arm). That is branch **`triple-prefetch-pool`** (`CUDA_LANES_CHANNEL.md`, PREFETCHPOOL 13:41
-RESULT). That branch changes the reader pool. This one changes the victim order and carries no
-pool change. The figure is context, never a result of this card.
-
-### Owed
-
-- The CUDA build on the Spark.
-- Both arms interleaved on one vintage, against the in-run tip floor.
-- The clean series lands under `~/sweeps/2026-09-16-*.txt`, each file carrying the build vintage,
-  the control and the floor.
-
-The line to clear: the clean tip reads **9.65 t/s median**
-(`2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md`).
-
-## Round 4, 2026-09-17: on the new tip, in a sealed round
-
-- **The largest loss ever measured on a lever here: -11.38 %, identical on both readings.** Sign 0 of 4, every repeat between -9.7 and -13.3, against a no-drop floor of 2.71 %. Raw min-across medians 8.55 t/s arm against 9.65 t/s tip.
-- The 2026-09-15 pass that was withheld for a bad control is superseded: this is a clean interleaved A/B from a Spark build at `73283614`, with `DS4_PREFILL_READAHEAD_HOLD` on its default ON.
-- ⚠ **The ten-lever stack ships this lever ON by default** and still beat the tip by +4.65 % in the same round. Round 4 attributes nothing, and the stack with the hold OFF is one of round 7's arms. Prefill min-across median 86.34 t/s against the tip's 80.73 is reported, not a verdict.
-
-Sealed rule `2026-09-17-R4-PREREGISTERED-RULE.txt` @`3914a3226`, result `2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md`, raw CSVs and runlog in `sweeps/r4/`.
+NOTES
+- Upstream sorts victims by last use, so a prefill sweep ends holding late layers and decode restarts cold.
+- One comparator puts slots ahead of the sweep first and holds a band of the earliest layers last.
+- It loses by 11.38 percent, the largest loss measured on any lever here, on all four repeats.
+- Buying residency for decode costs decode throughput, and the price is four times the round's floor.
+- The off switch is real and restores upstream exactly, so the lever can be measured against itself.
