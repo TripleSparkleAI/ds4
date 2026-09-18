@@ -1,0 +1,5 @@
+- No rows: this is a ds4-server flag and every sealed round drives ds4-bench, which never sees it.
+- Code is ds4_server.c +44 and ds4_help.c +1, 45 insertions and zero deletions at HEAD.
+- With off, the session rewinds to zero each request, the disk load refuses and no checkpoint is written.
+- A hit is byte-exact from token zero, so reordering context at the front kills it at any length.
+- Owed: a ds4-server harness for the on against off sweep, and a hit rate from the new log line.
