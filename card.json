@@ -1,0 +1,28 @@
+{
+  "branch": "triple-draincut",
+  "status": "WORTH ZERO",
+  "what": [
+    "reads the router's selected expert ids back on an event,",
+    "not a blocking cudaMemcpy, so the host stops waiting on",
+    "the shared expert: 40 device drains per token removed"
+  ],
+  "switch": "ON by default; DS4_CUDA_SELECTED_DRAIN_SYNC=1 restores blocking",
+  "output": {"gated": false},
+  "base": {"branch": "triple-tip-2026-09-16", "sha": "12997e9c"},
+  "results": [
+    {
+      "round": "r5",
+      "date": "2026-09-17",
+      "arm_tps": 9.62,
+      "tip_tps": 9.60,
+      "delta_pct": 1.48,
+      "sign": "3/4",
+      "floor_pct": 5.69,
+      "verdict": "TIES",
+      "n": 4,
+      "file": "2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md",
+      "note": "inside round 4's tighter 2.71 floor as well"
+    }
+  ],
+  "prefill": "r5 87.5 vs tip 84.6"
+}

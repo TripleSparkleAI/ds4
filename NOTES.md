@@ -1,0 +1,5 @@
+- Only the host's wait changes; kernels queue in the same order, so the output bytes cannot move.
+- Scope is streaming on a single GPU; TP=2 already overlaps, capture refuses it, Metal compiles it out.
+- Round 5 is the first sealed round to measure this lever alone, interleaved against the tip control.
+- The 2026-09-16 attribution series measured a nine-lever tree on another history, naming no lever's share.
+- Owed: the greedy-identical check on the rebased tree, since the recorded sha predates the rebase.
