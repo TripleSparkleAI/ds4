@@ -268,89 +268,24 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
----
-
-**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
-
-**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-pair                                   NOT YET
-  │
-  │  WHAT       pool + hitsfirst and nothing else, hitsfirst ON. The two
-  │             levers that won round 4 solo (pool +7.27 %, hitsfirst
-  │             +6.47 %), stacked without prefetch-pool. The question this
-  │             tree exists to answer: is prefetch-pool what made the
-  │             three-lever winners tree read BELOW its parts in rounds 8
-  │             and 9, or do pool and hitsfirst fight on their own
-  │
-  │  LATEST     never in a sealed round
-  │
-  │  GEN        not measured
-  │  PREFILL    not measured
-  │
-  │  VERDICT    NOT YET - built, not compiled for CUDA, not measured. If it
-  │             reads level with hitsfirst alone (10.41 in round 9) then
-  │             prefetch-pool was the cost; if it reads below both parts,
-  │             the pool+hitsfirst claim-ledger interaction is the suspect
-  │
-  │  SWITCH     DS4_CUDA_HITS_FIRST=0 turns hits-first off (ON here, the
-  │             lever's own default); DS4_CUDA_HITS_FIRST_STAGED=0 keeps it
-  │             single-stage
-  │             DS4_CUDA_FETCH_URING=0 falls back to the pread pool;
-  │             DS4_CUDA_STREAMING_EXPERT_PREAD_POOL=0 restores the serial path;
-  │             DS4_CUDA_FETCH_QD=<n> ring depth, default 64, clamped 8-512
-  │  OUTPUT     not re-run
-  │
+  │  BRANCH   triple-pair                                       NOT YET
+  │  WHAT     pool plus hitsfirst and nothing else, hits-first ON
+  │           drops prefetch-pool from the winners tree to price it
+  │           built and Metal-clean; no CUDA build, never measured
+  │  SWITCH   DS4_CUDA_HITS_FIRST=0, DS4_CUDA_FETCH_URING=0, _FETCH_QD=<n>
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
+
+  RESULTS  none yet - never in a sealed round
 ```
 
-### Why this tree exists
-
-`triple-winners` (pool + hitsfirst + prefetch-pool) read level with the tip in round 8 (+1.54 %,
-`2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md`) and
-between its parts in round 9 (10.20 t/s against hitsfirst's 10.41 and pool's 10.35,
-`2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md`
-section 3). Three levers, two rounds, twice under the best single lever. Which lever costs is not
-attributed. This branch removes one: prefetch-pool, the smallest solo winner (+2.28 %) and the
-one that shares the expert-pread code with pool. What stays is the pair whose interaction is
-the claim ledger.
-
-```
-   what each tree carries, and what round 9 read for it   (gen t/s, min-across median)
-
-   tip                    ·                                   9.42
-   hitsfirst              ✦ hitsfirst                        10.41   the default
-   pool                   ✦ pool                             10.35
-   winners                ✦ pool ✦ hitsfirst ✦ prefetch-pool 10.20   between its parts
-   pair                   ✦ pool ✦ hitsfirst                  ?      this branch
-                                                              ╵
-                          take prefetch-pool out, and read where the pair lands
-```
-
-### How this tree was built
-
-- Base `triple-tip-2026-09-16` at `12997e9c8`. One commit per lever, in manifest order, each
-  the lever's live rebased branch at its code sha: `triple-pool` `6371428b0` · `triple-hitsfirst`
-  `3e4773671`. The same two lever shas `winners.manifest` uses; prefetch-pool `ed11cb474` is
-  NOT applied.
-- `pair.manifest` is the definition; `build_stack.sh` reproduces it into a fresh detached
-  worktree and `--check <sha>` asserts byte identity on the build surface. pool applies clean
-  on the tip. hitsfirst brings 16 conflict hunks, every one decided and recorded: ours 5 ·
-  theirs 5 · hand 6. Every decision is winners' decision verbatim: winners applied hitsfirst
-  second too, onto the same pool tree, so the 16 hunks are the same 16 hunks. The hand merges
-  under `stack.patches/pair/` are byte-identical copies of `stack.patches/winners/hitsfirst-*`.
-- The claim-ledger hunk (hitsfirst `ds4_cuda.cu 12`) is carried and is needed with hits-first
-  on: when hits-first takes the batch the pool owns the reads and `cuda_hits_first_wait` drops
-  any slot whose bytes do not land, so every claim is committed there, or pool's RAII ledger
-  would withdraw the slots on return while the reads are still in flight. It is the one
-  pool+hitsfirst interaction this tree has, which is what makes the tree a test of it.
-- Not carried, on purpose: prefetch-pool, margin, draincut, pagecache, hotlist, engram-lead,
-  engram-read-threads, prefill-readahead-order.
-- Tests here: `tests/test_hitsfirst_logic` 142 checks, 0 failed · `tests/test_uring_sq` PASS ·
-  `tests/test_expert_claims` PASS. `tests/test_pread_pool_config` is NOT here: it is
-  prefetch-pool's test (`ds4_pread_pool_config.h` arrives with that lever), so its absence is
-  the tree being what it says it is. Metal `make` rc 0. `ds4_cuda.cu` cannot compile on this
-  machine; the first Spark build is the real gate.
+NOTES
+- The question: is prefetch-pool the cost in the winners tree, or do pool and hitsfirst fight on their own.
+- The two lever shas are winners' own, and its 16 hitsfirst conflict hunks are resolved byte-identically.
+- Logic tests pass on a Mac: hitsfirst 142 checks, uring and expert-claims green. ds4_cuda.cu is uncompiled.
+- No number of any kind is claimed for this tree. The first spark build and a G1 gate come before any t/s.
