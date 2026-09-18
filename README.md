@@ -269,25 +269,24 @@ graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
 ```
-✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
   the card below is ours; the README above is antirez's, unchanged
 
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-prefetch-pool                              POSITIVE
+  ┌─ triple-prefetch-pool ───────────────────────────────────── POSITIVE
   │  WHAT     cuts the prefill read-ahead into chunked tasks for a pool of
   │           readers, each with its own pinned buffer and upload stream;
   │           the single reader stays as the fallback when the pool declines
   │  SWITCH   DS4_CUDA_SSD_PREFETCH_POOL=0 reverts the whole pool
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
+  └─
 
-  RESULTS
-  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r4                            2026-09-17     9.87     9.65   +2.28%   3/3    2.71  PARTIAL  3
-  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
-  prefill: reported, never a verdict - r4 138.7 vs tip 80.7
-  r4  2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
+  RESULTS   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10
+  round  variant       arm t/s  tip t/s    delta  sign  floor  verdict  n
+  r4                      9.87     9.65   +2.28%   3/3   2.71  PARTIAL  3
+  each repeat against its two bracketing tip runs · floor = max adjacent tip pair
+  prefill: r4 138.7 vs tip 80.7
+  files   r4 2026-09-17-R4-RESULT-*.md
 ```
 
 NOTES
