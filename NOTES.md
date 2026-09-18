@@ -1,0 +1,5 @@
+- No rows: the branch changes README.md and no other file, so there is no arm for a round to time.
+- Our tree is NOT AFFECTED: 5 of 5 IQ2 kernels stage the codebook unconditionally at HEAD.
+- The defect was in our lineage and left at a04f46fa42, which lifted both staging loops out of the guard.
+- Every surviving xq_blocks guard encloses an sxq activation copy, never a table load.
+- Owed: nothing for the verdict. A 2-token V4.1 batch against a known greedy sha would cross-check it.

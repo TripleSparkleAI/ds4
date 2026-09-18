@@ -1,0 +1,19 @@
+{
+  "branch": "triple-iq2-lut-fix",
+  "status": "TOOLING",
+  "what": [
+    "a source check, not a lever: does our tree carry upstream's",
+    "IQ2 dequant-LUT defect, where the codebook was staged only",
+    "for n_embd <= 4096 and then read below the guard anyway"
+  ],
+  "switch": "none",
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
+  "results": [],
+  "prefill": ""
+}
