@@ -268,124 +268,24 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
-**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
-
-**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
-
-Card format: `CARD_STANDARD_v2.md` at the repository root (v2, 2026-09-17).
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-scout                                       NOT YET
-  │
-  │  WHAT       the scout goes ahead of the token: at layer L, when the
-  │             misses are issued, ALSO read the experts token t-1 used at
-  │             L+1 that are not resident, on the same pool batch. Reads
-  │             only, never math. On top of triple-all-fastest (tip + hitsfirst).
-  │
-  │  LATEST     never in a sealed round
-  │
-  │  GEN        not measured
-  │  PREFILL    not measured
-  │
-  │  VERDICT    NOT YET - a hypothesis with its gate named: G1 byte-identical
-  │             to the tip on the 45-token and 4,392-token prompts, then a
-  │             sealed round against triple-all-fastest on the spark.
-  │
-  │  SWITCH     DS4_CUDA_SCOUT=0 turns the scout off (ON here; =0 restores
-  │             triple-all-fastest's behaviour exactly - the read set is then
-  │             the miss set and nothing else)
-  │             DS4_CUDA_HITS_FIRST=0 also silences it: the scout rides the
-  │             hits-first batch and is a no-op without one
-  │  OUTPUT     not re-run
-  │
+  │  BRANCH   triple-scout                                      NOT YET
+  │  WHAT     at layer L, also read the experts token t-1 used at L+1
+  │           reads only, never math; rides the hits-first batch
+  │           on top of triple-all-fastest, the measured default
+  │  SWITCH   DS4_CUDA_SCOUT=0 restores triple-all-fastest exactly
+  │  OUTPUT   not gated
+  │  BASE     triple-all-fastest @28f6f102
   └──────────────────────────────────────────────────────────────────────
+
+  RESULTS  none yet - never in a sealed round
 ```
 
-```
-   one token, two layers, the reads the pool sees   (3 tasks per expert: gate, up, down)
-
-   token t   layer L      router ──▶ 6 ids ──▶ hits: launch now (hitsfirst)
-                                          │
-                                          └──▶ misses: pool batch ═══ m1 m2 ═══════
-                                                                          ╲
-   the scout                     remembered from token t-1 at L+1:      + s1 s2 s3
-                                 minus what is resident, capped by       appended AFTER
-                                 the victims the ledger will give        every miss task
-
-   token t   layer L+1    router ──▶ 6 ids ──▶ if the guess held, s1 s2 s3 are
-                                               already hits: no NVMe wait at all
-                                               if it did not, one slot each at
-                                               used=1, first to go
-```
-
-## The hypothesis
-
-- On this box the miss wait is the whole cost: the page cache holds none of the 81 GB model,
-  every miss is an NVMe read of about 124 KB, and hitsfirst wins (round 4 +6.47 %, round 8
-  +12.31 %, round 9 the highest median at 10.41 t/s) by launching the resident experts while
-  the misses land. hitsfirst hides the wait. The scout starts the wait earlier.
-- MoE routing is sticky token to token. So the experts token t-1 used at layer L+1 are a
-  guess at the experts token t will use there. At layer L, once L's own misses are on the
-  pool, the scout adds reads for the remembered L+1 ids that are not resident. They ride the
-  same batch, picked up by the pool only after every miss task, and land inside L's own miss
-  wait. When L+1's router runs, a right guess is a hit and costs no NVMe time; a wrong guess
-  cost one read the cache may keep.
-- The number the round must read: the stats line (`DS4_CUDA_EXPERT_CACHE_STATS=1`) now ends
-  with `scout reads=<issued> guess_hits=<hits>/<guesses>`. If `guess_hits` is low the
-  stickiness premise is false and the branch is NEGATIVE on mechanism before it is
-  measured on speed.
-
-## The invariant: reads only, greedy-identical
-
-- The scout moves READS. It never changes which experts a token computes with, in which
-  order, or with which bytes: the routed kernels still index the cache through the same slot
-  remap, and a scouted expert is only ever consumed through L+1's own hit loop, exactly as a
-  demand read landed one layer earlier would be. Greedy output must stay byte-identical to
-  the tip, and that is a gate, not a claim.
-- On the claim ledger (`g_stream_expert_slots` + `g_stream_expert_by_gate`), four rules,
-  each stated in a comment beside its line in `ds4_cuda.cu`:
-  1. the scout picks its victims AFTER every demand miss of layer L has claimed a slot, so a
-     scout read never wins a victim over a demand read;
-  2. a scout victim is never a slot of this layer (`used == stamp`), never prefetch-protected,
-     and never a resident member of the remembered L+1 set (evicting B to load A, both wanted
-     at L+1, is a wash); no eligible victim, no scout;
-  3. a landed scout read is published at `used = 1`, older than any demand hit, so a wrong
-     guess is the first victim at L+1 and a right guess is promoted by L+1's own hit loop
-     (the same rule the existing look-ahead prefetch uses: look-ahead is not evidence of reuse);
-  4. if the hits-first batch does not start (pool declined, allocation failed), every scout
-     claim is given back before the synchronous fallback runs, so the fallback reads exactly
-     the misses.
-- A failed scout read drops its slot and nothing else; it never invalidates the layer.
-
-## How this tree was built
-
-- Base `triple-all-fastest` at `28f6f102e` (the new tip `12997e9c8` + `triple-hitsfirst`
-  `3e4773671`, hitsfirst ON). One `local` commit on top: the scout in `ds4_cuda.cu`,
-  `ds4_scout_logic.h` (the pure-logic rules), `tests/test_scout_logic.c` and its Makefile
-  rules. `scout.manifest` is the definition; `bash build_stack.sh scout.manifest --check <HEAD>`
-  must report the build surface EMPTY.
-- The seam: `cuda_stream_selected_cache_begin_load` (the scout block sits between the demand
-  miss loop and the hits-first dispatch; scout tasks are appended to `g_hits_first.tasks`
-  after every miss task, in both the staged and the plain order) and `cuda_hits_first_wait`
-  (validates the scout reads at index `3*n_miss..` and publishes them at `used = 1`). The
-  per-layer memory `g_scout_mem[layer]` holds the previous token's ids and the table that
-  addresses them; `cuda_stream_selected_cache_release` clears it.
-- Tests here: `tests/test_scout_logic` 40 checks, 0 failed, red-proven by a planted mutation
-  (make `ds4_scout_select` ignore the victim count: 3 checks red, restore: 40/40 green).
-  `tests/test_hitsfirst_logic` 142 checks, 0 failed. Metal `make` rc 0 on a Mac.
-- ⚠ `ds4_cuda.cu` is NOT COMPILED here: this Mac has no nvcc. The two scout blocks were
-  syntax-checked as host C++ against stubbed types, which catches typos and nothing about
-  CUDA. The spark build under the next round is the gate, and the round must run G1 before
-  it reads a single t/s.
-
-## The gate it must pass on the spark
-
-- G1 byte-identical to the tip on the two reference prompts: the 45-token prompt, sha256
-  `5ed3e6dfe2177eca` (73,515 B), and the 4,392-token prompt, sha256 `c5cb82566c628bed`
-  (36,655 B); the reference logs are on the spark at `~/sweeps/G1_winners.log` and
-  `~/sweeps/G1_short.log` (`OVERNIGHT_2026-09-17_MEMORY.md`, 2026-09-17). A different sha on
-  either is NEGATIVE, whatever the speed.
-- Then a sealed round against `triple-all-fastest` as the control, same box, same rule, with
-  the stats line captured so `guess_hits` is on the record beside the delta.
+NOTES
+- The premise is that MoE routing is sticky token to token, so the last token's L+1 experts are a guess.
+- A scout read never takes a victim slot from a demand read, and lands at used=1 so a bad guess goes first.
+- The stats line reports scout reads and guess hits, so a false premise shows before any speed reading.
+- Not gated yet: ds4_cuda.cu is not compiled here, and G1 byte-identity on both reference prompts comes first.
