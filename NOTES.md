@@ -1,5 +1,5 @@
-- The default stands as the tip plus hitsfirst: four sealed rounds, two wins, two ties, no sealed loss.
-- This tree IS that pair, so the rows above are the lever's own rounds, dips and all.
-- Round 10 on a quiet box put winners at QD 16 above it: +6.86 against this tree's -0.64.
-- Round 12 compares the two directly with more repeats, and the default follows that result.
-- Not gated here: sha bb06e711bc498bb9 was taken on the hitsfirst tree before the rebase onto the new tip.
+- The default STANDS as the tip plus hitsfirst: five sealed rounds, three wins, two ties, no sealed loss.
+- Round 12, quiet box, four repeats: this tree +9.07, 4 of 4, against a 3.81 floor.
+- winners@QD16 read 0.6 % above it, inside the floor, on two quiet boxes now: at least as fast, not faster.
+- The sealed rule settles a tie by the smaller tree, and one lever is smaller than three: hitsfirst keeps it.
+- The 60 GB expert cache setting is closed: -7.14 here, negative every repeat, on both trees it was tried on.

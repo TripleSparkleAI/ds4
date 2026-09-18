@@ -283,11 +283,14 @@ it rock.
 
   RESULTS
   round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r12    2026-09-18    10.29     9.54   +9.07%   4/4    3.81  BEATS    4
+  r12    2026-09-18     8.86     9.54   -7.14%   0/4    3.81  LOSES    4
   r10    2026-09-18     9.70     9.73   -0.64%   2/4    2.18  TIES     4
   r9     2026-09-17    10.41     9.42  +12.09%   4/4   17.27  TIES     4
   r8     2026-09-17    10.34     8.96  +12.31%   4/4   10.69  BEATS    4
   r4     2026-09-17    10.37     9.65   +6.47%   4/4    2.71  BEATS    4
   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  r12 2026-09-18-R12-RESULT-winners-qd16-default-and-scout-all-beat-the-tip-the-60gb-cache-loses-seven.md
   r10 2026-09-18-R10-RESULT-the-combination-works-on-a-quiet-box-and-hitsfirst-alone-dipped-twice.md
   r9  2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
   r8  2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
@@ -295,11 +298,11 @@ it rock.
 ```
 
 NOTES
-- The default stands as the tip plus hitsfirst: four sealed rounds, two wins, two ties, no sealed loss.
-- This tree IS that pair, so the rows above are the lever's own rounds, dips and all.
-- Round 10 on a quiet box put winners at QD 16 above it: +6.86 against this tree's -0.64.
-- Round 12 compares the two directly with more repeats, and the default follows that result.
-- Not gated here: sha bb06e711bc498bb9 was taken on the hitsfirst tree before the rebase onto the new tip.
+- The default STANDS as the tip plus hitsfirst: five sealed rounds, three wins, two ties, no sealed loss.
+- Round 12, quiet box, four repeats: this tree +9.07, 4 of 4, against a 3.81 floor.
+- winners@QD16 read 0.6 % above it, inside the floor, on two quiet boxes now: at least as fast, not faster.
+- The sealed rule settles a tie by the smaller tree, and one lever is smaller than three: hitsfirst keeps it.
+- The 60 GB expert cache setting is closed: -7.14 here, negative every repeat, on both trees it was tried on.
 
 ## The index: every branch card
 
