@@ -1,5 +1,5 @@
-- The shipped default is the tip plus this one lever: four sealed rounds, two wins, two ties, no loss.
-- Round 9 ties only because its floor is 17.27; identical binaries swing about 8 % run to run on this box.
-- Its 0.19 spread in round 9 is the finding: early resident launches may hide SSD miss latency. Not proven.
-- Round 10, quiet box: every pool+hitsfirst tree beat the tip, this alone dipped twice. r12 reopens it.
+- Launches gate/up/down for already-resident experts before the miss reads land: no stall on the slowest read.
+- This one lever IS the shipped default, so round 12's default arm is this tree: +9.07, 4 of 4, floor 3.81.
+- Five sealed rounds now: three wins, two ties, no sealed loss. Round 10's two dips did not repeat.
+- winners@QD16 sits 0.6 % above it inside the floor; the smaller-tree rule keeps this lever as the default.
 - Greedy sha bb06e711bc498bb9 predates the rebase; the winners tree is G1-gated on this tip, solo is not yet.

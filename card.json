@@ -16,6 +16,19 @@
   },
   "results": [
     {
+      "round": "r12",
+      "date": "2026-09-18",
+      "arm_tps": 10.29,
+      "tip_tps": 9.54,
+      "delta_pct": 9.07,
+      "sign": "4/4",
+      "floor_pct": 3.81,
+      "verdict": "BEATS",
+      "n": 4,
+      "file": "2026-09-18-R12-RESULT-winners-qd16-default-and-scout-all-beat-the-tip-the-60gb-cache-loses-seven.md",
+      "note": "this lever IS the default: the r12 default arm is this tree"
+    },
+    {
       "round": "r10",
       "date": "2026-09-18",
       "tip_tps": 9.73,
