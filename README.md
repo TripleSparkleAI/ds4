@@ -299,3 +299,36 @@ NOTES
 ALSO TRIED
   triple-hitsfirst       +12.3%  the lever that won on this box: launch resident experts before the miss reads land
   triple-pool            +9.6%   parallel SSD reads with an io_uring ring; fast alone, loses under CPU load
+
+✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+the card below is ours; the README above is antirez's, unchanged
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │  BRANCH   triple-hippocampal-warmset                        WORTH ZERO
+  │  WHAT     the list of experts worth keeping warm survives longer: kept
+  │           free within one run, halved at a day boundary, and permanent
+  │           once an expert has been wanted on three different days
+  │  SWITCH   DS4_WARMSET_TIER=session|day, default session, today's path
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
+  └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r6                            2026-09-17     9.57     9.69   -1.54%   0/3    3.35  TIES     3
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - 83.97 t/s median against the tip's 89.16, n=4; no prefill verdict in round 6
+  r6  2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
+```
+
+NOTES
+- Theory: an expert wanted on many days deserves a cache slot tomorrow, so the list should outlive one run.
+- Test: interleaved against the tip, ctx 4096 and 6144, 3 repeats, round 6, whose floor was 3.35 percent.
+- Result: -1.54 percent and no repeat above the tip; one run cannot exercise a rule about separate days.
+- Caveat: round 6's floor came off a noisy box, so this priced carrying the machinery and nothing else.
+- Owed: a CUDA build, one run per day across two days, then the greedy-identical check.
+
+ALSO TRIED
+  triple-hitsfirst       +12.3%  the lever that won on this box: launch resident experts before the miss reads land
+  triple-pool            +9.6%   parallel SSD reads with an io_uring ring; fast alone, loses under CPU load
