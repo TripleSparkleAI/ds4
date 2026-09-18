@@ -268,216 +268,33 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
----
-
-**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
-
-**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
-
-Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42 pass lines, 5 pre-existing failures (the Qwen3.8 and GLM 5.3 model-absent skips, counted as failures by ds4_test and identical on every branch); cc -fsyntax-only clean on ds4.c and ds4_gpu.h.
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-all                                          POSITIVE
-  │
-  │  WHAT       six lever branches stacked in series: the pread pool, the
-  │             event-gated selected-expert readback, the cache reserve knob,
-  │             the hot list seed, the staged page-drop order and hits-first.
-  │             Measured second-best of all trees today at +6.50 %, and an arm
-  │             of the amended round 7
-  │
-  │  LATEST     round 9 · 2026-09-17 · TIES · +7.02 % 3/4 under a 17.27 floor ·
-  │             median 10.11, and it reads with round 6 rather than round 8 ·
-  │             2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
-  │             round 6 · 2026-09-17 · BEATS · +6.50 % ·
-  │             2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
-  │             round 8 · 2026-09-17 · TIES · -0.98 % 1/4 under a 10.69 floor ·
-  │             2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
-  │
-  │  GEN        +6.50 %  floor 3.35 %  sign 3/3  n=3
-  │             raw: arm min-across median 10.35 t/s (10.31 · 10.24 · 10.38 ·
-  │             10.39) vs the tip's 9.69 t/s (9.67 · 9.56 · 9.88 · 9.70 kept,
-  │             9.45 contention-dropped; the result file's figure line reads
-  │             9.67). gen_steady at min across 4096/6144. The delta is each
-  │             run against its bracketing TIP runs, not against that median
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
-  │             session = 2026-09-17 11:12-11:58Z · DGX Spark GB10 ·
-  │             native 24.90 MB .text (tip 24.86 MB) · lean regime 4096/6144
-  │  PREFILL    reported, not a verdict: 86.30 t/s min-across median vs the
-  │             tip's 89.16 t/s, n=4. Round 6 makes no prefill verdict.
-  │             ─── round 8, TIES, and the two rounds disagree:
-  │             -0.98 %  floor 10.69 %  sign 1/4  n=4 (sensitivity, cold first
-  │             control run excluded: -1.74 % against a 7.17 % floor, TIES)
-  │             raw: arm min-across median 9.10 t/s (9.21 · 9.18 · 9.02 · 8.99)
-  │             vs the tip's 8.96 t/s (8.61 cold · 9.53 · 8.87 · 9.49 · 8.96),
-  │             so it read level with the tip against round 6's +6.50 %.
-  │             ⚠ the box was not quiet: the five tip runs spanned 8.61 to 9.53
-  │             and four arm runs ended at load 3.2 to 4.0 with no vitest alive,
-  │             which widened the floor from round 6's 3.35 to 10.69. Round 6 is
-  │             the quieter round and keeps LATEST
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
-  │             session = 2026-09-17 13:24-14:37Z · DGX Spark GB10 ·
-  │             native 24.90 MB .text (tip 24.86 MB) · lean regime 4096/6144
-  │             prefill round 8, reported not a verdict: 85.28 t/s min-across
-  │             median vs the tip's 84.34 t/s, n=4
-  │
-  │             ─── round 9, TIES, and it settles which of the two rounds to read:
-  │             +7.02 %  floor 17.27 %  sign 3/4  n=4
-  │             raw: arm min-across median 10.11 t/s (9.14 to 10.29, spread 1.15)
-  │             vs the tip's 9.42 t/s (8.51 to 9.98). That is round 6's level, not
-  │             round 8's 9.10, so the disagreement resolves toward round 6
-  │             ⚠ the instrument sets that floor, not the arm: the five control
-  │             runs span 8.51 to 9.98 t/s because the page cache holds 2.9 GB of
-  │             an 81 GB model and the bench streams 842 MB/s from the NVMe, so
-  │             identical binaries swing about 8 % run to run
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
-  │             session = 2026-09-17 14:41-15:36Z · DGX Spark GB10 · native
-  │             24.90 MB .text (r9-all, 24,895,653; tip 24.86 MB) · lean regime
-  │             4096/6144 · quiet box, warm-up run discarded
-  │
-  │  VERDICT    POSITIVE - the only arm of round 6 to clear the floor, and it
-  │             clears it at every repeat (+6.1 to +6.8 %). Both the sealed
-  │             legacy rule and the new rule give this verdict, so nothing
-  │             turns on the straggler rule. ⚠ Round 8 re-ran it and read
-  │             -0.98 %, level with the tip, 1 of 4 under a 10.69 % floor. That
-  │             is a TIE, so it retracts nothing, and round 6's floor was 3.35
-  │             against this round's 10.69: the two rounds disagree and the
-  │             noisier one is round 8, and round 9 on a quiet box read +7.02 %
-  │             at 10.11 t/s, which is round 6's level rather than round 8's
-  │
-  │  SWITCH     the six levers' own switches, verified present in this tree's
-  │             diff: DS4_CUDA_STREAMING_EXPERT_PREAD_POOL and _PREAD_THREADS,
-  │             DS4_CUDA_SELECTED_DRAIN_SYNC, DS4_CUDA_EXPERT_CACHE_MARGIN_GB,
-  │             DS4_CUDA_EXPERT_HOTLIST_WRITE, DS4_CUDA_NO_EXPERT_READAHEAD,
-  │             DS4_CUDA_HITS_FIRST and _HITS_FIRST_STAGED
-  │  OUTPUT     not re-run. A greedy sha was recorded on a prior card and is
-  │             withheld here: it was taken before this rebase, on a tree this
-  │             branch is no longer on
-  │
+  │  BRANCH   triple-all                                        POSITIVE
+  │  WHAT     six levers stacked in series on the expert-cache read path
+  │           pool, drain sync, cache margin, hot list, page-drop, hits-first
+  │           second best tree measured, below hitsfirst alone in round 9
+  │  SWITCH   DS4_CUDA_HITS_FIRST=0, plus each lever's own env switch
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r9     2026-09-17    10.11     9.42   +7.02%   3/4   17.27  TIES     4
+  r8     2026-09-17     9.10     8.96   -0.98%   1/4   10.69  TIES     4
+  r6     2026-09-17    10.35     9.69   +6.50%   3/3    3.35  BEATS    3
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - r8 85.3 vs tip 84.3
+  r9  2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
+  r8  2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
+  r6  2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
 ```
 
-## Round 6, and the word this card used to carry
-
-- Round 6 built and ran this tree for the first time: **+6.50 % gen, 3 of 3 above a 3.35 % floor**,
-  against the ten-lever `triple-all-fastest-newtip` stack's +4.65 % in round 4. It carries pool and
-  hotlist and four levers that measured zero or negative solo, and no prefetch-pool.
-- **This card used to say SUPERSEDED, and the result file scores that against the orchestrator**: it
-  believed the word over a measurement nobody had taken, and three of its five sealed predictions
-  missed as one miss. The word is gone from the box; the supersession history stays below.
-- The four extra levers of the ten-lever tree cost it about 1.9 points against these six. Not
-  attributable from round 6, which is why round 7 was amended to carry this tree as an arm.
-
-## Why it carried no number until round 6
-
-- Until round 6 the combined number had never been measured on this tree.
-- It must not be assembled from the six branches' own deltas: the levers overlap, since pool and
-  prefetch-pool touch the same expert-pread code and all six pull on one NVMe, and each solo delta
-  was taken against unpatched code.
-- Hits-first measured a null on this tree because the decode path's shared-expert kernels already
-  occupy the window it wanted, which is itself a reason a stack is not a sum.
-- Files at HEAD, re-counted with `git diff --numstat 12997e9c8 HEAD`: `ds4_cuda.cu` **+1112/-41**,
-  `ds4.c` **+37**, `ds4_gpu.h` **+9**, `README.md` **+42**. So it is a real tree, not a pointer, and
-  that is exactly why an unmeasured one was a hazard.
-
-## ⚠ The number this card used to carry, and why it is gone
-
-The previous card's VERDICT read: *"SUPERSEDED by triple-all-fastest - that tree carries these six
-plus four more, on the rolled tip, and it is the one measured (-4.51 % vs the tip, 0 of 7)."* The
-supersession stands. **The -4.51 % is removed as a live figure, on three counts:**
-
-- **It is not this branch's number**, and never was. It is the as-shipped arm of the attrib series
-  (`2026-09-16-triple-all-fastest-attrib-SUMMARY-levers-attribution.txt`, min-across-frontiers row).
-- **It was measured on a binary that is not on this line of history.**
-  `2026-09-16-CORRECTION-the-measured-stack-is-nine-levers-and-has-diverged.md` records that the
-  measured sha `dd82361a` carries **nine** levers, lacks the prefetch pool entirely, and is a
-  SIBLING of `triple-all-fastest` off `84ba6ef1b` rather than an ancestor of it.
-- **The behaviour it measured is no longer the default.** The bisect
-  (`2026-09-16-BISECT-RESULT-one-comparator-carries-the-whole-loss.md`) found one
-  `std::stable_sort` comparator in `ds4_gpu_stream_expert_cache_prefetch` carrying the loss, and
-  reverting it moved the stack 8.04 percentage points, from -4.35 % to +3.69 %. Round 2
-  (`2026-09-17-ROUND2-RESULT-the-revert-beats-the-tip.md`) re-ran it at n=8 on a cleared box:
-  **+3.46 % against the clean tip, sign 8 of 8, floor max 1.37, cleared by 2.5x, bands that do not
-  touch.** Under the standing rule that the default follows the measured number, the revert became
-  the stack's shipped behaviour, and `triple-all-fastest-newtip` (`b8f8a5a06`) carries it as
-  "the victim order defaults to used-ascending".
-
-⇒ **a stack figure of -4.51 % now describes neither the tree it named nor the behaviour that
-ships.** It is kept above as a dated record of one arm of one series, and nowhere else.
-
-```
-   W H E R E   T H E   S T A C K   W E N T ───────────────────────────
-
-   triple-all              six levers, never built, never run      ◀ this card
-        │
-        ▼
-   triple-all-fastest      +prefetch-pool +engram-lead
-                           +engram-read-threads +readahead-order
-        │                  measured as the nine-lever dd82361a, a SIBLING
-        │                  as-shipped  -4.51 %  (attrib, 2026-09-16)
-        │                  as-shipped  -4.35 %  (bisect, 2026-09-16)
-        ▼
-   BISECT ─── one std::stable_sort comparator carries the whole loss
-        │     revert it:  -4.35 %  ──▶  +3.69 %        8.04 pp
-        ▼
-   ROUND 2 ── +3.46 % vs the clean tip · 8 of 8 · floor 1.37 · cleared 2.5x
-        │     the revert becomes the DEFAULT
-        ▼
-   triple-all-fastest-newtip @b8f8a5a06   ◀ round 4's ALLFASTESTNE arm
-
-   this branch's six are the first two rungs of that ladder and nothing else
-```
-
-## Where the branch now sits
-
-- It was rebased onto `triple-tip-2026-09-16` (`12997e9c8`) on 2026-09-17, so **`12997e9c8` is its
-  base today**.
-- ⚠ The previous card said the six were "stacked in series on `9139e2ae5`" and that the branch
-  "stays as the record of the first stack at `84ba6ef1b`". Both are dated statements about a line of
-  history the branch has left. Measured: `9139e2ae5` IS an ancestor of the new tip;
-  `84ba6ef1b` is **not** an ancestor of the new tip and is **no longer an ancestor of this branch**.
-  The record of the first stack is the commit `84ba6ef1b` itself, reachable by sha, not by this
-  branch's ancestry.
-
-## Read instead
-
-- `triple-all-fastest-newtip` for the measured stack on this tip.
-- The six levers' own cards for what each one is, and `triple-draincut`'s for the
-  `DS4_CUDA_SELECTED_DRAIN_SYNC` arm in particular.
-- `2026-09-16-CORRECTION-the-measured-stack-is-nine-levers-and-has-diverged.md` before quoting any
-  2026-09-16 stack figure, whichever branch it is attached to.
-
-## Round 8, 2026-09-17: the second reading disagrees with the first
-
-- **It read level with the tip: -0.98 %, 1 of 4, under a 10.69 % floor** (9.21 · 9.18 · 9.02 ·
-  8.99 t/s against a control median of 8.96), and -1.74 % on the cold-run sensitivity. That is a
-  TIE, so round 6's **+6.50 %** is not retracted and stays this card's LATEST.
-- **The two rounds disagree and the noisier one is round 8.** Round 6's control-to-control floor
-  was 3.35 %; round 8's was 10.69 %, because the five tip runs spanned 8.61 to 9.53 t/s and four
-  arm runs ended at load 3.2 to 4.0 with no vitest alive. Round 9 re-measures this tree on a quiet
-  box with the discarded warm-up run, and that reading decides between them.
-- ⚠ **Its raw t/s fell too, which the floor does not explain by itself.** Round 6 read 10.24 to
-  10.39 and round 8 read 8.99 to 9.21 on the same binary vintage, 24.90 MB .text, two hours apart.
-  The control fell with it (9.69 to 8.96), so the ratio moved less than either arm, and nothing
-  here attributes the drop to the box rather than to the tree.
-
-Sealed rule `2026-09-17-R8-PREREGISTERED-RULE.txt` @`c173ad6d7`, result
-`2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md`,
-raw CSVs and runlog in `sweeps/r8/`.
-
-## Round 9, 2026-09-17: the quiet round reads with round 6
-
-- **The round-6-versus-round-8 disagreement resolves toward round 6.** On a quiet box with the
-  discarded warm-up run this tree reads **10.11 t/s, +7.02 %, sign 3 of 4**, beside round 6's
-  10.35 t/s and +6.50 % and against round 8's 9.10 t/s and -0.98 %. Round 8 was the noisier round
-  and this is the third reading.
-- **The raw-t/s drop of round 8 is now attributable to the box.** Round 6 read 10.24 to 10.39,
-  round 8 read 8.99 to 9.21, round 9 reads 9.14 to 10.29 on the same 24.90 MB binary vintage. The
-  tree did not change between them; the instrument did.
-- **It is still below the one-lever tree.** 10.11 against hitsfirst's 10.41, fourth of five arms,
-  with a spread of 1.15 against hitsfirst's 0.19. Six levers do not beat the one that wins.
-
-Sealed rule `2026-09-17-R9-PREREGISTERED-RULE.txt` @`60d1bd06a`, result
-`2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md`,
-raw CSVs and runlog in `sweeps/r9/`.
+NOTES
+- The six levers share one NVMe and two touch the same pread code, so the tree is not a sum of solo deltas.
+- Three readings of one tree: +6.50 on a quiet box, -0.98 on a loaded one, +7.02 on a quiet one again.
+- Every delta is each arm run against its own bracketing tip runs, never against another round's absolute t/s.
+- No greedy-identity sha is claimed: the one on record predates this tree's rebase onto the new tip.
