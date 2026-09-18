@@ -269,28 +269,28 @@ graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
 ```
-✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
   the card below is ours; the README above is antirez's, unchanged
 
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-engram-prestage                            WORTH ZERO
+  ┌─ triple-engram-prestage ───────────────────────────────── WORTH ZERO
   │  WHAT     moves the lookup of the Engram memory rows out of the forward
   │           pass into a step that runs before it, so the forward pass does
   │           no disk read and computes no hashes of its own
   │  SWITCH   DS4_ENGRAM_PRESTAGE=1; unset or 0 is the shipped inline path
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
+  └─
 
-  RESULTS
-  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r6                            2026-09-17     9.54     9.69   -1.40%   0/3    3.35  TIES     3
-  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
-  prefill: reported, never a verdict - 87.18 t/s median against the tip's 89.16, n=4; no prefill verdict in round 6
-  r6  2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
+  RESULTS   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10
+  round  variant       arm t/s  tip t/s    delta  sign  floor  verdict  n
+  r6                      9.54     9.69   -1.40%   0/3   3.35  TIES     3
+  each repeat against its two bracketing tip runs · floor = max adjacent tip pair
+  prefill: 87.18 t/s median against the tip's 89.16, n=4; no prefill verdict in round 6
+  files   r6 2026-09-17-R6-RESULT-*.md
+
   ALSO TRIED
-  triple-hitsfirst           +12.3%  the lever that won on this box: launch resident experts before the miss reads land
-  triple-pool                +9.6%   parallel SSD reads with an io_uring ring; fast alone, loses under CPU load
+  triple-hitsfirst            +12.3%  the winner here: resident experts run before misses land
+  triple-pool                 +9.6%   parallel SSD reads, io_uring; loses under CPU load
 ```
 
 NOTES
