@@ -1,0 +1,28 @@
+{
+  "branch": "triple-climbingfibre",
+  "status": "WORTH ZERO",
+  "what": [
+    "a front cache in front of the frozen model that learns",
+    "from the speculative verifier's own rejections, online,",
+    "with a retention horizon. It proposes one draft token"
+  ],
+  "switch": "DS4_CLIMBINGFIBRE=1, default 0; _HORIZON, _DECAY, _NGRAM, _CAP",
+  "output": {"gated": false},
+  "base": {"branch": "triple-tip-2026-09-16", "sha": "12997e9c"},
+  "results": [
+    {
+      "round": "r5",
+      "date": "2026-09-17",
+      "arm_tps": 9.58,
+      "tip_tps": 9.60,
+      "delta_pct": 1.28,
+      "sign": "4/4",
+      "floor_pct": 5.69,
+      "verdict": "TIES",
+      "n": 4,
+      "file": "2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md",
+      "note": "first CUDA build of this branch; its cycle-1 run ended under contention"
+    }
+  ],
+  "prefill": "r5 83.1 vs tip 84.6"
+}

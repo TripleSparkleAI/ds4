@@ -1,0 +1,5 @@
+- The verifier's correction is already computed and discarded; this writes that labelled pair into a table.
+- Consulted only when the engine drafted nothing, so a wrong entry costs a verify pass, never an output byte.
+- Retrieval drafting is prior art; the narrow claim left is online write-back of rejections with retention.
+- The horizon step budgets are placeholders and have never been priced.
+- Owed: the greedy-identical check, and an A/B at other contexts and batch shapes.
