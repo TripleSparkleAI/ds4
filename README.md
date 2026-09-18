@@ -273,23 +273,23 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │  BRANCH   triple-hitsfirst                                  POSITIVE
-  │  WHAT     launches gate/up/down for the experts already resident before
-  │           the miss reads land, so a token does not stall on the slowest
-  │           read in the batch; the parallel expert pread pool sits underneath
-  │  SWITCH   DS4_CUDA_HITS_FIRST=0 turns it off (=1 is the shipped default)
+  │  WHAT     for each token, run the matmuls of the experts already in the
+  │           GPU expert cache while the missing ones are still being read
+  │           from the SSD, instead of waiting for the slowest read first
+  │  SWITCH   DS4_CUDA_HITS_FIRST=0 turns it off (on by default)
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
 
   RESULTS
-  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r12    2026-09-18    10.29     9.54   +9.07%   4/4    3.81  BEATS    4
-  r10    2026-09-18     9.70     9.73   -0.64%   2/4    2.18  TIES     4
-  r9     2026-09-17    10.41     9.42  +12.09%   4/4   17.27  TIES     4
-  r8     2026-09-17    10.34     8.96  +12.31%   4/4   10.69  BEATS    4
-  r4     2026-09-17    10.37     9.65   +6.47%   4/4    2.71  BEATS    4
+  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r12                           2026-09-18    10.29     9.54   +9.07%   4/4    3.81  BEATS    4
+  r10                           2026-09-18     9.70     9.73   -0.64%   2/4    2.18  TIES     4
+  r9                            2026-09-17    10.41     9.42  +12.09%   4/4   17.27  TIES     4
+  r8                            2026-09-17    10.34     8.96  +12.31%   4/4   10.69  BEATS    4
+  r4                            2026-09-17    10.37     9.65   +6.47%   4/4    2.71  BEATS    4
   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
-  prefill: reported, never a verdict - r9 89.0 vs tip 85.6 (r8 86.6 vs 84.3)
+  prefill: reported, never a verdict - unchanged within noise (r12 hitsfirst 89.0 vs tip 85.6 t/s)
   r12 2026-09-18-R12-RESULT-winners-qd16-default-and-scout-all-beat-the-tip-the-60gb-cache-loses-seven.md
   r10 2026-09-18-R10-RESULT-the-combination-works-on-a-quiet-box-and-hitsfirst-alone-dipped-twice.md
   r9  2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
@@ -298,8 +298,8 @@ it rock.
 ```
 
 NOTES
-- Launches gate/up/down for already-resident experts before the miss reads land: no stall on the slowest read.
-- This one lever IS the shipped default, so round 12's default arm is this tree: +9.07, 4 of 4, floor 3.81.
-- Five sealed rounds now: three wins, two ties, no sealed loss. Round 10's two dips did not repeat.
-- winners@QD16 sits 0.6 % above it inside the floor; the smaller-tree rule keeps this lever as the default.
-- Greedy sha bb06e711bc498bb9 predates the rebase; the winners tree is G1-gated on this tip, solo is not yet.
+- Theory: with SSD-streamed experts a token waits on its slowest miss read; this hides most of that wait.
+- Test: one prompt, 128 tokens, ctx 4096 and 6144, each run between two tip runs, 4 repeats, quiet box.
+- Result: +6.5, +12.3, +9.1 % on the three clean rounds, every repeat above the tip; round 10 tied (2 dips).
+- Noise: identical binaries swing about 8 % run to run here (the page cache holds none of the model).
+- Output: greedy identity vs the tip on this base is being gated now; the pre-rebase gate: bb06e711bc498bb9.

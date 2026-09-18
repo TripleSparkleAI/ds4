@@ -1,5 +1,5 @@
-- Launches gate/up/down for already-resident experts before the miss reads land: no stall on the slowest read.
-- This one lever IS the shipped default, so round 12's default arm is this tree: +9.07, 4 of 4, floor 3.81.
-- Five sealed rounds now: three wins, two ties, no sealed loss. Round 10's two dips did not repeat.
-- winners@QD16 sits 0.6 % above it inside the floor; the smaller-tree rule keeps this lever as the default.
-- Greedy sha bb06e711bc498bb9 predates the rebase; the winners tree is G1-gated on this tip, solo is not yet.
+- Theory: with SSD-streamed experts a token waits on its slowest miss read; this hides most of that wait.
+- Test: one prompt, 128 tokens, ctx 4096 and 6144, each run between two tip runs, 4 repeats, quiet box.
+- Result: +6.5, +12.3, +9.1 % on the three clean rounds, every repeat above the tip; round 10 tied (2 dips).
+- Noise: identical binaries swing about 8 % run to run here (the page cache holds none of the model).
+- Output: greedy identity vs the tip on this base is being gated now; the pre-rebase gate: bb06e711bc498bb9.
