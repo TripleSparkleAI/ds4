@@ -269,38 +269,34 @@ graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
 ```
-✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
-  the card below is ours; the README above is antirez's, unchanged
 
-  ┌─ triple-all-fastest ─────────────────────────────────────── POSITIVE
-  │  WHAT     the new tip plus hitsfirst, the measured fastest tree
-  │           one lever, ON by default, and nothing else
-  │           set by rule from the sealed rounds, not by claim
-  │  SWITCH   DS4_CUDA_HITS_FIRST=0 restores wait-then-launch
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │  BRANCH   triple-jev-router                                 NOT YET
+  │  WHAT     the scout's L+1 guess from the model's OWN routing: this token's
+  │           ids at L through a table trained on its own trace, not the last
+  │           token's; plus a route trace and an offline three-tier replay
+  │  SWITCH   DS4_CUDA_JEV_ROUTER=<table> loads it; unset = the scout as is
   │  OUTPUT   not gated
-  │  BASE     triple-tip-2026-09-16 @12997e9c
-  └─
+  │  BASE     triple-all-fastest @4e123982
+  └──────────────────────────────────────────────────────────────────────
 
-  RESULTS   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10
-  round  variant       arm t/s  tip t/s    delta  sign  floor  verdict  n
-  r12                    10.29     9.54   +9.07%   4/4   3.81  BEATS    4
-  r12    cache=60GB       8.86     9.54   -7.14%   0/4   3.81  LOSES    4
-  r10                     9.70     9.73   -0.64%   2/4   2.18  TIES     4
-  r9                     10.41     9.42  +12.09%   4/4  17.27  TIES     4
-  r8                     10.34     8.96  +12.31%   4/4  10.69  BEATS    4
-  r4                     10.37     9.65   +6.47%   4/4   2.71  BEATS    4
-  each repeat against its two bracketing tip runs · floor = max adjacent tip pair
-  files   r12 2026-09-18-R12-RESULT-*.md · r10 2026-09-18-R10-RESULT-*.md
-          r9 2026-09-17-R9-RESULT-*.md · r8 2026-09-17-R8-RESULT-*.md
-          r4 2026-09-17-R4-RESULT-*.md
+  RESULTS  none yet - never in a sealed round
 ```
 
 NOTES
-- The default STANDS as the tip plus hitsfirst: five sealed rounds, three wins, two ties, no sealed loss.
-- Round 12, quiet box, four repeats: this tree +9.07, 4 of 4, against a 3.81 floor.
-- winners@QD16 read 0.6 % above it, inside the floor, on two quiet boxes now: at least as fast, not faster.
-- The sealed rule settles a tie by the smaller tree, and one lever is smaller than three: hitsfirst keeps it.
-- The 60 GB expert cache setting is closed: -7.14 here, negative every repeat, on both trees it was tried on.
+- A Jev-like decision in the engine: which experts to prefetch for L+1, from Flash's own state, no 2nd model.
+- Built: DS4_CUDA_ROUTE_TRACE (ids, miss flags, waits per layer); a numpy trainer: sticky vs layer vs ahead.
+- Built: the three-tier replay ranked by EXPECTED EXPERT REUSE (PINNED, STAGED, PASS-THROUGH) vs today's LRU.
+- Owed on the spark (busy, lock not ours): one traced bench run; its hit-rate table decides if the hook loads.
+- Stickiness at or above 90 percent on the real trace means the guess was never the problem; no t/s claim yet.
+
+ALSO TRIED
+  triple-scout           +7.3%   the consumer: last token's L+1 ids on the miss batch; worth zero over the default
+  triple-hotlist         -2.7%   a warm list at start; one-offs evicted live hits, which the tiers replay prices
+  triple-hippocampal-warmset -1.5%   a warm set across days; same loss, same reason
 
 ## The index: every branch card
 

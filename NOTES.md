@@ -1,5 +1,5 @@
-- The default STANDS as the tip plus hitsfirst: five sealed rounds, three wins, two ties, no sealed loss.
-- Round 12, quiet box, four repeats: this tree +9.07, 4 of 4, against a 3.81 floor.
-- winners@QD16 read 0.6 % above it, inside the floor, on two quiet boxes now: at least as fast, not faster.
-- The sealed rule settles a tie by the smaller tree, and one lever is smaller than three: hitsfirst keeps it.
-- The 60 GB expert cache setting is closed: -7.14 here, negative every repeat, on both trees it was tried on.
+- A Jev-like decision in the engine: which experts to prefetch for L+1, from Flash's own state, no 2nd model.
+- Built: DS4_CUDA_ROUTE_TRACE (ids, miss flags, waits per layer); a numpy trainer: sticky vs layer vs ahead.
+- Built: the three-tier replay ranked by EXPECTED EXPERT REUSE (PINNED, STAGED, PASS-THROUGH) vs today's LRU.
+- Owed on the spark (busy, lock not ours): one traced bench run; its hit-rate table decides if the hook loads.
+- Stickiness at or above 90 percent on the real trace means the guess was never the problem; no t/s claim yet.
