@@ -2,9 +2,9 @@
   "branch": "triple-prefix-cache",
   "status": "CONTROL",
   "what": [
-    "the prefix cache the engine already ships in ds4_kvstore.c,",
-    "read out of the code, plus the one thing it lacked: an off",
-    "path. --prefix-cache off rewinds the session every request"
+    "the prefix cache the server already has, written up from the",
+    "code, plus the one thing it lacked: a way to turn it off so",
+    "it can be measured. --prefix-cache off rewinds each request"
   ],
   "switch": "--prefix-cache on|off on ds4-server, default on",
   "output": {

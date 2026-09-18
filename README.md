@@ -273,9 +273,9 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │  BRANCH   triple-prefix-cache                               CONTROL
-  │  WHAT     the prefix cache the engine already ships in ds4_kvstore.c,
-  │           read out of the code, plus the one thing it lacked: an off
-  │           path. --prefix-cache off rewinds the session every request
+  │  WHAT     the prefix cache the server already has, written up from the
+  │           code, plus the one thing it lacked: a way to turn it off so
+  │           it can be measured. --prefix-cache off rewinds each request
   │  SWITCH   --prefix-cache on|off on ds4-server, default on
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
@@ -285,8 +285,8 @@ it rock.
 ```
 
 NOTES
-- No rows: this is a ds4-server flag and every sealed round drives ds4-bench, which never sees it.
-- Code is ds4_server.c +44 and ds4_help.c +1, 45 insertions and zero deletions at HEAD.
-- With off, the session rewinds to zero each request, the disk load refuses and no checkpoint is written.
-- A hit is byte-exact from token zero, so reordering context at the front kills it at any length.
-- Owed: a ds4-server harness for the on against off sweep, and a hit rate from the new log line.
+- Contains: a server flag, 45 added lines across ds4_server.c and ds4_help.c, and no deletions.
+- Test: none possible here. Every bench round drives ds4-bench, which never goes through the server.
+- Behaviour: with off the session rewinds each request, the disk load refuses, and no checkpoint is written.
+- Caveat: a hit must match byte for byte from the first token, so moving context to the front kills it.
+- Owed: a server harness for the on against off sweep, and a hit rate read from the new log line.
