@@ -269,25 +269,24 @@ graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
 ```
-✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
   the card below is ours; the README above is antirez's, unchanged
 
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-scout                                      WORTH ZERO
+  ┌─ triple-scout ─────────────────────────────────────────── WORTH ZERO
   │  WHAT     at layer L, also read the experts token t-1 used at L+1
   │           reads only, never math; rides the hits-first batch
   │           on top of triple-all-fastest, the measured default
   │  SWITCH   DS4_CUDA_SCOUT=0 restores triple-all-fastest exactly
   │  OUTPUT   greedy-identical to the tip: G1 short 5ed3e6dfe2177eca · long c5cb82566c628bed
   │  BASE     triple-all-fastest @28f6f102
-  └──────────────────────────────────────────────────────────────────────
+  └─
 
-  RESULTS
-  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r12                           2026-09-18    10.26     9.54   +7.30%   4/4    3.81  BEATS    4
-  r12    cache=60GB             2026-09-18     8.87     9.54   -6.19%   0/4    3.81  LOSES    4
-  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
-  r12 2026-09-18-R12-RESULT-winners-qd16-default-and-scout-all-beat-the-tip-the-60gb-cache-loses-seven.md
+  RESULTS   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10
+  round  variant       arm t/s  tip t/s    delta  sign  floor  verdict  n
+  r12                    10.26     9.54   +7.30%   4/4   3.81  BEATS    4
+  r12    cache=60GB       8.87     9.54   -6.19%   0/4   3.81  LOSES    4
+  each repeat against its two bracketing tip runs · floor = max adjacent tip pair
+  files   r12 2026-09-18-R12-RESULT-*.md
 ```
 
 NOTES
