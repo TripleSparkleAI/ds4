@@ -269,24 +269,23 @@ graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
 ```
-✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
   the card below is ours; the README above is antirez's, unchanged
 
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-pool-and-hitsfirst                         POSITIVE
+  ┌─ triple-pool-and-hitsfirst ──────────────────────────────── POSITIVE
   │  WHAT     pool plus hitsfirst and nothing else, hits-first ON
   │           drops prefetch-pool from the winners tree to price it
   │           measured on a quiet box: +5.58 per cent, 3 of 4 runs up
   │  SWITCH   DS4_CUDA_FETCH_QD=64 restores ring depth 64; levers have off flags
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
+  └─
 
-  RESULTS
-  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r10                           2026-09-18    10.27     9.73   +5.58%   3/4    2.18  BEATS    4
-  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
-  r10 2026-09-18-R10-RESULT-the-combination-works-on-a-quiet-box-and-hitsfirst-alone-dipped-twice.md
+  RESULTS   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10
+  round  variant       arm t/s  tip t/s    delta  sign  floor  verdict  n
+  r10                    10.27     9.73   +5.58%   3/4   2.18  BEATS    4
+  each repeat against its two bracketing tip runs · floor = max adjacent tip pair
+  files   r10 2026-09-18-R10-RESULT-*.md
 ```
 
 NOTES
