@@ -1,0 +1,19 @@
+{
+  "branch": "triple-pair",
+  "status": "NOT YET",
+  "what": [
+    "pool plus hitsfirst and nothing else, hits-first ON",
+    "drops prefetch-pool from the winners tree to price it",
+    "built and Metal-clean; no CUDA build, never measured"
+  ],
+  "switch": "DS4_CUDA_HITS_FIRST=0, DS4_CUDA_FETCH_URING=0, _FETCH_QD=<n>",
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
+  "results": [],
+  "prefill": ""
+}

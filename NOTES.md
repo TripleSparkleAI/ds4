@@ -1,0 +1,4 @@
+- The question: is prefetch-pool the cost in the winners tree, or do pool and hitsfirst fight on their own.
+- The two lever shas are winners' own, and its 16 hitsfirst conflict hunks are resolved byte-identically.
+- Logic tests pass on a Mac: hitsfirst 142 checks, uring and expert-claims green. ds4_cuda.cu is uncompiled.
+- No number of any kind is claimed for this tree. The first spark build and a G1 gate come before any t/s.
