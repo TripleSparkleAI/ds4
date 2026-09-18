@@ -1,0 +1,4 @@
+- The six levers share one NVMe and two touch the same pread code, so the tree is not a sum of solo deltas.
+- Three readings of one tree: +6.50 on a quiet box, -0.98 on a loaded one, +7.02 on a quiet one again.
+- Every delta is each arm run against its own bracketing tip runs, never against another round's absolute t/s.
+- No greedy-identity sha is claimed: the one on record predates this tree's rebase onto the new tip.

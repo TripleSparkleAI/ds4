@@ -1,0 +1,58 @@
+{
+  "branch": "triple-all",
+  "status": "POSITIVE",
+  "what": [
+    "six levers stacked in series on the expert-cache read path",
+    "pool, drain sync, cache margin, hot list, page-drop, hits-first",
+    "second best tree measured, below hitsfirst alone in round 9"
+  ],
+  "switch": "DS4_CUDA_HITS_FIRST=0, plus each lever's own env switch",
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
+  "results": [
+    {
+      "round": "r9",
+      "date": "2026-09-17",
+      "arm_tps": 10.11,
+      "tip_tps": 9.42,
+      "delta_pct": 7.02,
+      "sign": "3/4",
+      "floor_pct": 17.27,
+      "verdict": "TIES",
+      "n": 4,
+      "file": "2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md",
+      "note": "reads at round 6's level, which resolves the r6 versus r8 disagreement"
+    },
+    {
+      "round": "r8",
+      "date": "2026-09-17",
+      "arm_tps": 9.1,
+      "tip_tps": 8.96,
+      "delta_pct": -0.98,
+      "sign": "1/4",
+      "floor_pct": 10.69,
+      "verdict": "TIES",
+      "n": 4,
+      "file": "2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md",
+      "note": "loaded box; -1.74 with the cold first control run excluded, 7.17 floor"
+    },
+    {
+      "round": "r6",
+      "date": "2026-09-17",
+      "arm_tps": 10.35,
+      "tip_tps": 9.69,
+      "delta_pct": 6.5,
+      "sign": "3/3",
+      "floor_pct": 3.35,
+      "verdict": "BEATS",
+      "n": 3,
+      "file": "2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md"
+    }
+  ],
+  "prefill": "r8 85.3 vs tip 84.3"
+}
