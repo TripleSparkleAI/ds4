@@ -268,38 +268,10 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
-✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
-
 ```
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-draincut                                   WORTH ZERO
-  │  WHAT     reads the router's selected expert ids back on an event,
-  │           not a blocking cudaMemcpy, so the host stops waiting on
-  │           the shared expert: 40 device drains per token removed
-  │  SWITCH   ON by default; DS4_CUDA_SELECTED_DRAIN_SYNC=1 restores blocking
-  │  OUTPUT   not gated
-  │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
-
-  RESULTS
-  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r5     2026-09-17     9.62     9.60   +1.48%   3/4    5.69  TIES     4
-  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
-  prefill: reported, never a verdict - r5 87.5 vs tip 84.6
-  r5  2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
-```
-
-NOTES
-- Only the host's wait changes; kernels queue in the same order, so the output bytes cannot move.
-- Scope is streaming on a single GPU; TP=2 already overlaps, capture refuses it, Metal compiles it out.
-- Round 5 is the first sealed round to measure this lever alone, interleaved against the tip control.
-- The 2026-09-16 attribution series measured a nine-lever tree on another history, naming no lever's share.
-- Owed: the greedy-identical check on the rebased tree, since the recorded sha predates the rebase.
-
 ✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
-the card below is ours; the README above is antirez's, unchanged
+  the card below is ours; the README above is antirez's, unchanged
 
-```
   ┌──────────────────────────────────────────────────────────────────────
   │  BRANCH   triple-draincut                                   WORTH ZERO
   │  WHAT     reads the router's selected expert ids back on an event,
