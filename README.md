@@ -269,28 +269,28 @@ graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
 ```
-✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
   the card below is ours; the README above is antirez's, unchanged
 
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-engram-lead                                WORTH ZERO
+  ┌─ triple-engram-lead ───────────────────────────────────── WORTH ZERO
   │  WHAT     starts reading the Engram memory rows for the next token one
   │           step early, guessing that token from the current step's own
   │           best guess, so the read overlaps work instead of stalling it
   │  SWITCH   DS4_V41_ENGRAM_LEAD_OFF turns it off; the lead is ON by default
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
+  └─
 
-  RESULTS
-  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r5                            2026-09-17     9.43     9.60   -1.04%   1/4    5.69  TIES     4
-  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
-  prefill: reported, never a verdict - r5 86.9 vs tip 84.6
-  r5  2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
+  RESULTS   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10
+  round  variant       arm t/s  tip t/s    delta  sign  floor  verdict  n
+  r5                      9.43     9.60   -1.04%   1/4   5.69  TIES     4
+  each repeat against its two bracketing tip runs · floor = max adjacent tip pair
+  prefill: r5 86.9 vs tip 84.6
+  files   r5 2026-09-17-R5-RESULT-*.md
+
   ALSO TRIED
-  triple-hitsfirst           +12.3%  the lever that won on this box: launch resident experts before the miss reads land
-  triple-pool                +9.6%   parallel SSD reads with an io_uring ring; fast alone, loses under CPU load
+  triple-hitsfirst            +12.3%  the winner here: resident experts run before misses land
+  triple-pool                 +9.6%   parallel SSD reads, io_uring; loses under CPU load
 ```
 
 NOTES
