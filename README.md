@@ -268,38 +268,10 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
-✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
-
 ```
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-granule                                    NEGATIVE
-  │  WHAT     an offline question, CPU only: at the same memory budget,
-  │           does spreading a key over many bits tell entries apart better
-  │           than a plain hash does? On this branch the answer is no
-  │  SWITCH   none
-  │  OUTPUT   not gated
-  │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
-
-  RESULTS
-  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r5                            2026-09-17     9.51     9.60   -0.04%   2/4    5.69  TIES     4
-  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
-  prefill: reported, never a verdict - r5 86.0 vs tip 84.6
-  r5  2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
-```
-
-NOTES
-- Theory: spreading a key over many bits should separate near-identical contexts that a plain hash collides.
-- Test: offline on CPU at matched budget; the engine files on this branch are byte-identical to the tip.
-- Result: the spread key was no better at telling entries apart, and that run is what the verdict rests on.
-- Caveat: the bench row (-0.04 percent, floor 5.69) timed an unchanged binary and carries no information.
-- Owed: nothing for this construction; the diagnostic still ahead is named in the branch's own record.
-
 ✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
-the card below is ours; the README above is antirez's, unchanged
+  the card below is ours; the README above is antirez's, unchanged
 
-```
   ┌──────────────────────────────────────────────────────────────────────
   │  BRANCH   triple-granule                                    NEGATIVE
   │  WHAT     an offline question, CPU only: at the same memory budget,
