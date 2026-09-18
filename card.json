@@ -2,9 +2,9 @@
   "branch": "triple-iq2-lut-fix",
   "status": "TOOLING",
   "what": [
-    "a source check, not a lever: does our tree carry upstream's",
-    "IQ2 dequant-LUT defect, where the codebook was staged only",
-    "for n_embd <= 4096 and then read below the guard anyway"
+    "a source check, not a change: does this tree carry upstream's",
+    "IQ2 decode bug, where the lookup table was filled only for",
+    "narrow models and then read anyway? It does not"
   ],
   "switch": "none",
   "output": {
