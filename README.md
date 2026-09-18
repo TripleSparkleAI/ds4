@@ -269,25 +269,24 @@ graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
 ```
-✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
   the card below is ours; the README above is antirez's, unchanged
 
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-margin                                     TOOLING
+  ┌─ triple-margin ───────────────────────────────────────────── TOOLING
   │  WHAT     makes the memory reserve a live, checked, recorded value
   │           and expresses the cache budget as a split of one RAM pool
   │           across three consumers: an instrument and a bound
   │  SWITCH   DS4_MEM_RESERVE_MIB=N default 512; _ENFORCE=1; _RECORD=FILE
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
+  └─
 
-  RESULTS
-  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r5                            2026-09-17     9.66     9.60   +1.17%   3/4    5.69  TIES     4
-  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
-  prefill: reported, never a verdict - r5 89.5 vs tip 84.6
-  r5  2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
+  RESULTS   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10
+  round  variant       arm t/s  tip t/s    delta  sign  floor  verdict  n
+  r5                      9.66     9.60   +1.17%   3/4   5.69  TIES     4
+  each repeat against its two bracketing tip runs · floor = max adjacent tip pair
+  prefill: r5 89.5 vs tip 84.6
+  files   r5 2026-09-17-R5-RESULT-*.md
 ```
 
 NOTES
