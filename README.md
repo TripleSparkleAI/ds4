@@ -295,3 +295,32 @@ NOTES
 - It loses on this tip: -2.73 percent with not one of four repeats above the control.
 - The repair in the same branch cut a full 4096-slot victim walk per miss down to one pass per batch.
 - Owed: the warm-cache reading it was re-scoped for, the first 64 tokens warm against cold.
+
+✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+the card below is ours; the README above is antirez's, unchanged
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │  BRANCH   triple-hotlist                                    NEGATIVE
+  │  WHAT     seeds the next session's SSD expert cache from the previous
+  │           run's demand, so the opening tokens start warm. A warm-up
+  │           device, not a selection device
+  │  SWITCH   DS4_CUDA_EXPERT_HOTLIST_WRITE=0 turns the writer off
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
+  └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r4                            2026-09-17     9.42     9.65   -2.73%   0/4    2.71  LOSES    4
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - r4 82.3 vs tip 80.7
+  r4  2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
+```
+
+NOTES
+- The session writes every expert it demanded, and the next session seeds empty cache slots from that list.
+- Presence beats content for a slot cache: a wrong seed wastes one slot and corrupts nothing.
+- It loses on this tip: -2.73 percent with not one of four repeats above the control.
+- The repair in the same branch cut a full 4096-slot victim walk per miss down to one pass per batch.
+- Owed: the warm-cache reading it was re-scoped for, the first 64 tokens warm against cold.
