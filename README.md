@@ -269,27 +269,27 @@ graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
 ```
-✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
   the card below is ours; the README above is antirez's, unchanged
 
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-climbingfibre                              WORTH ZERO
+  ┌─ triple-climbingfibre ─────────────────────────────────── WORTH ZERO
   │  WHAT     a small table in front of the model that learns from tokens
   │           the verifier rejected, while it runs, and forgets them over
   │           time. It offers one draft token when nothing else did
   │  SWITCH   DS4_CLIMBINGFIBRE=1, default 0; _HORIZON, _DECAY, _NGRAM, _CAP
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
+  └─
 
-  RESULTS
-  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r5                            2026-09-17     9.58     9.60   +1.28%   4/4    5.69  TIES     4
-  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
-  prefill: reported, never a verdict - r5 83.1 vs tip 84.6
-  r5  2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
+  RESULTS   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10
+  round  variant       arm t/s  tip t/s    delta  sign  floor  verdict  n
+  r5                      9.58     9.60   +1.28%   4/4   5.69  TIES     4
+  each repeat against its two bracketing tip runs · floor = max adjacent tip pair
+  prefill: r5 83.1 vs tip 84.6
+  files   r5 2026-09-17-R5-RESULT-*.md
+
   ALSO TRIED
-  triple-hitsfirst           +12.3%  the lever that won on this box: launch resident experts before the miss reads land
+  triple-hitsfirst            +12.3%  the winner here: resident experts run before misses land
 ```
 
 NOTES
