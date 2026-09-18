@@ -290,3 +290,27 @@ NOTES
 - The runner's default pairs V4.1 with the 0731 support file, a mix the docs forbid; ds4 exits 1 on load.
 - The spark holds the publisher's 6.0 GB 0731 support file, not the F16 Gate-A one; the fat caveat is moot.
 - Un-kill: a V4.1 DSpark path upstream, or a tool arm naming the 0731 Q2 target under a forced streaming cap.
+
+✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+the card below is ours; the README above is antirez's, unchanged
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │  BRANCH   triple-spec-under-offload                         NEGATIVE
+  │  WHAT     does DSpark speculative decoding pay on a box whose weights
+  │           stream from disk? Killed at the tip: the streaming target is
+  │           V4.1 Flash Q2 and the engine has no DSpark path for V4.1
+  │  SWITCH   --dspark --mtp-model FILE; the off leg is DS4_MTP_SPEC_DISABLE=1
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
+  └──────────────────────────────────────────────────────────────────────
+
+  RESULTS  none yet - never in a sealed round
+```
+
+NOTES
+- Killed at the tip, never measured: the tool targets V4.1 Flash Q2 and ds4 refuses --dspark for V4.1 at open.
+- The bench takes --dspark --mtp-model, so the gate is the engine's; no dspark= arg was added to the tool.
+- The runner's default pairs V4.1 with the 0731 support file, a mix the docs forbid; ds4 exits 1 on load.
+- The spark holds the publisher's 6.0 GB 0731 support file, not the F16 Gate-A one; the fat caveat is moot.
+- Un-kill: a V4.1 DSpark path upstream, or a tool arm naming the 0731 Q2 target under a forced streaming cap.
