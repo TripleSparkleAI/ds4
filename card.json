@@ -2,9 +2,9 @@
   "branch": "triple-word-finisher",
   "status": "TOOLING",
   "what": [
-    "a suffix-lookup drafter, measured offline and closed: draft",
-    "k tokens from the continuation stored against the last n,",
-    "verify in one batched pass, commit the longest match"
+    "an offline experiment, finished and closed: draft the next",
+    "few tokens from what followed the same short phrase earlier,",
+    "check them in one pass, keep the longest prefix that holds"
   ],
   "switch": "none",
   "output": {

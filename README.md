@@ -273,9 +273,9 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │  BRANCH   triple-word-finisher                              TOOLING
-  │  WHAT     a suffix-lookup drafter, measured offline and closed: draft
-  │           k tokens from the continuation stored against the last n,
-  │           verify in one batched pass, commit the longest match
+  │  WHAT     an offline experiment, finished and closed: draft the next
+  │           few tokens from what followed the same short phrase earlier,
+  │           check them in one pass, keep the longest prefix that holds
   │  SWITCH   none
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
@@ -285,8 +285,8 @@ it rock.
 ```
 
 NOTES
-- No rows: an offline experiment of two python probes and a record, with zero engine files.
-- Offline: acceptance 2.37x on code and 1.17x on prose, miss reuse 0 of 1,219, bytes saved 0.0000.
+- Contains: two python probes and a written record, and zero engine files, so no arm a bench could time.
+- Numbers: acceptance 2.37x on code and 1.17x on prose, 0 of 1,219 reuses after a miss, 0.0000 bytes saved.
 - Source: MEASURED_WORDFINISHER_lookup-drafter-acceptance-offline_2026-09-15.md, on this branch.
-- The overlap is real and the amortisation is not: the experts that union are already resident.
-- The finding was re-derived through a second, separately written path, which is why it is closed.
+- Result: the token overlap is real and buys nothing, because the experts it would share are already resident.
+- Closed: a second, separately written path reached the same numbers, so no engine work is owed.
