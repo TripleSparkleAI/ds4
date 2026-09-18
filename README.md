@@ -268,137 +268,25 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
----
-
-**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
-
-**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
-
-Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42 pass lines, 5 pre-existing failures (the Qwen3.8 and GLM 5.3 model-absent skips, counted as failures by ds4_test and identical on every branch).
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-engram-4bit                                   TOOLING
-  │
-  │  WHAT       a design record for re-encoding ONLY the two Engram hash tables
-  │             from FP8 at 264 B a row to 4-bit at 132 B a row. Ships the
-  │             arithmetic, the four costs, the plan, and ZERO engine code
-  │
-  │  LATEST     never in a sealed round. The arm lists of 2026-09-17-ROUND3-,
-  │             -R4- and -R5-PREREGISTERED-RULE.txt name this branch zero times,
-  │             and there is nothing to enter one with. Its own newest figures
-  │             are the arithmetic re-run here 2026-09-17, below
-  │
-  │  GEN        not measured - no engine code, nothing for the bench to run
-  │  PREFILL    not measured - no engine code, nothing for the bench to run
-  │
-  │  VERDICT    TOOLING, NOT A LEVER - halving a row cannot halve a round trip.
-  │             The measured 23.9 ms Engram read moves 12,672 B, so it runs at
-  │             0.53 MB/s and the axis is IOPS (triple-engram-read-threads),
-  │             not bytes. The re-encode earns its place as a CAPACITY fact
-  │
-  │  SWITCH     NONE - nothing to switch; the re-encode changes the ARTIFACT
-  │  OUTPUT     not re-run - nothing runs. The quantizer skeleton encodes zero
-  │             rows by design: five NotImplementedError entry points, and
-  │             --check-format prints "rows encoded by this file today: 0"
-  │
+  │  BRANCH   triple-engram-4bit                                TOOLING
+  │  WHAT     a design record for re-encoding only the two Engram hash
+  │           tables from FP8 at 264 B a row to 4-bit at 132 B. Ships the
+  │           arithmetic, the four costs and the plan, and no engine code
+  │  SWITCH   none
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
+
+  RESULTS  none yet - never in a sealed round
 ```
 
-**Why this branch is not in the measurement pass.** Its three files are `PLAN.md`,
-`engram_4bit_arithmetic.py` (131 lines, reads no model, needs no GPU) and
-`engram_hlwq_quantize.py` (185 lines, a refusing skeleton). No kernel, no dequant path, no switch,
-no artifact. There is no arm, so a round could only time the tip under this branch's name.
-
-## The arithmetic, re-run on this tree 2026-09-17
-
-Every input in `engram_4bit_arithmetic.py` is a constant with its source file and line written
-beside it, so each figure below is checkable against the file it came from.
-
-- Row counts, `ds4.c` at the two Engram tables' load: 384,006,168 + 384,016,682 =
-  **768,022,850 rows**.
-- `DS4_ENGRAM_ROW_BYTES` = 264, `DS4_ENGRAM_LAYERS` = 2, `DS4_ENGRAM_COLS` = 24, all read from
-  `ds4_engram.h` lines 14, 9 and 12 at HEAD. ⚠ The previous card cited `ds4.c` for the row-byte
-  constant; it lives in `ds4_engram.h`.
-- At 264 B a row: 202,758,032,400 B = **188.833 GiB**. At the card's 132 B a row: 101,379,016,200 B
-  = **94.417 GiB**, exactly half, and the script asserts the halving.
-- A decode step reads LAYERS 2 x COLS 24 = **48 rows, 12,672 B**, so the per-token saving is
-  **6,336 B**: **0.0000655 %** of the 9.670 GB/token census floor, or **27.5 ns** at the achieved
-  230.5 GB/s sequential ceiling.
-- Our census records the file at 340.6 GiB with about 189 GiB of Engram tables outside the tensor
-  map, so the re-encode takes the file to **246.2 GiB**.
-- The re-encode rewrites **2 of 1328 tensors**.
-- ⚠ Every Engram figure here is arithmetic on the record, not a census: the GGUF on this machine is
-  86.72 GB, carries 1328 tensors and **zero Engram tensors**, and `ds4-gguf-census.py` has no Engram
-  bucket. The script says so in its own docstring.
-
-**⚠ Corrected here.** The previous card said the re-encode "takes the file to 246.2 GiB and the
-table is 55.4 % of it". 55.4 % is the share BEFORE the re-encode (188.833 of 340.6). **After it the
-table is 38.4 %** of a 246.2 GiB file. The 246.2 is right and the share was the before-figure
-standing in the after-sentence. Recomputed both ways above.
-
-| measurement | value | source |
-| --- | ---: | --- |
-| Engram read, a decode step | 23.9 ms of 198.6 ms, 12.04 % | `CUDA_LANES_CHANNEL.md:1635`, the GB10 profile |
-| rate that implies | 0.53 MB/s, 0.00023 % of 230.5 GB/s | arithmetic on the row above |
-| quality, code, FP8 to HLWQ Q4 | 0.1086 to 0.1233 NLL/token, +0.015 nats | `sources/hf-hlwq-engram-q4.md:90` |
-| quality, needles 3 to 52 k | 0.0840 to 0.1228 NLL/token, +0.04 nats | same, line 91; 5 of 5 needles still retrieved |
-| the competing byte lever, non-routed repack | 1.763 GB of 9.670 GB a token, **18.23 %** | `WIKI/theory/82` section 5, Q6_K gate f = 0.999 |
-
-⚠ The `CUDA_LANES_CHANNEL.md`, `WIKI/` and `research/` paths are not in this branch's tree. The
-branch is rooted on the upstream tip, which carries none of them, so they resolve in the dwarfstar
-working branch.
-
-```
-   B Y T E S   S A V E D ,   A   D E P T H   S O U N D I N G ─────────
-
-   non-routed k-quant repack  ●━━━━━━━━━━━━━━━━━━━━━  1.763 GB/token   18.23 %
-   this re-encode             ●                       6,336 B/token    0.0000655 %
-                              │
-                              ▼  per byte of DISK saved, the repack returns
-                                 about 278,000x more PER TOKEN
-
-   and the read this would shrink is not bandwidth-bound at all:
-   12,672 B in 48 serial 264-byte preads, queue depth one
-   23.9 ms  ──▶  0.53 MB/s  ──▶  0.00023 % of the 230.5 GB/s the box can do
-   halving the row halves the bytes of a trip whose cost is the TRIP
-```
-
-## The four costs
-
-- **(a) Both halves are ours to write.** The source card targets SGLang with a row-store adapter and
-  says plainly that "MLX/GGUF runtimes have their own Engram quantizers ... this repo does not target
-  them" (line 102). The method is HLWQ, Hadamard-Lloyd Weight Quantization, arXiv:2603.29078, and the
-  attribution travels with any port.
-- **(b) The wrong silicon.** Validated on SM120, 4x RTX PRO 6000. Our GB10 is SM121 and the card says
-  nothing about it.
-- **(c) The quality cost is asymmetric** and lands on code and long needles. The card's own
-  concurrency noise is plus or minus 0.015, so the +0.04 nats on needles is above it while the +0.015
-  on code sits exactly at it.
-- **(d) A different dequant path.** The card's win was against a host-RAM row store with a GPU
-  dequant of three tensor ops. Ours is a host `pread` loop with a host dequant of 256 `ldexpf` calls a
-  row, and a 4-bit row puts about 128x the arithmetic on that thread.
-- Our own profile already answers (d): 12,672 bytes in 48 separate preads at queue depth one is a
-  latency problem, not a bandwidth one (`CUDA_LANES_CHANNEL.md`).
-
-## Order of work
-
-- The non-routed k-quant repack cuts 18.23 % of the bytes a token moves and is already gated
-  (`WIKI/theory/48-decode-speedup-levers.md` section 8a). This re-encode cuts 0.0000655 % of a token.
-- The re-encode earns its place afterwards as a capacity fact: a 246.2 GiB artifact is movable and
-  resident where a 340.6 GiB one is not, and the source card's own download figures go 510 GB to
-  about 408 GB.
-- The routed axis is nearly spent: 2.2500 bits a weight against the IQ2_XXS floor of 2.0625
-  (`WIKI/theory/82` section 6, `WIKI/theory/05` section 2).
-
-## Owed
-
-- A quantizer emitting our 132 B stride. `engram_hlwq_quantize.py` raises `NotImplementedError` at
-  every one of its five entry points today.
-- A dequant on our lookup path.
-- A teacher-forced NLL run idle to idle, with code and needle strata reported separately, because the
-  cost is asymmetric between them.
-- Whether a 4-bit row is free on the host dequant path, which is cost (d) and the one that could
-  make this negative rather than merely small.
-- Plan: `gguf-tools/engram-4bit/PLAN.md`.
+NOTES
+- No rows: three files, a plan and two python scripts, no kernel and no dequant path to time.
+- Arithmetic: 6,336 B saved a token, 0.0000655 percent of the 9.670 GB/token census floor.
+- Source: engram_4bit_arithmetic.py, every input a constant with its file and line beside it.
+- Halving a row cannot halve a round trip: 12,672 B in 48 serial preads runs at 0.53 MB/s.
+- It earns its place as a capacity fact, taking a 340.6 GiB artifact to 246.2 GiB.
