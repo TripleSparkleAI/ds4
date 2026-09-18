@@ -268,265 +268,34 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
----
-
-
-
-
-
-**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
-
-
-**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
-
-**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-hitsfirst                              POSITIVE
-  │
-  │  WHAT       launches gate/up/down for the experts already resident
-  │             before the miss reads land, so a token does not stall on
-  │             the slowest read in the batch
-  │
-  │  LATEST     round 9 · 2026-09-17 · TIES · +12.09 % 4/4 under a 17.27 floor ·
-  │             median 10.41, spread 0.19, every run above every control ·
-  │             2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
-  │             round 8 · 2026-09-17 · BEATS · +12.31 % 4/4 (floor 10.69;
-  │             +11.54 with the cold first run excluded) ·
-  │             2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
-  │             round 4 · 2026-09-17 · BEATS · +6.47 % (kept +7.93 %) ·
-  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
-  │
-  │  GEN        +12.31 %  floor 10.69 %  sign 4/4  n=4
-  │             sensitivity, cold first control run excluded: +11.54 % against a
-  │             7.17 % floor, still BEATS (post hoc, labelled as such)
-  │             raw: arm min-across median 10.34 t/s (10.49 · 9.43 · 10.38 ·
-  │             10.29) vs the tip's 8.96 t/s (8.61 cold · 9.53 · 8.87 · 9.49 ·
-  │             8.96). gen_steady at min across 4096/6144. The delta is each run
-  │             against its bracketing TIP runs, not against that median
-  │             ⚠ the box was not quiet: the five tip runs spanned 8.61 to 9.53
-  │             and four arm runs ended at load 3.2 to 4.0 with no vitest alive,
-  │             which is what widened the floor from round 4's 2.71 to 10.69
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
-  │             session = 2026-09-17 13:24-14:37Z · DGX Spark GB10 ·
-  │             native 24.89 MB .text (tip 24.86 MB) · lean regime 4096/6144
-  │             ─── round 9, TIES, and it confirms the ranking not a magnitude:
-  │             +12.09 %  floor 17.27 %  sign 4/4  n=4
-  │             raw: arm min-across median 10.41 t/s (four runs, 10.32 to 10.51,
-  │             spread 0.19) vs the tip's 9.42 t/s (8.51 to 9.98). Every arm run
-  │             read above every control run, and the next-tightest arm of the
-  │             round spans 0.76
-  │             ⚠ the instrument sets that floor, not the arm: the five control
-  │             runs span 8.51 to 9.98 t/s because the page cache holds 2.9 GB of
-  │             an 81 GB model and the bench streams 842 MB/s from the NVMe, so
-  │             identical binaries swing about 8 % run to run
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
-  │             session = 2026-09-17 14:41-15:36Z · DGX Spark GB10 · native
-  │             24.89 MB .text (r9-hitsfirst, 24,886,127; tip 24.86 MB) · lean
-  │             regime 4096/6144 · quiet box, warm-up run discarded
-  │  PREFILL    reported, not a verdict: 86.55 t/s min-across median vs the
-  │             tip's 84.34 t/s, n=4. Round 8 makes no prefill verdict.
-  │
-  │  VERDICT    POSITIVE - the only arm of round 8 to clear the floor, and the
-  │             only tree with two sealed wins and no sealed loss. Every one of
-  │             its four runs read above every one of the five control runs, so
-  │             the win does not depend on which control run is kept. By the
-  │             standing rule that the default follows the measured number, the
-  │             shipped default is now the new tip plus this one lever
-  │             (round 8 section 5), and round 9 confirms it on a quiet box
-  │
-  │  SWITCH     DS4_CUDA_HITS_FIRST=1 (default OFF in the stack; =0 is wait-then-launch)
-  │             DS4_CUDA_HITS_FIRST_STAGED=0 keeps hits-first, single-stage read order
-  │  OUTPUT     greedy-identical sha256 bb06e711bc498bb9
-  │
+  │  BRANCH   triple-hitsfirst                                  POSITIVE
+  │  WHAT     launches gate/up/down for the experts already resident before
+  │           the miss reads land, so a token does not stall on the slowest
+  │           read in the batch; the parallel expert pread pool sits underneath
+  │  SWITCH   DS4_CUDA_HITS_FIRST=0 turns it off (=1 is the shipped default)
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r9     2026-09-17    10.41     9.42  +12.09%   4/4   17.27  TIES     4
+  r8     2026-09-17    10.34     8.96  +12.31%   4/4   10.69  BEATS    4
+  r4     2026-09-17    10.37     9.65   +6.47%   4/4    2.71  BEATS    4
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - r9 89.0 vs tip 85.6 (r8 86.6 vs 84.3)
+  r9  2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
+  r8  2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
+  r4  2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
 ```
 
-## What the branch does
-
-- The LUT decode kernel takes a `pair_mask` and returns early for any pair the launch does not cover.
-- Gate/up, and a per-slot down partial, run for the experts already resident, while the miss reads are still in flight.
-- After the wait, the same kernels run again for the miss slots.
-- The six partials are summed in slot order, from `0.0f`. That is the float sequence
-  `moe_down_sum_qwarp32_kernel<6>` already ran, which is why the output is bit-identical.
-- A second stage reorders the pool's pick-up order: every miss's gate/up first, then the downs.
-- The branch carries the parallel expert pread pool underneath, because it calls the pool's own
-  entry points. The pool is what makes the misses concurrent.
-
-```
-   ONE TOKEN, hits-first ON: who drains, who launches, who waits
-
-   as shipped   wait for EVERY miss read · launch all six · sum slots 0..5
-
-   this branch
-     1  drain the batch still in flight?     ds4_hitsfirst_must_wait, asks the quant
-           Q4_K    YES    was NO DRAIN         launched gate/up over victim slots the
-           MXFP4   YES    was NEVER REACHED    pool was still uploading: a real race
-           IQ2     NO     unchanged, on purpose - the overlap IS the branch
-     2  dispatch the miss reads
-     3  launch the HIT mask now               pair_mask, resident experts only
-     4  wait_stage
-     5  launch the MISS mask
-     6  sum_partials6, slots 0..5, from 0.0f  the same float sequence as the fused
-                                              kernel, so the sha does not move
-```
-
-## The measurements, kept apart
-
-**Solo, 2026-09-15 native pass. The win.**
-
-- 10.35 vs 9.56 gen t/s, **+8.3 %**.
-- Two repeats per arm, interleaved control, minimum across the three stable frontiers.
-  ctx 2048 discarded as warmup.
-- The control-to-control floor of that native set is 3.3-4.9 % gen and 9.7-15.8 % prefill.
-- This is the only generation delta in the five-branch series that cleared its floor.
-
-**In the stack, 2026-09-16 phase 2. Inside the floor at three readings of four.**
-
-- File: `2026-09-16-triple-all-fastest-attrib-hits-first-on.txt`.
-- Arm: `triple-all-fastest` @dd82361a with `DS4_CUDA_HITS_FIRST=1`, against nine fresh
-  clean-tip brackets @e6d9d3b8.
-- 17 runs, all rc=0, 0 contention drops, box load under 2.0 and gpu 0-21 % at every stamp.
-- Paired medians **-4.23 / -0.57 / -0.76 / -0.95 %** at 4096 / 6144 / 8192 / min.
-  Signs 0/6, 1/6, 1/6, 1/6.
-- The n=8 no-straggler-drop sensitivity gives the same medians.
-- Prefill paired median, secondary: +1.60 / +15.29 / +4.33 / +4.13 %.
-- The as-shipped stack, hits-first OFF, lost -8.63 / -3.75 / -5.38 / -4.51 % against the same
-  tip design in phase 1. Turning this one lever on closes most of that deficit at three of
-  four readings.
-- The arm was sealed as exploratory (amendment A1). It is not part of the sealed verdict on
-  the seven kill switches.
-- ⚠ **The subject is narrower than the word "stack".** That binary carries NINE levers, sits at
-  `dd82361a`, and is not on `triple-all-fastest`'s line of history: the two are siblings off
-  `84ba6ef1b` (`2026-09-16-CORRECTION-the-measured-stack-is-nine-levers-and-has-diverged.md`).
-  The ten-lever tree has never been measured.
-
-**Superseded, not refuted.**
-
-- An earlier on/off A/B on JIT-fallback binaries (29.6 MB .text, no `-gencode`) read
-  8.31 vs 8.61 t/s, a null.
-- JIT and native vintages are not comparable: prefill is about 37 t/s against about 86 t/s.
-- The structural explanation once given for that null, that the shared expert's gate/up/down
-  already fill the interval, is unproven.
-
-**Elsewhere.** The same change measured about +5 % on our own CUDA backend, a different tree.
-Cited only to say where the idea pays.
-
-## The repair carried on this branch (`ca5232d40`)
-
-Four findings from R1 and from HUNTTHECOST C2, fixed on the branch that introduced them. The
-decision logic moved into `ds4_hitsfirst_logic.h` so a host with no CUDA toolkit can test it.
-
-- **A real race, on two paths.** `begin_load` leaves a hits-first batch in flight whenever
-  `slot_count <= 8`, and it does not know the expert quant. The only pre-launch wait asked
-  `g_hits_first.active && !(n_tokens == 1u && use_decode_lut_gate)`, which does not ask about
-  the quant either.
-  - Q4_K experts skipped the wait, then launched gate/up over victim slots the pool's workers
-    were still uploading on their own `cudaStreamNonBlocking` streams. Nothing ordered those
-    streams before the kernel.
-  - MXFP4 is worse in shape and easier to miss: it returns from `routed_moe_launch` well before
-    the wait line, so it never drained at all. It now drains at the top of its own block.
-  - The predicate is `ds4_hitsfirst_must_wait`, and it asks the quant.
-  - The IQ2 one-token decode-LUT path still does NOT drain. Keeping that overlap is the whole
-    point of the branch, and a test case is the control for it.
-  - Latent only because the IQ2 daily driver routes to the LUT branch.
-- **A leak.** `g_hf_partials` was never freed. `cuda_hf_partials_release()` now runs inside
-  `ds4_gpu_stream_expert_cache_release_resident`, after the hits-first wait that function
-  already does, so no kernel can be reading the partials.
-- **A latent correctness bug.** `moe_down_slot_partial_qwarp32_kernel` mapped a negative slot
-  onto expert 0 and relied on the LUT kernel having zeroed that pair's `mid_out`. The fused
-  kernel it claims bit-identity with, `moe_down_sum_qwarp32_kernel`, skips the slot instead.
-  Both now share one rule, `ds4_hitsfirst_slot_contributes`: the partial kernel writes `0.0f`
-  and returns, which is what makes `moe_down_sum_partials6_kernel`'s sum equal the fused skip.
-- **Host time spent in a GPU-idle window.** `begin_load` ran a `getenv`, a heap allocation and
-  a clock on every call, hit or miss, 40 layers per token. By HUNTTHECOST 0.1 that function
-  sits between a `cudaStreamSynchronize` of the decode stream and the routed launch, so host
-  time there is GPU idle time. Removed:
-  - the `getenv("DS4_CUDA_EXPERT_CACHE_STATS")` linear scan of environ, now read once via
-    `ds4_env_gate`;
-  - the `std::vector<char> was_miss(unique.size())` heap allocation, now a uint64 mask, which
-    the hits-first cap of `slot_count <= 8` makes exact;
-  - `cuda_wall_sec()`, now taken only when stats are on.
-  - ⚠ **No number is claimed for any of this.** What was removed is named; the number is the
-    bench's.
-- **Behaviour note.** `DS4_CUDA_EXPERT_CACHE_STATS` is now sampled once, at the first
-  `begin_load` of the process, and cannot be flipped mid-run. It is a diagnostic switch in a
-  per-layer hot path, and this is the shape `cuda_hits_first_enabled` already has.
-  `g_stream_expert_sec_read` likewise accumulates only when stats are on, and its only reader
-  is the stats line itself.
-- No default, no switch direction and no output byte changed.
-
-## The test for the repair
-
-`tests/test_hitsfirst_logic.c` is pure C99, with no CUDA and no model. 15 cases, one
-independent control each.
-
-- The drain predicate is swept over the whole (`n_tokens`, lut_gate, quant) space, so exactly
-  one path consumes its own batch and none reads without draining.
-- The negative-slot rule is EXERCISED, not asserted: host models of both reductions run over
-  the same selection and must agree.
-- The getenv saving is asserted on a read counter through a substituted reader, so it is a
-  counted fact.
-- RED, with all four pre-fix rules restored in the header: 13 of 142 checks fail, at
-  `paths: 3 consume their own batch` and `env reads: 4000 over 4000 calls`.
-- GREEN: `paths: 1 consume their own batch, 0 read without draining`,
-  `env reads: 1 over 4000 calls`, 142 checks, 0 failed.
-- Re-run on this Mac 2026-09-17 (`make tests/test_hitsfirst_logic && ./tests/test_hitsfirst_logic`):
-  **142 checks, 0 failed, exit 0.**
-- ⚠ NOT exercised: no Q4_K-expert model, no MXFP4 model, no GPU, and `ds4_cuda.cu` does not
-  compile on this macOS host. The race is asserted on the predicate, never observed.
-
-## Still open
-
-- A native solo on/off repeat. n=2 is the whole solo sample.
-- The 4096 deficit that survives hits-first in the stack. It points at the non-switchable
-  branch diff, or at an untested switch.
-- A CUDA build, and a measurement on the new tip `triple-tip-2026-09-16`. Nothing on this
-  branch has been measured since the repair landed, so the card's numbers all pre-date it.
-
-## Round 4, 2026-09-17: on the new tip, in a sealed round
-
-- **First measurement of this branch on the new tip, and it wins.** +6.47 % no-drop, +7.93 % kept, sign 4 of 4, against a no-drop floor of 2.71 %. Raw min-across medians 10.37 t/s arm against 9.65 t/s tip.
-- The two readings agree, so the round-4 straggler-rule problem (section 3 of the result) changes nothing on this card.
-- This answers the two items the Still open list below asks for: there is now a CUDA build at `3e477367` and a measurement on `triple-tip-2026-09-16`. The 4096 deficit inside the nine-lever stack is untouched by round 4, which measured this branch solo.
-
-Sealed rule `2026-09-17-R4-PREREGISTERED-RULE.txt` @`3914a3226`, result `2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md`, raw CSVs and runlog in `sweeps/r4/`.
-
-## Round 8, 2026-09-17: it beats again, through a floor four times wider
-
-- **Two sealed wins, no sealed loss.** Round 4: +6.47 %, 4/4, floor 2.71. Round 8: **+12.31 %,
-  4/4, floor 10.69**, and every one of its four runs (10.29 to 10.49) read above every one of the
-  five control runs (8.61 to 9.53). The cold-run sensitivity reads +11.54 % against a 7.17 % floor
-  and gives the same verdict. It is the only arm of the round to clear this floor.
-- **The default moved to this lever.** `triple-all-fastest` becomes the new tip plus hitsfirst,
-  built from a one-lever manifest (round 8 section 5). It is set now and provisional on round 9,
-  which re-measures hitsfirst, pool, winners, stack+hits and triple-all on a quiet box with the
-  warm-up run so the floor is the box's real floor.
-- ⚠ **Combining it with pool costs what each one wins.** `triple-winners` (pool + hitsfirst +
-  prefetch-pool) read 9.13 to 9.42, level with the tip, in this same session, while this branch
-  read 10.3 to 10.5 and pool's two clean runs read 10.5 to 10.65. The claim-ledger interaction is
-  the first suspect and is not proven by round 8.
-
-Sealed rule `2026-09-17-R8-PREREGISTERED-RULE.txt` @`c173ad6d7`, result
-`2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md`,
-raw CSVs and runlog in `sweeps/r8/`.
-
-## Round 9, 2026-09-17: the default holds, and this is the tightest tree measured
-
-- **Three sealed rounds put this lever first.** Round 4 +6.47 % through a 2.71 floor, round 8
-  +12.31 % through a 10.69 floor, round 9 **+12.09 %, 4/4, median 10.41 t/s** against the tip's
-  9.42. Round 9 reads TIES because the sealed floor is 17.27, so it confirms the ranking and not
-  a magnitude.
-- **Its spread of 0.19 is the finding of the round.** Its four runs span 10.32 to 10.51 while the
-  five control runs span 8.51 to 9.98 and every other arm spans 0.76 to 1.30. The hypothesis
-  already on this card, that launching the resident experts early hides SSD miss latency, would
-  explain a tight tree as well as a fast one. Not proven here.
-- **The default is confirmed, not provisional.** `triple-all-fastest` stays the new tip plus this
-  one lever; pool is second again at 10.35 with a 1.06 spread, and the ten-lever stack carrying
-  this lever is the lowest median of the round at 9.93.
-
-Sealed rule `2026-09-17-R9-PREREGISTERED-RULE.txt` @`60d1bd06a`, result
-`2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md`,
-raw CSVs and runlog in `sweeps/r9/`.
+NOTES
+- The shipped default is the tip plus this one lever: three sealed rounds, two wins, one tie, no loss.
+- Round 9 ties only because its floor is 17.27; identical binaries swing about 8 % run to run on this box.
+- Its 0.19 spread in round 9 is the finding: early resident launches may hide SSD miss latency. Not proven.
+- Combining it with pool costs what each wins: the winners tree (pool + hitsfirst + prefetch-pool) is slower.
+- Greedy sha bb06e711bc498bb9 predates the rebase; the winners tree is G1-gated on this tip, solo is not yet.

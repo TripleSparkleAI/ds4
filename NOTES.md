@@ -1,0 +1,5 @@
+- The shipped default is the tip plus this one lever: three sealed rounds, two wins, one tie, no loss.
+- Round 9 ties only because its floor is 17.27; identical binaries swing about 8 % run to run on this box.
+- Its 0.19 spread in round 9 is the finding: early resident launches may hide SSD miss latency. Not proven.
+- Combining it with pool costs what each wins: the winners tree (pool + hitsfirst + prefetch-pool) is slower.
+- Greedy sha bb06e711bc498bb9 predates the rebase; the winners tree is G1-gated on this tip, solo is not yet.
