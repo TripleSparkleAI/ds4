@@ -268,42 +268,10 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
-✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
-
 ```
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-pool                                       POSITIVE
-  │  WHAT     serves expert reads from a parallel SSD pool, not one serial
-  │           reader, with an io_uring O_DIRECT ring in front of the pool
-  │           so queue depth is a switch and not the worker count
-  │  SWITCH   DS4_CUDA_STREAMING_EXPERT_PREAD_POOL=0 restores serial
-  │  OUTPUT   not gated
-  │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
-
-  RESULTS
-  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r9     2026-09-17    10.35     9.42   +9.59%   4/4   17.27  TIES     4
-  r8     2026-09-17    10.00     8.96   +8.56%   3/4   10.69  TIES     4
-  r4     2026-09-17    10.39     9.65   +7.27%   3/4    2.71  BEATS    4
-  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
-  prefill: reported, never a verdict - r4 87.3 vs tip 80.7
-  r9  2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
-  r8  2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
-  r4  2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
-```
-
-NOTES
-- Expert misses are served by a pthread pread pool with an io_uring O_DIRECT ring in front of it.
-- The drive gives about 10.1 GB/s at eight readers in flight against 7.6 GB/s at one, so depth is the lever.
-- Round 4 is the branch's number. Rounds 8 and 9 read higher but tie, because the box sets a wide floor.
-- Round 10 measured this lever only inside the pair and winners trees, at +5.6 to +6.9; pool alone was no arm.
-- Owed: a greedy-identity gate on this tree, and one run aimed at the ring's decline path.
-
 ✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
-the card below is ours; the README above is antirez's, unchanged
+  the card below is ours; the README above is antirez's, unchanged
 
-```
   ┌──────────────────────────────────────────────────────────────────────
   │  BRANCH   triple-pool                                       POSITIVE
   │  WHAT     serves expert reads from a parallel SSD pool, not one serial
