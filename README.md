@@ -268,195 +268,38 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
----
-
-**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
-
-**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-all-fastest-newtip                     POSITIVE
-  │
-  │  WHAT       the ten-lever stack REBUILT ON THE NEW TIP from its manifest:
-  │             base triple-tip-2026-09-16 (12997e9c8), one commit per lever
-  │             in stack-on-newtip.manifest order, every conflict hunk decided
-  │             on purpose and recorded, so build_stack.sh reproduces this
-  │             tree from the manifest alone. Nine levers on, hits-first off,
-  │             victim order used-ascending (the measured default).
-  │
-  │  LATEST     round 9 · 2026-09-17 · +DS4_CUDA_HITS_FIRST=1 · TIES · +3.77 %
-  │             2/3 under a 17.27 floor · median 9.93, the lowest median in both
-  │             rounds it ran ·
-  │             2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
-  │             round 4 · 2026-09-17 · BEATS · +4.65 % (kept +6.87 %) ·
-  │             2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
-  │             round 8 · +DS4_CUDA_HITS_FIRST=1 · TIES · +5.46 % (+0.33 sens)
-  │             round 8 · +DS4_PREFILL_READAHEAD_HOLD=1 · TIES · +6.64 % (+5.54)
-  │             round 8 · +both switches ON · TIES · -5.95 % (-6.20), the
-  │             slowest tree measured, all three under a 10.69 floor ·
-  │             2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
-  │
-  │  GEN        +4.65 % (kept +6.87 %)  floor 2.71 % (no-drop)  sign 4/4  n=4
-  │             raw: arm median 10.14 t/s vs tip median 9.65 t/s, gen_steady
-  │             at min across 4096/6144; the delta is each run against the
-  │             mean of its bracketing TIP runs, not against that median
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved, one TIP
-  │             bracket per cycle
-  │             session = 2026-09-17 09:50-10:57Z · DGX Spark GB10 ·
-  │             native 24.94 MB .text · lean regime 4096/6144
-  │  PREFILL    reported, not a verdict: 136.25 t/s min-across median vs the
-  │             tip's 80.73 t/s, n=4. Round 4 makes no prefill verdict.
-  │             ─── round 8, three switch variants on THIS binary, all TIES
-  │             under a 10.69 % floor (7.17 % on the cold-run sensitivity):
-  │             +hits   +5.46 %  sign 4/4  n=4  (sens +0.33 %)  arm 9.36 t/s
-  │                     (10.05 · 9.21 · 9.21 · 9.51)
-  │             +hold   +6.64 %  sign 3/4  n=4  (sens +5.54 %)  arm 9.80 t/s
-  │                     (9.92 · 9.71 · 9.89 · 9.06)
-  │             +both   -5.95 %  sign 0/4  n=4  (sens -6.20 %)  arm 8.64 t/s
-  │                     (8.53 · 8.63 · 8.75 · 8.64), below every control run
-  │             vs the tip's 8.96 t/s (8.61 cold · 9.53 · 8.87 · 9.49 · 8.96),
-  │             gen_steady at min across 4096/6144, each run against its
-  │             bracketing TIP runs
-  │             ⚠ the box was not quiet: the five tip runs spanned 8.61 to 9.53
-  │             and four arm runs ended at load 3.2 to 4.0 with no vitest
-  │             alive, which is what widened the floor to 10.69
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
-  │             session = 2026-09-17 13:24-14:37Z · DGX Spark GB10 ·
-  │             native 24.94 MB .text (tip 24.86 MB) · lean regime 4096/6144
-  │             prefill round 8, reported not a verdict, min-across medians vs
-  │             the tip's 84.34 t/s, n=4 each: +hits 137.00, +hold 147.16,
-  │             +both 144.86 t/s
-  │
-  │             ─── round 9, +hits only, TIES, and it is last of the five arms:
-  │             +3.77 %  floor 17.27 %  sign 2/3  n=3
-  │             raw: arm min-across median 9.93 t/s (8.99 to 10.29, spread 1.30)
-  │             vs the tip's 9.42 t/s (8.51 to 9.98). LOWEST median of the round,
-  │             as in round 8, and the widest spread of any arm measured
-  │             ⚠ the instrument sets that floor, not the arm: the five control
-  │             runs span 8.51 to 9.98 t/s because the page cache holds 2.9 GB of
-  │             an 81 GB model and the bench streams 842 MB/s from the NVMe, so
-  │             identical binaries swing about 8 % run to run
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
-  │             session = 2026-09-17 14:41-15:36Z · DGX Spark GB10 · native
-  │             24.94 MB .text (r9-allfastestne, 24,943,300; tip 24.86 MB) · lean
-  │             regime 4096/6144 · quiet box, warm-up run discarded
-  │
-  │  VERDICT    POSITIVE - beats the new tip on both readings, +4.65 % no-drop and
-  │             +6.87 % kept, sign 4 of 4. First measurement of this tree, and it
-  │             compiled first time at 24.94 MB .text, which refuted prediction P4.
-  │             ⚠ Both levers round 4 measured solo are OFF in this tree by default:
-  │             hits-first (+6.47 % solo, the wrong side) and the readahead arm
-  │             (-11.38 % solo, the right side; corrected 11:25Z from a source read
-  │             at the sealed sha, the card had said ON). Nothing here attributes the
-  │             stack's number to any lever; the seal forbids it.
-  │             ⚠⚠ ROUND 8 FLIPPED BOTH SWITCHES ON THIS BINARY AND ALL THREE
-  │             VARIANTS TIE: +hits +5.46 %, +hold +6.64 %, +both -5.95 %. The
-  │             two switches FIGHT - with both on this is the slowest tree
-  │             measured, below every control run - and the readahead arm read
-  │             ABOVE hits-first here, against its -11.38 % solo, so prediction
-  │             P2 missed in the opposite direction.
-  │             ★ the ten-lever stack is no longer the all-fastest default; the
-  │             default is hitsfirst alone as of round 8 (round 8 section 5:
-  │             `triple-all-fastest` becomes the new tip plus the hitsfirst
-  │             lever, from a one-lever manifest), and round 9 confirms it
-  │
-  │  SWITCH     ten levers, see the table below; plus
-  │             DS4_CUDA_PREFETCH_SWEEP_ORDER=1 restores the sweep-aware order
-  │  OUTPUT     not re-run
-  │
+  │  BRANCH   triple-all-fastest-newtip                         POSITIVE
+  │  WHAT     the ten-lever stack rebuilt on the new tip from its manifest,
+  │           one commit per lever, every conflict hunk recorded, so
+  │           build_stack.sh reproduces the tree from the manifest alone
+  │  SWITCH   DS4_CUDA_HITS_FIRST=1 turns the hits-first lever on
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r9     2026-09-17     9.93     9.42   +3.77%   2/3   17.27  TIES     3
+  r8     2026-09-17     9.80     8.96   +6.64%   3/4   10.69  TIES     4
+  r8     2026-09-17     9.36     8.96   +5.46%   4/4   10.69  TIES     4
+  r8     2026-09-17     8.64     8.96   -5.95%   0/4   10.69  TIES     4
+  r4     2026-09-17    10.14     9.65   +4.65%   4/4    2.71  BEATS    4
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - r4 136.3 vs tip 80.7
+  r9  2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
+  r8  2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
+  r8  2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
+  r8  2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
+  r4  2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
 ```
 
-**How this tree was built.** `bash build_stack.sh stack-on-newtip.manifest --check <HEAD>` is
-the derivation and the proof: base `triple-tip-2026-09-16`, then each lever's code-only diff
-against the base it was written on, applied `--3way`, every conflict hunk resolved by the
-manifest's own `resolve` lines, then the stack-local victim-order commit. The manifest header
-names every judgement call. The branch's history mirrors the manifest: one commit per lever.
-
-```
-   triple-tip-2026-09-16  12997e9c8   (Qwen tip, UP)
-        +-- pool · margin · draincut · pagecache · hotlist        [on]
-        +-- engram-lead · engram-read-threads                     [on]
-        +-- readahead-order                                       [OFF by default; DS4_PREFILL_READAHEAD_HOLD=1 turns the arm on]
-        +-- hits-first                                            [OFF - measured null solo]
-        +-- prefetch-pool                                         [on]
-        +-- victim order used-ascending                           [the measured default]
-        v
-   triple-all-fastest-newtip   ten levers in, nine live, NEVER COMPILED FOR CUDA
-```
-
-| lever | switch | default | off |
-| --- | --- | --- | --- |
-| pool | `DS4_CUDA_STREAMING_EXPERT_PREAD_POOL` | on | `=0` |
-| margin | `DS4_CUDA_EXPERT_CACHE_MARGIN_GB` | 8 | knob, no Boolean |
-| draincut | `DS4_CUDA_SELECTED_DRAIN_SYNC` | on | `=1` restores blocking |
-| pagecache | `DS4_CUDA_KEEP_MODEL_PAGES` | new order | `=1` restores old |
-| hotlist | `DS4_CUDA_EXPERT_HOTLIST_WRITE` | on | `=0` |
-| engram-lead | `DS4_V41_ENGRAM_LEAD_OFF` | on | set |
-| engram-read-threads | `DS4_ENGRAM_READ_THREADS` | request count | `=1` |
-| readahead-order | `DS4_PREFILL_READAHEAD_HOLD` | **off** (also on with `DS4_CUDA_PREFETCH_SWEEP_ORDER=1`) | `=1` turns the arm on |
-| hits-first | `DS4_CUDA_HITS_FIRST` | **off** | `=1` turns it on |
-| prefetch-pool | `DS4_CUDA_SSD_PREFETCH_CHUNK_MB` | 8 MB | knob |
-| victim order | `DS4_CUDA_PREFETCH_SWEEP_ORDER` | used-ascending | `=1` sweep-aware |
-
-⚠ What this card does NOT say: any speed. The old-base stack's numbers live on
-`triple-all-fastest`'s card and describe a different tree. Read them there, never here.
-
-## Round 4, 2026-09-17: on the new tip, in a sealed round
-
-- **First measurement of this tree, and it beats the new tip.** +4.65 % no-drop, +6.87 % kept, sign 4 of 4, no-drop floor 2.71 %. Raw min-across medians 10.14 t/s arm against 9.65 t/s tip. It compiled on the first attempt at 24.94 MB .text, which scored prediction P4 wrong.
-- ⚠ **It ships both measured levers the wrong way round.** `DS4_PREFILL_READAHEAD_HOLD` is ON by default and that lever measured **-11.38 %** solo; `DS4_CUDA_HITS_FIRST` is OFF by default and that lever measured **+6.47 %** solo. The stack still beats the tip by +4.65 % while carrying both.
-- Round 4 attributes NOTHING of this number to any lever, by its own seal. The measurable question is round 7: this stack with hits-first ON, with the readahead hold OFF, with both, and hitsfirst plus pool as a two-lever tree. `spark_arms.py` needs per-arm environment switches first.
-
-Sealed rule `2026-09-17-R4-PREREGISTERED-RULE.txt` @`3914a3226`, result `2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md`, raw CSVs and runlog in `sweeps/r4/`.
-
-## Round 8, 2026-09-17: both switches flipped on this binary, and they fight
-
-- **All three variants TIE under a 10.69 % floor**, so round 4's +4.65 % is not retracted:
-  `+DS4_CUDA_HITS_FIRST=1` reads **+5.46 %** (4/4, sensitivity +0.33 %),
-  `+DS4_PREFILL_READAHEAD_HOLD=1` reads **+6.64 %** (3/4, sensitivity +5.54 %), and both on reads
-  **-5.95 %** (0/4, sensitivity -6.20 %), which is the slowest tree measured all day, below every
-  one of the five control runs.
-- **Every stack prediction missed.** P1 (stack+hits beats the plain stack's +4.65 by 1.5) missed;
-  P2 (stack+readahead at least 5 below stack+hits) missed **in the opposite direction**, because
-  the readahead arm read ABOVE hits-first here despite its -11.38 % solo in round 4; P3
-  (stack+hits beats the tip) missed. The round scored 1 of 8.
-- ★ **The default moved off this tree.** `triple-all-fastest` is now the new tip plus the hitsfirst
-  lever alone, built from a one-lever manifest (round 8 section 5), because hitsfirst solo is the
-  only arm with two sealed wins and no sealed loss. That is provisional on round 9, which
-  re-measures hitsfirst, pool, winners, stack+hits and triple-all on a quiet box.
-
-```
-   B O T H   S W I T C H E S   O N   I S   T H E   S L O W E S T   T H I N G
-                                     (round 8, min-across gen, this binary, raw t/s)
-
-   control tip      8.61 ↑cold   8.87   8.96        9.49  9.53
-                                                      ╵
-   +hold                              9.06      9.71 9.89 9.92        +6.64 %  3/4
-   +hits                                   9.21 9.21  9.51      10.05  +5.46 %  4/4
-   +both      8.53 8.63 8.75 8.64                                      -5.95 %  0/4
-              ▲ every run below every control run
-
-   hits-first ON and the readahead arm ON pull against each other; neither clears the floor alone
-```
-
-Sealed rule `2026-09-17-R8-PREREGISTERED-RULE.txt` @`c173ad6d7`, result
-`2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md`,
-raw CSVs and runlog in `sweeps/r8/`.
-
-## Round 9, 2026-09-17: lowest median in both rounds it ran
-
-- **With hits-first on, this ten-lever tree reads 9.93 t/s, +3.77 %, sign 2 of 3, TIES.** It is
-  the LOWEST median of the round's five arms, exactly as it was in round 8, and its spread of 1.30
-  is the widest measured. Round 4's +4.65 % stays the card's own number.
-- **The comparison that matters is with the same lever alone.** hitsfirst solo reads 10.41 with a
-  spread of 0.19 in this same session. The ten-lever tree carrying that lever reads 9.93 with a
-  spread of 1.30, so the other nine levers carry something that costs, in two sealed rounds.
-- **The default does not come back here.** `triple-all-fastest` is the new tip plus hitsfirst, and
-  round 9 confirms it rather than leaving it provisional.
-
-Sealed rule `2026-09-17-R9-PREREGISTERED-RULE.txt` @`60d1bd06a`, result
-`2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md`,
-raw CSVs and runlog in `sweeps/r9/`.
+NOTES
+- Nine levers live on the new tip, with hits-first and the readahead hold off by default behind switches.
+- Round 4 beat the tip by 4.65 percent on all four repeats, at 10.14 t/s against 9.65.
+- Round 8 flipped both switches: each alone ties, both together is the slowest tree measured that day.
+- The single hits-first lever alone reads higher and far tighter, so the other nine carry something costly.
+- Owed: an output gate, and a reading that attributes the stack's number to any one lever.
