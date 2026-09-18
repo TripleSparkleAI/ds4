@@ -268,125 +268,30 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
----
-
-
-
-
-
-**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
-
-
-**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
-
-**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
-
-Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29 verdicts all pass (it stops at ds4_test, whose model is absent in a worktree, identically before and after), cc -fsyntax-only clean on 1 touched C file (ds4.c). ⚠ Re-counted on this Mac 2026-09-17: **26** verdicts, all pass, stopping at ds4_test as before. Counting the run's `PASS` and `ok` verdict lines does not reproduce 29, on this branch or on any of the eight, so 26 is the current figure and 29 is superseded.
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-draincut                                   WORTH ZERO
-  │
-  │  WHAT       reads the router's selected expert ids back on an event
-  │             instead of a blocking cudaMemcpy, so the host no longer
-  │             waits on the shared expert - 40 device drains per token
-  │
-  │  LATEST     round 5 - 2026-09-17 - TIES - +1.48 % 3/4 under a 5.69 floor -
-  │             2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
-  │
-  │  GEN        +1.48 %  floor 5.69 %  sign 3/4  n=4
-  │             raw: arm min-across median 9.62 t/s (9.88 / 9.59 / 9.33 / 9.64)
-  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
-  │             across 4096/6144, each run against its bracketing TIP runs
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
-  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
-  │             native 24.87 MB .text (tip 24.86 MB) - lean regime 4096/6144
-  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
-  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
-  │             that nothing clears it
-  │  PREFILL    reported, not a verdict: 87.52 t/s min-across median vs the
-  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
-  │
-  │  VERDICT    WORTH ZERO - +1.48 % at 3 of 4 inside a 5.69 % floor. The lever
-  │             is correct and the delta buys nothing measurable. It would sit inside
-  │             round 4's tighter 2.71 % floor as well, so a quieter box is unlikely
-  │             to change the word
-  │
-  │  SWITCH     ON by default. DS4_CUDA_SELECTED_DRAIN_SYNC=1 restores the
-  │             blocking read - that is the OFF arm
-  │  OUTPUT     greedy-identical sha256 bb06e711bc498bb9 (2026-09-15, before the rebase)
-  │
+  │  BRANCH   triple-draincut                                   WORTH ZERO
+  │  WHAT     reads the router's selected expert ids back on an event,
+  │           not a blocking cudaMemcpy, so the host stops waiting on
+  │           the shared expert: 40 device drains per token removed
+  │  SWITCH   ON by default; DS4_CUDA_SELECTED_DRAIN_SYNC=1 restores blocking
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r5     2026-09-17     9.62     9.60   +1.48%   3/4    5.69  TIES     4
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - r5 87.5 vs tip 84.6
+  r5  2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
 ```
 
-## What the branch does
-
-- The streaming expert-cache load must know which experts the router picked before it primes the
-  cache. Upstream learns them with a blocking `cudaMemcpy` of the selected-id tensor.
-- That read waits for everything already queued on the decode stream, including the shared
-  expert's gate, up and down, once per MoE layer. 40 layers, so 40 drains per token.
-- `ds41_moe_partial` in `ds4.c` now calls `ds4_gpu_selected_readback_begin` right after the router
-  select and before the shared-expert kernels are queued: an async D2H copy of `DS4_N_EXPERT_USED`
-  int32 ids into one pinned buffer, plus a disable-timing event.
-- The cache load's `take()` matches on source pointer and byte count, waits on the event alone,
-  and copies the pinned bytes out. Any mismatch falls back to the blocking read.
-- Stream order is untouched. Only what the HOST blocks on changes, which is why the output bytes
-  cannot move.
-- Scope: streaming, single GPU (`tp_world != 2`) only. The TP=2 path already overlaps its shared
-  expert. Refused during CUDA graph capture. Metal and ROCm compile it out.
-- Files: `ds4.c` +11, `ds4_gpu.h` +5, `ds4_cuda.cu` +86/-1.
-- The gate at the top of `ds4_gpu_selected_readback_begin` is the arbiter of switch direction:
-  `if (drain_sync < 0) drain_sync = getenv("DS4_CUDA_SELECTED_DRAIN_SYNC") != NULL; if (drain_sync) return 0;`
-  An earlier note published the opposite direction.
-
-```
-   WHAT THE HOST WAITS ON, once per MoE layer, 40 times a token
-
-   as shipped   select ─▶ shared expert queued ─▶ memcpy BLOCKS on all of it
-                                                  ╰── host idle, device busy
-   this branch  select ─▶ memcpyAsync ids + event
-                          shared expert queued
-                          host waits on the EVENT alone ──▶ primes the cache
-                                                            while gate/up/down run
-
-   the kernels are queued in the same order in both arms, so the sha cannot move
-```
-
-## The numbers, and why they do not settle it
-
-- 2026-09-15 native pass, both binaries `make cuda-spark -j12`, interleaved, ctx 2048 discarded as
-  warmup, minimum across the three stable frontiers, two repeats per arm.
-- Engaged: **9.09 vs 9.17**, -0.9 %. Files on the Spark:
-  `~/sweeps/2026-09-15-triple-draincut-lever-engaged.txt` and `...-lever-dormant.txt`.
-- Dormant, same pass, same control: **9.71**, which is **+5.9 %**.
-- The control-to-control floor of that native generation set is 3.3 to 4.9 %.
-- An arm with the lever OFF cannot beat its own control by 5.9 % because of the lever. So the
-  dormant reading is evidence about the control, not about the branch. `triple-engram-lead`
-  withheld its numbers from the same pass for exactly this reason.
-- No comparison against the 2026-09-16 tip baseline, and none against `triple-tip-2026-09-16`,
-  has been run for this branch alone.
-
-## In the sealed attrib series, as one of seven
-
-- `DS4_CUDA_SELECTED_DRAIN_SYNC=1` is in the seven-switch off block
-  (`2026-09-16-ATTRIB-PREREGISTERED-RULE.txt`), beside the hotlist write, the page-keep, the
-  Engram lead, the pread pool and the Engram read threads.
-- All-off read -12.13 % against the clean tip; as-shipped -4.51 %; both from the same brackets, so
-  `L = -7.62 pp` is the seven levers' joint contribution and its sign says they HELP.
-- The series names no single lever's share, and this card claims none.
-- ⚠ The measured binary is `tb-afstack @dd82361a`, nine levers, on a line of history that is not
-  this branch's (`2026-09-16-CORRECTION-the-measured-stack-is-nine-levers-and-has-diverged.md`).
-
-## Still open
-
-- A higher-repeat interleaved on/off in one session with a control that holds still. n=2 is the
-  whole solo sample and its two arms disagree.
-- A measurement on the new tip. Nothing on this branch has been measured since the rebase.
-- The greedy-identical check re-run on the rebased tree. The sha above is from 2026-09-15.
-
-## Round 5, and the number this card now carries
-
-- **Round 5 is the first sealed round to measure this lever alone**: +1.48 % gen, 3 of 4 positive, TIES under a 5.69 % floor. The `NOT YET` this card used to carry is discharged.
-- That settles the solo pass the section above could not: the 2026-09-15 reading of -0.9 % engaged against +5.9 % dormant was a control that moved, and round 5's interleaved brackets replace it.
-- It is inside round 4's 2.71 % floor too, so unlike draft-gamma this arm is not left open by the noise.
+NOTES
+- Only the host's wait changes; kernels queue in the same order, so the output bytes cannot move.
+- Scope is streaming on a single GPU; TP=2 already overlaps, capture refuses it, Metal compiles it out.
+- Round 5 is the first sealed round to measure this lever alone, interleaved against the tip control.
+- The 2026-09-16 attribution series measured a nine-lever tree on another history, naming no lever's share.
+- Owed: the greedy-identical check on the rebased tree, since the recorded sha predates the rebase.
