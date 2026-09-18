@@ -2,19 +2,24 @@
   "branch": "triple-engram-lead",
   "status": "WORTH ZERO",
   "what": [
-    "starts the Engram table read one token ahead of first use,",
-    "speculating on the current step's own argmax, so the read",
-    "overlaps the step instead of landing exposed inside it"
+    "starts reading the Engram memory rows for the next token one",
+    "step early, guessing that token from the current step's own",
+    "best guess, so the read overlaps work instead of stalling it"
   ],
   "switch": "DS4_V41_ENGRAM_LEAD_OFF turns it off; the lead is ON by default",
-  "output": {"gated": false},
-  "base": {"branch": "triple-tip-2026-09-16", "sha": "12997e9c"},
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
   "results": [
     {
       "round": "r5",
       "date": "2026-09-17",
       "arm_tps": 9.43,
-      "tip_tps": 9.60,
+      "tip_tps": 9.6,
       "delta_pct": -1.04,
       "sign": "1/4",
       "floor_pct": 5.69,
@@ -24,5 +29,17 @@
       "note": "the round's lowest arm, and its four repeats are the tightest of the seven"
     }
   ],
-  "prefill": "r5 86.9 vs tip 84.6"
+  "prefill": "r5 86.9 vs tip 84.6",
+  "tried": [
+    {
+      "branch": "triple-hitsfirst",
+      "best": "+12.3%",
+      "line": "the lever that won on this box: launch resident experts before the miss reads land"
+    },
+    {
+      "branch": "triple-pool",
+      "best": "+9.6%",
+      "line": "parallel SSD reads with an io_uring ring; fast alone, loses under CPU load"
+    }
+  ]
 }
