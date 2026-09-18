@@ -269,20 +269,19 @@ graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
 ```
-✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
   the card below is ours; the README above is antirez's, unchanged
 
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-antirez-tip-latest                         CONTROL
+  ┌─ triple-antirez-tip-latest ───────────────────────────────── CONTROL
   │  WHAT     upstream main 9139e2ae5 with PRs 1034 and 1035 folded in
   │           no lever; every other branch was measured against this
   │           about 9.6 to 9.8 gen t/s at min across frontiers
   │  SWITCH   none
   │  OUTPUT   not gated
   │  BASE     triple-antirez-tip-latest @e6d9d3b8
-  └──────────────────────────────────────────────────────────────────────
+  └─
 
-  RESULTS  none yet - never in a sealed round
+  RESULTS   none yet - never in a sealed round
 ```
 
 NOTES
