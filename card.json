@@ -1,0 +1,48 @@
+{
+  "branch": "triple-winners",
+  "status": "WORTH ZERO",
+  "what": [
+    "pool, hitsfirst and prefetch-pool stacked, hits-first ON",
+    "the three levers that won round 4 solo, and nothing else",
+    "read below hitsfirst alone in both rounds it ran"
+  ],
+  "switch": "DS4_CUDA_HITS_FIRST=0, _FETCH_URING=0, _SSD_PREFETCH_POOL=0",
+  "output": {
+    "gated": true,
+    "short": "5ed3e6dfe2177eca",
+    "long": "c5cb82566c628bed"
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
+  "results": [
+    {
+      "round": "r9",
+      "date": "2026-09-17",
+      "arm_tps": 10.2,
+      "tip_tps": 9.42,
+      "delta_pct": 5.03,
+      "sign": "3/3",
+      "floor_pct": 17.27,
+      "verdict": "TIES",
+      "n": 3,
+      "file": "2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md",
+      "note": "lands between its own parts: hitsfirst 10.41, pool 10.35"
+    },
+    {
+      "round": "r8",
+      "date": "2026-09-17",
+      "arm_tps": 9.18,
+      "tip_tps": 8.96,
+      "delta_pct": 1.54,
+      "sign": "2/3",
+      "floor_pct": 10.69,
+      "verdict": "TIES",
+      "n": 3,
+      "file": "2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md",
+      "note": "-0.54 with the cold first control run excluded, 7.17 floor"
+    }
+  ],
+  "prefill": "r8 135.1 vs tip 84.3, reported not a verdict"
+}

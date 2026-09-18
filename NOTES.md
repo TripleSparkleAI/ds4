@@ -1,0 +1,4 @@
+- Greedy output is byte-identical to the tip on both reference prompts, so the combination is safe, not fast.
+- The parts beat the tip in the same session and the tree carrying both did not: the two pread levers fight.
+- Not attributed. The claim ledger, NVMe queue depth and the hits-first drain are all still candidates.
+- Neither round is a loss: both tie their floor, so what is measured twice is a ranking, not a regression.
