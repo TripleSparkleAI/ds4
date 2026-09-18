@@ -1,0 +1,5 @@
+- Gamma is fixed today from the support model's block size; this keeps an EMA of accept length per bucket.
+- Zero is a candidate and is not absorbing: a bucket at zero rests one interval and is then re-probed.
+- The unit tests are state traces with no model and no GPU, so none of them is a speedup.
+- The expected effect is a smaller loss where fixed gamma overspent, not a win; a win wants explaining.
+- Owed: a re-measure on a quiet box, at one and at many lanes, then the greedy-identical check.
