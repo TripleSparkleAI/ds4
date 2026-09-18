@@ -269,20 +269,19 @@ graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
 ```
-✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
   the card below is ours; the README above is antirez's, unchanged
 
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-iq2-lut-fix                                TOOLING
+  ┌─ triple-iq2-lut-fix ──────────────────────────────────────── TOOLING
   │  WHAT     a source check, not a change: does this tree carry upstream's
   │           IQ2 decode bug, where the lookup table was filled only for
   │           narrow models and then read anyway? It does not
   │  SWITCH   none
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
+  └─
 
-  RESULTS  none yet - never in a sealed round
+  RESULTS   none yet - never in a sealed round
 ```
 
 NOTES
