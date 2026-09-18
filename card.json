@@ -34,12 +34,12 @@
     {
       "branch": "triple-hitsfirst",
       "best": "+12.3%",
-      "line": "the lever that won on this box: launch resident experts before the miss reads land"
+      "line": "the winner here: resident experts run before misses land"
     },
     {
       "branch": "triple-pool",
       "best": "+9.6%",
-      "line": "parallel SSD reads with an io_uring ring; fast alone, loses under CPU load"
+      "line": "parallel SSD reads, io_uring; loses under CPU load"
     }
   ]
 }
