@@ -295,3 +295,32 @@ NOTES
 - It watches whole-node available memory, not residency inside the process, so a clean floor proves little.
 - Enforcement is ON by default, so a launch under the floor now stops; one switch restores the old way.
 - Owed: a split sweep, since the floor and ceiling are conservative choices rather than measured ones.
+
+✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+the card below is ours; the README above is antirez's, unchanged
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │  BRANCH   triple-margin                                     TOOLING
+  │  WHAT     makes the memory reserve a live, checked, recorded value
+  │           and expresses the cache budget as a split of one RAM pool
+  │           across three consumers: an instrument and a bound
+  │  SWITCH   DS4_MEM_RESERVE_MIB=N default 512; _ENFORCE=1; _RECORD=FILE
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
+  └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r5                            2026-09-17     9.66     9.60   +1.17%   3/4    5.69  TIES     4
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - r5 89.5 vs tip 84.6
+  r5  2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
+```
+
+NOTES
+- An instrument and a bound, not a speed lever: the shipped default split is a no-op.
+- One sampled value feeds the auto-probe, the packing subtraction and the live alarm, so they agree.
+- It watches whole-node available memory, not residency inside the process, so a clean floor proves little.
+- Enforcement is ON by default, so a launch under the floor now stops; one switch restores the old way.
+- Owed: a split sweep, since the floor and ceiling are conservative choices rather than measured ones.
