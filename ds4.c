@@ -42145,7 +42145,12 @@ static DS4_MAYBE_UNUSED bool ds41_graph_step(ds41_gpu_graph *g, const ds4_model 
             ok = ds4_gpu_begin_commands() != 0;
         const uint32_t flush_layers = ds41_decode_flush_layers();
         /* the first flush follows layer 0, so the GPU starts a token early */
-        if (ok && queue_layers && !drain && g->tp_world != 2 && flush_layers &&
+#ifdef __APPLE__
+        const bool tp_inline_gates = g->tp_world == 2 && ds4_gpu_tp_decode_inline_gates();
+#else
+        const bool tp_inline_gates = false;
+#endif
+        if (ok && queue_layers && !drain && (g->tp_world != 2 || tp_inline_gates) && flush_layers &&
             (il == 0 || (il + 1u) % flush_layers == 0))
             ok = ds4_gpu_flush_commands() != 0;
     }
