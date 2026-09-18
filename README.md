@@ -268,130 +268,30 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
----
-
-
-
-
-
-**✦   ✧   ✦   ✧   ✦   ✧   ✦   ✧   ✦**
-
-
-**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
-
-**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
-
-Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 29 verdicts all pass (it stops at ds4_test, whose model is absent in a worktree, identically before and after), no C files touched (ds4_cuda.cu does not compile on this Mac). ⚠ Re-counted on this Mac 2026-09-17: **26** verdicts, all pass, stopping at ds4_test as before. Counting the run's `PASS` and `ok` verdict lines does not reproduce 29, on this branch or on any of the eight, so 26 is the current figure and 29 is superseded.
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-pagecache                                  WORTH ZERO
-  │
-  │  WHAT       releases staged model pages madvise-then-fadvise so the drop
-  │             actually lands, and hints WILLNEED over a layer's miss ranges
-  │             on the buffered read path
-  │
-  │  LATEST     round 5 - 2026-09-17 - TIES - +1.47 % 4/4 under a 5.69 floor -
-  │             2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
-  │
-  │  GEN        +1.47 %  floor 5.69 %  sign 4/4  n=4
-  │             raw: arm min-across median 9.73 t/s (9.66 / 9.85 / 9.51 / 9.80)
-  │             vs the tip's 9.60 t/s (9.79 / 9.42 / 9.14 / 9.66 / 9.60). gen_steady at min
-  │             across 4096/6144, each run against its bracketing TIP runs
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
-  │             session = 2026-09-17 11:58-13:10Z - DGX Spark GB10 -
-  │             native 24.86 MB .text (tip 24.86 MB) - lean regime 4096/6144
-  │             the floor is 5.69 % because the five TIP controls swung 9.14 to
-  │             9.79 t/s, and both the sealed legacy rule and the new rule agree
-  │             that nothing clears it
-  │  PREFILL    reported, not a verdict: 83.55 t/s min-across median vs the
-  │             tip's 84.61 t/s, n=4. Round 5 makes no prefill verdict.
-  │
-  │  VERDICT    WORTH ZERO - +1.47 % at 4 of 4 inside a 5.69 % floor, which is the
-  │             same word this card already carried from a different pass. The memory
-  │             argument is unchanged and is still an argument about the resident set,
-  │             not a measured speed
-  │
-  │  SWITCH     DS4_CUDA_KEEP_MODEL_PAGES=1 disables both drops
-  │             DS4_CUDA_NO_EXPERT_READAHEAD=1 disables the hint
-  │  OUTPUT     greedy-identical sha256 bb06e711bc498bb9 (long d3355c94c70a4bb1,
-  │             2026-09-15, before the rebase)
-  │
+  │  BRANCH   triple-pagecache                                  WORTH ZERO
+  │  WHAT     releases staged model pages madvise-then-fadvise so the
+  │           drop actually lands, and hints WILLNEED over a layer's
+  │           miss ranges on the buffered read path
+  │  SWITCH   DS4_CUDA_KEEP_MODEL_PAGES=1 and DS4_CUDA_NO_EXPERT_READAHEAD=1
+  │  OUTPUT   greedy-identical to the tip: G1 short bb06e711bc498bb9 · long d3355c94c70a4bb1
+  │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r5     2026-09-17     9.73     9.60   +1.47%   4/4    5.69  TIES     4
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - r5 83.6 vs tip 84.6
+  r5  2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
 ```
 
-## Change 1, the release order
-
-- After each staged chunk is copied to the device, in both `cuda_model_copy_to_device_streamed`
-  and `cuda_model_range_ptr_from_fd`, upstream calls `posix_fadvise(DONTNEED)` first and
-  `posix_madvise(DONTNEED)` second.
-- `FADV_DONTNEED` skips any page still mapped into a process, and the model file is mmap'd by the
-  loader. So the drop never lands.
-- The resident set therefore grows across a streaming run and competes with the expert slots for
-  the same unified-memory pool.
-- `cuda_model_release_read_range` wraps both calls and zaps our PTEs first, so the fadvise that
-  follows has an unmapped page to drop.
-- On the O_DIRECT path nothing is cached and both calls are cheap no-ops, which is why the default
-  configuration may see none of this.
-
-## Change 2, the readahead hint
-
-- `cuda_model_readahead_range` issues `posix_fadvise(WILLNEED)` for a range about to be pread,
-  bounds-checked against the model size, buffered path only. Once the O_DIRECT fd is open it is a
-  no-op.
-- It fires in `cuda_stream_selected_cache_begin_load` for every unique miss's gate, up and down
-  ranges before the staged upload loop.
-- It fires again in `cuda_stream_prefetch_read` for every merged range before its chunked read loop.
-- One file: `ds4_cuda.cu`, +52/-5.
-
-```
-   DOES THE DROP LAND? the question is one syscall's ordering
-
-   page state          fadvise(DONTNEED)      madvise(DONTNEED)
-   ─────────────────────────────────────────────────────────────
-   mapped by mmap      SKIPPED, silently      zaps our PTEs
-   unmapped            drops it               nothing left to do
-
-   as shipped   fadvise ─▶ SKIPPED ─▶ madvise ─▶ too late, page stays cached
-   this branch  madvise ─▶ unmapped ─▶ fadvise ─▶ the page cache shrinks
-
-   the kernel returns 0 in both arms, so the broken order never reported an error
-```
-
-## The numbers
-
-- 2026-09-15 native pass, all binaries `make cuda-spark -j12`, interleaved control then arm, two
-  repeats, ctx 2048 discarded as warmup, minimum across repeats: **9.62 vs 9.56 gen t/s, +0.6 %**.
-- Control-to-control floor of that native generation set: 3.3 to 4.9 %. The delta is a seventh of
-  the floor's lower edge.
-- Earlier JIT-fallback figures (29.6 MB .text, prefill about 37 against 86 t/s native) are
-  superseded and are not comparable to any native number.
-- No comparison against the 2026-09-16 tip baseline, and none against `triple-tip-2026-09-16`, has
-  been run for this branch alone.
-
-## In the sealed attrib series, as one of seven
-
-- `DS4_CUDA_KEEP_MODEL_PAGES=1` is in the seven-switch off block
-  (`2026-09-16-ATTRIB-PREREGISTERED-RULE.txt`), beside the hotlist write, the drain sync, the
-  Engram lead, the pread pool and the Engram read threads.
-- All-off read -12.13 % against the clean tip; as-shipped -4.51 %; from the same brackets, so
-  `L = -7.62 pp` is the seven levers' joint contribution and its sign says they HELP.
-- The series names no single lever's share, and this card claims none.
-- ⚠ The measured binary is `tb-afstack @dd82361a`, nine levers, on a line of history that is not
-  this branch's (`2026-09-16-CORRECTION-the-measured-stack-is-nine-levers-and-has-diverged.md`).
-
-## Still open
-
-- An isolated A/B of change 1 against change 2. They were measured together and only together.
-- The value of the ordering repair on the default O_DIRECT path, which may be nil, because both
-  calls are no-ops there.
-- Whether the resident set actually stops growing. That is the claim the repair rests on and it has
-  never been observed, only reasoned from the kernel's documented behaviour.
-- A measurement on the new tip, and the greedy-identical check re-run on the rebased tree.
-
-## Round 5, and the number this card now carries
-
-- **Round 5 re-measured this lever alone and the word did not move**: +1.47 % gen, 4 of 4 positive, TIES under a 5.69 % floor. It was already WORTH ZERO from the 2026-09-15 solo pass at +0.6 %, so this is a confirmation rather than a change.
-- Two passes, two controls, two floors, one verdict: +0.6 % against a 4.9 % floor on 15 Sep and +1.47 % against a 5.69 % floor today.
-- The 4 of 4 sign is worth noting even under a wide floor: the delta is small and consistently positive, which is what a correct ordering repair that buys nothing looks like.
+NOTES
+- Two DONTNEED calls in the wrong order mean the drop never lands while the loader still maps the file.
+- On the default O_DIRECT path both calls are cheap no-ops, so the repair may buy nothing there at all.
+- Whether the resident set stops growing has never been observed, only reasoned from kernel behaviour.
+- An earlier interleaved solo pass on the old tip gave the same word under a tighter floor.
+- The 2026-09-16 attribution series measured a nine-lever tree on another history, naming no lever's share.
