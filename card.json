@@ -1,0 +1,19 @@
+{
+  "branch": "triple-engram-4bit",
+  "status": "TOOLING",
+  "what": [
+    "a design record for re-encoding only the two Engram hash",
+    "tables from FP8 at 264 B a row to 4-bit at 132 B. Ships the",
+    "arithmetic, the four costs and the plan, and no engine code"
+  ],
+  "switch": "none",
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
+  "results": [],
+  "prefill": ""
+}
