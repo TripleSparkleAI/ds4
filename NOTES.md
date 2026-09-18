@@ -1,0 +1,5 @@
+- A tie says the structure did not move the token rate on this tip, not that LFU beats LRU.
+- The cache can only skip a read, so a wrong entry costs a fetch and never a wrong output.
+- make test-host-range-cache: PASS, 36 check assertions, host compiler, run 2026-09-17.
+- On the GB10 the device arena is already host RAM, so this is a second tier for the same memory.
+- Owed: the three arms interleaved from one binary, control first, the 2048 frontier discarded.
