@@ -948,3 +948,39 @@ Regenerate, never hand-edit. Regenerated 2026-09-18 09:13Z, 28 cards.
   RESULTS  none yet - never in a sealed round
 ```
 
+✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+the card below is ours; the README above is antirez's, unchanged
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │  BRANCH   triple-all-fastest                                POSITIVE
+  │  WHAT     the new tip plus hitsfirst, the measured fastest tree
+  │           one lever, ON by default, and nothing else
+  │           set by rule from the sealed rounds, not by claim
+  │  SWITCH   DS4_CUDA_HITS_FIRST=0 restores wait-then-launch
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
+  └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r12                           2026-09-18    10.29     9.54   +9.07%   4/4    3.81  BEATS    4
+  r12    cache=60GB             2026-09-18     8.86     9.54   -7.14%   0/4    3.81  LOSES    4
+  r10                           2026-09-18     9.70     9.73   -0.64%   2/4    2.18  TIES     4
+  r9                            2026-09-17    10.41     9.42  +12.09%   4/4   17.27  TIES     4
+  r8                            2026-09-17    10.34     8.96  +12.31%   4/4   10.69  BEATS    4
+  r4                            2026-09-17    10.37     9.65   +6.47%   4/4    2.71  BEATS    4
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  r12 2026-09-18-R12-RESULT-winners-qd16-default-and-scout-all-beat-the-tip-the-60gb-cache-loses-seven.md
+  r10 2026-09-18-R10-RESULT-the-combination-works-on-a-quiet-box-and-hitsfirst-alone-dipped-twice.md
+  r9  2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
+  r8  2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
+  r4  2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
+```
+
+NOTES
+- The default STANDS as the tip plus hitsfirst: five sealed rounds, three wins, two ties, no sealed loss.
+- Round 12, quiet box, four repeats: this tree +9.07, 4 of 4, against a 3.81 floor.
+- winners@QD16 read 0.6 % above it, inside the floor, on two quiet boxes now: at least as fast, not faster.
+- The sealed rule settles a tie by the smaller tree, and one lever is smaller than three: hitsfirst keeps it.
+- The 60 GB expert cache setting is closed: -7.14 here, negative every repeat, on both trees it was tried on.
