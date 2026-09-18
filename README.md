@@ -295,3 +295,32 @@ NOTES
 - Round 4 is its only clean interleaved reading: +2.28 percent, positive on all three kept runs.
 - That does not clear the round's 2.71 percent floor, so it needs repeats and not a new design.
 - Owed: the chunk-size axis, never run; a greedy-identity gate on this revision.
+
+✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+the card below is ours; the README above is antirez's, unchanged
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │  BRANCH   triple-prefetch-pool                              POSITIVE
+  │  WHAT     cuts the prefill read-ahead into chunked tasks for a pool of
+  │           readers, each with its own pinned buffer and upload stream;
+  │           the single reader stays as the fallback when the pool declines
+  │  SWITCH   DS4_CUDA_SSD_PREFETCH_POOL=0 reverts the whole pool
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
+  └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r4                            2026-09-17     9.87     9.65   +2.28%   3/3    2.71  PARTIAL  3
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - r4 138.7 vs tip 80.7
+  r4  2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
+```
+
+NOTES
+- The prefill read-ahead's copies become 8 MiB tasks on their own reader pool instead of one serial read.
+- The foreground's blocking wait per layer fell from 398.0 ms at one reader to 196.5 ms at four readers.
+- Round 4 is its only clean interleaved reading: +2.28 percent, positive on all three kept runs.
+- That does not clear the round's 2.71 percent floor, so it needs repeats and not a new design.
+- Owed: the chunk-size axis, never run; a greedy-identity gate on this revision.
