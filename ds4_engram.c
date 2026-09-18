@@ -106,7 +106,92 @@ bool ds4_engram_table_open(ds4_engram_table *t, const char *path,
 #ifdef __APPLE__
     if (fcntl(fd, F_NOCACHE, 1) != 0 || fcntl(fd, F_RDAHEAD, 0) != 0) goto fail;
 #endif
-    *t = (ds4_engram_table){.fd = fd, .offset = offset, .rows = rows};
+    *t = (ds4_engram_table){.fd = fd, .offset = offset, .rows = rows,
+                            .row_bytes = DS4_ENGRAM_ROW_BYTES};
+    return true;
+fail: {
+        int saved = errno;
+        close(fd);
+        errno = saved;
+        return false;
+    }
+}
+
+static uint32_t le32(const uint8_t *p) {
+    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+static uint64_t le64(const uint8_t *p) {
+    return (uint64_t)le32(p) | (uint64_t)le32(p + 4) << 32;
+}
+
+/* The sidecar header, 4096 bytes, little-endian, written by
+ * gguf-tools/engram-4bit/engram_hlwq_quantize.py:
+ *   0   "DS4ENG4B"
+ *   8   u32 version (1), u32 tables, u32 dim (256), u32 block (128),
+ *       u32 row_bytes (132), u32 align (4096)
+ *   32  f32 centroids[16], strictly increasing
+ *   96  per table, 32 bytes: u32 layer, u32 rows, u64 data offset,
+ *       u64 source offset (the FP8 tensor in the GGUF), u64 reserved */
+bool ds4_engram_table_open_4bit(ds4_engram_table *t, const char *sidecar,
+                                uint32_t layer, uint32_t rows, uint64_t source_offset) {
+    if (!t) return false;
+    *t = (ds4_engram_table){.fd = -1};
+    if (!sidecar || !rows) {
+        errno = EINVAL;
+        return false;
+    }
+    int fd = open(sidecar, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return false;
+    uint8_t header[DS4_ENGRAM_4BIT_HEADER];
+    size_t done = 0;
+    while (done < sizeof(header)) {
+        ssize_t n = pread(fd, header + done, sizeof(header) - done, (off_t)done);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) {
+            if (n == 0) errno = EINVAL;
+            goto fail;
+        }
+        done += (size_t)n;
+    }
+    errno = EINVAL;
+    if (memcmp(header, "DS4ENG4B", 8) != 0 || le32(header + 8) != 1) goto fail;
+    const uint32_t tables = le32(header + 12);
+    if (le32(header + 16) != DS4_ENGRAM_DIM || le32(header + 20) != DS4_ENGRAM_4BIT_BLOCK ||
+        le32(header + 24) != DS4_ENGRAM_ROW_BYTES_4BIT || tables == 0 ||
+        tables > (DS4_ENGRAM_4BIT_HEADER - 96) / 32) goto fail;
+    float centroids[DS4_ENGRAM_4BIT_CENTROIDS];
+    for (int i = 0; i < DS4_ENGRAM_4BIT_CENTROIDS; i++) {
+        uint32_t bits = le32(header + 32 + 4 * i);
+        memcpy(&centroids[i], &bits, sizeof(bits));
+        if (!isfinite(centroids[i]) || (i && !(centroids[i] > centroids[i - 1]))) goto fail;
+    }
+    uint64_t offset = 0;
+    bool found = false;
+    for (uint32_t i = 0; i < tables; i++) {
+        const uint8_t *e = header + 96 + 32 * i;
+        if (le32(e) != layer) continue;
+        /* A partial sidecar (fewer rows) or one built from another GGUF (a
+         * different source offset) is refused here, never read past its end. */
+        if (le32(e + 4) != rows || le64(e + 16) != source_offset) goto fail;
+        offset = le64(e + 8);
+        found = true;
+    }
+    if (!found) goto fail;
+    const uint64_t bytes = (uint64_t)rows * DS4_ENGRAM_ROW_BYTES_4BIT;
+    struct stat st;
+    if (fstat(fd, &st) != 0) goto fail;
+    if (!S_ISREG(st.st_mode) || offset < DS4_ENGRAM_4BIT_HEADER || offset > INT64_MAX ||
+        bytes > INT64_MAX - offset || offset + bytes > (uint64_t)st.st_size) {
+        errno = EINVAL;
+        goto fail;
+    }
+#ifdef __APPLE__
+    if (fcntl(fd, F_NOCACHE, 1) != 0 || fcntl(fd, F_RDAHEAD, 0) != 0) goto fail;
+#endif
+    *t = (ds4_engram_table){.fd = fd, .offset = offset, .rows = rows,
+                            .row_bytes = DS4_ENGRAM_ROW_BYTES_4BIT};
+    memcpy(t->centroids, centroids, sizeof(centroids));
     return true;
 fail: {
         int saved = errno;
@@ -122,10 +207,10 @@ void ds4_engram_table_close(ds4_engram_table *t) {
     *t = (ds4_engram_table){.fd = -1};
 }
 
-static bool read_row(int fd, uint64_t offset, uint8_t row[DS4_ENGRAM_ROW_BYTES]) {
+static bool read_row(int fd, uint64_t offset, uint8_t *row, size_t row_bytes) {
     size_t done = 0;
-    while (done < DS4_ENGRAM_ROW_BYTES) {
-        ssize_t n = pread(fd, row + done, DS4_ENGRAM_ROW_BYTES - done,
+    while (done < row_bytes) {
+        ssize_t n = pread(fd, row + done, row_bytes - done,
                           (off_t)(offset + done));
         if (n < 0 && errno == EINTR) continue;
         if (n <= 0) {
@@ -133,6 +218,71 @@ static bool read_row(int fd, uint64_t offset, uint8_t row[DS4_ENGRAM_ROW_BYTES])
             return false;
         }
         done += (size_t)n;
+    }
+    return true;
+}
+
+static float f16(uint16_t bits) {
+    const uint32_t sign = (uint32_t)(bits & 0x8000u) << 16;
+    uint32_t exponent = (bits >> 10) & 31, mantissa = bits & 1023;
+    uint32_t out;
+    if (exponent == 0) {
+        if (mantissa == 0) {
+            out = sign;
+        } else {
+            /* subnormal: renormalize */
+            int shift = 0;
+            while (!(mantissa & 0x400u)) { mantissa <<= 1; shift++; }
+            mantissa &= 0x3ffu;
+            out = sign | ((uint32_t)(127 - 15 + 1 - shift) << 23) | (mantissa << 13);
+        }
+    } else if (exponent == 31) {
+        out = sign | 0x7f800000u | (mantissa << 13);
+    } else {
+        out = sign | ((exponent + 127 - 15) << 23) | (mantissa << 13);
+    }
+    float value;
+    memcpy(&value, &out, sizeof(value));
+    return value;
+}
+
+/* In-place Walsh-Hadamard transform of 128 floats, Sylvester (natural) order:
+ * v <- W v with W entries +-1. 7 butterfly passes, 896 adds, no multiplies. */
+static void fwht128(float *v) {
+    for (int h = 1; h < DS4_ENGRAM_4BIT_BLOCK; h <<= 1) {
+        for (int i = 0; i < DS4_ENGRAM_4BIT_BLOCK; i += 2 * h) {
+            for (int j = i; j < i + h; j++) {
+                const float a = v[j], b = v[j + h];
+                v[j] = a + b;
+                v[j + h] = a - b;
+            }
+        }
+    }
+}
+
+/* One 132-byte sidecar row -> 256 floats. Per 128-block: gather the centroid
+ * of each 4-bit code, rotate back with W (H is orthogonal and symmetric, so the
+ * inverse of H = W/sqrt(128) is H itself; the encoder scaled by sqrt(128), so
+ * the whole inverse is W/128), then multiply by the block's stored F16 norm. */
+static bool dequant_row_4bit(const ds4_engram_table *t,
+                             const uint8_t raw[DS4_ENGRAM_ROW_BYTES_4BIT], float *out) {
+    const float inv_block = 1.0f / (float)DS4_ENGRAM_4BIT_BLOCK;
+    for (int b = 0; b < DS4_ENGRAM_DIM / DS4_ENGRAM_4BIT_BLOCK; b++) {
+        float *v = out + b * DS4_ENGRAM_4BIT_BLOCK;
+        const uint8_t *codes = raw + b * (DS4_ENGRAM_4BIT_BLOCK / 2);
+        for (int k = 0; k < DS4_ENGRAM_4BIT_BLOCK / 2; k++) {
+            v[2 * k] = t->centroids[codes[k] & 15];
+            v[2 * k + 1] = t->centroids[codes[k] >> 4];
+        }
+        fwht128(v);
+        const uint16_t norm_bits = (uint16_t)(raw[DS4_ENGRAM_DIM / 2 + 2 * b] |
+                                              raw[DS4_ENGRAM_DIM / 2 + 2 * b + 1] << 8);
+        const float scale = f16(norm_bits) * inv_block;
+        if (!isfinite(scale) || scale < 0) {
+            errno = EDOM;
+            return false;
+        }
+        for (int k = 0; k < DS4_ENGRAM_4BIT_BLOCK; k++) v[k] *= scale;
     }
     return true;
 }
@@ -196,8 +346,22 @@ bool ds4_engram_read(const ds4_engram_table *t, const uint32_t *rows,
     }
 #endif
     uint8_t raw[DS4_ENGRAM_ROW_BYTES];
+    if (t->row_bytes == DS4_ENGRAM_ROW_BYTES_4BIT) {
+        /* The sidecar path: same output buffer, same row IDs, half the bytes. */
+        for (size_t i = 0; i < count; i++) {
+            if (!read_row(t->fd, t->offset + (uint64_t)rows[i] * DS4_ENGRAM_ROW_BYTES_4BIT,
+                          raw, DS4_ENGRAM_ROW_BYTES_4BIT)) return false;
+            if (!dequant_row_4bit(t, raw, out + i * DS4_ENGRAM_DIM)) return false;
+        }
+        return true;
+    }
+    /* row_bytes 0 is a table struct filled by hand (tests): the FP8 layout. */
+    if (t->row_bytes && t->row_bytes != DS4_ENGRAM_ROW_BYTES) {
+        errno = EINVAL;
+        return false;
+    }
     for (size_t i = 0; i < count; i++) {
-        if (!read_row(t->fd, t->offset + (uint64_t)rows[i] * sizeof(raw), raw)) return false;
+        if (!read_row(t->fd, t->offset + (uint64_t)rows[i] * sizeof(raw), raw, sizeof(raw))) return false;
         for (int j = 0; j < DS4_ENGRAM_DIM; j++) {
             uint8_t code = raw[j], scale = raw[DS4_ENGRAM_DIM + j / 32];
             if ((code & 127) == 127 || scale == 255) {

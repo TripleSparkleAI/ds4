@@ -38,16 +38,37 @@ bool ds4_engram_hash(const ds4_engram_layout *layout,
                      const int *tokens, const uint8_t *mask, size_t count,
                      uint32_t *rows);
 
+/* The optional 4-bit sidecar (DS4_ENGRAM_4BIT=<path>): the same rows re-encoded
+ * with the HLWQ scheme (arXiv:2603.29078), 132 bytes a row = 128 packed nibbles
+ * (low nibble = even index) + 2 F16 block norms. A 4096-byte header carries the
+ * 16 Lloyd-Max centroids and, per table, the layer, rows, data offset and the
+ * source tensor's offset in the GGUF. Written by
+ * gguf-tools/engram-4bit/engram_hlwq_quantize.py. */
+enum {
+    DS4_ENGRAM_ROW_BYTES_4BIT = 132,
+    DS4_ENGRAM_4BIT_CENTROIDS = 16,
+    DS4_ENGRAM_4BIT_HEADER = 4096,
+    DS4_ENGRAM_4BIT_BLOCK = 128
+};
+
 typedef struct {
     int fd;
     uint64_t offset;
     uint32_t rows;
+    /* DS4_ENGRAM_ROW_BYTES (FP8, the GGUF) or DS4_ENGRAM_ROW_BYTES_4BIT (sidecar). */
+    uint32_t row_bytes;
+    float centroids[DS4_ENGRAM_4BIT_CENTROIDS];
 } ds4_engram_table;
 
 /* A separate uncached file descriptor, never an mmap or Metal model view.
  * Each GGUF I8 row is 256 E4M3 bytes followed by 8 original E8M0 scales. */
 bool ds4_engram_table_open(ds4_engram_table *table, const char *path,
                            uint64_t offset, uint32_t rows);
+/* Open one table of a 4-bit sidecar. The header's entry for `layer` must carry
+ * exactly `rows` rows and name `source_offset` as the FP8 tensor it was built
+ * from, so a sidecar built for another GGUF, or a partial one, is refused. */
+bool ds4_engram_table_open_4bit(ds4_engram_table *table, const char *sidecar,
+                                uint32_t layer, uint32_t rows, uint64_t source_offset);
 void ds4_engram_table_close(ds4_engram_table *table);
 /* Output uses F32 storage for the reference's BF16-rounded values. No whole
  * table allocation; caller owns count * DIM floats. Failure invalidates output. */

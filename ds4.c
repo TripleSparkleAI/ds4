@@ -40341,11 +40341,25 @@ static DS4_MAYBE_UNUSED bool ds41_graph_alloc(ds41_gpu_graph *g, const ds4_model
     for (uint32_t i = 0; i < 2; i++) {
         const uint32_t il = i ? 14u : 1u;
         const ds4_tensor *table = required_tensorf(m, "blk.%u.engram_embd.weight", il);
-        if (!ds4_engram_table_open(&g->table[i], path, table->abs_offset, g->engram.rows[i])) goto fail;
-        struct stat weights_stat, rows_stat;
-        if (fstat(m->fd, &weights_stat) || fstat(g->table[i].fd, &rows_stat) ||
-            weights_stat.st_dev != rows_stat.st_dev || weights_stat.st_ino != rows_stat.st_ino)
-            goto fail;
+        const char *sidecar = getenv("DS4_ENGRAM_4BIT");
+        if (sidecar && *sidecar) {
+            /* The 4-bit sidecar replaces the FP8 table read for this layer. Its
+             * header names the FP8 tensor it was built from (source offset) and
+             * the exact row count, which is the identity check the same-inode
+             * test below performs for the in-GGUF table. Default OFF. */
+            if (!ds4_engram_table_open_4bit(&g->table[i], sidecar, il, g->engram.rows[i],
+                                            table->abs_offset)) {
+                fprintf(stderr, "DS4_ENGRAM_4BIT: cannot open %s for blk.%u: %s\n",
+                        sidecar, il, strerror(errno));
+                goto fail;
+            }
+        } else {
+            if (!ds4_engram_table_open(&g->table[i], path, table->abs_offset, g->engram.rows[i])) goto fail;
+            struct stat weights_stat, rows_stat;
+            if (fstat(m->fd, &weights_stat) || fstat(g->table[i].fd, &rows_stat) ||
+                weights_stat.st_dev != rows_stat.st_dev || weights_stat.st_ino != rows_stat.st_ino)
+                goto fail;
+        }
         const uint64_t bytes = (uint64_t)DS4_N_EMBD * DS4_N_HC * 4;
         g->engram_q_norm[i] = ds4_gpu_tensor_alloc(bytes);
         g->engram_k_norm[i] = ds4_gpu_tensor_alloc(bytes);
