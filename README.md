@@ -269,20 +269,19 @@ graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
 ```
-✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
   the card below is ours; the README above is antirez's, unchanged
 
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-word-finisher                              TOOLING
+  ┌─ triple-word-finisher ────────────────────────────────────── TOOLING
   │  WHAT     an offline experiment, finished and closed: draft the next
   │           few tokens from what followed the same short phrase earlier,
   │           check them in one pass, keep the longest prefix that holds
   │  SWITCH   none
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
+  └─
 
-  RESULTS  none yet - never in a sealed round
+  RESULTS   none yet - never in a sealed round
 ```
 
 NOTES
