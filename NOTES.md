@@ -1,0 +1,5 @@
+- Two DONTNEED calls in the wrong order mean the drop never lands while the loader still maps the file.
+- On the default O_DIRECT path both calls are cheap no-ops, so the repair may buy nothing there at all.
+- Whether the resident set stops growing has never been observed, only reasoned from kernel behaviour.
+- An earlier interleaved solo pass on the old tip gave the same word under a tighter floor.
+- The 2026-09-16 attribution series measured a nine-lever tree on another history, naming no lever's share.

@@ -1,0 +1,28 @@
+{
+  "branch": "triple-pagecache",
+  "status": "WORTH ZERO",
+  "what": [
+    "releases staged model pages madvise-then-fadvise so the",
+    "drop actually lands, and hints WILLNEED over a layer's",
+    "miss ranges on the buffered read path"
+  ],
+  "switch": "DS4_CUDA_KEEP_MODEL_PAGES=1 and DS4_CUDA_NO_EXPERT_READAHEAD=1",
+  "output": {"gated": true, "short": "bb06e711bc498bb9", "long": "d3355c94c70a4bb1"},
+  "base": {"branch": "triple-tip-2026-09-16", "sha": "12997e9c"},
+  "results": [
+    {
+      "round": "r5",
+      "date": "2026-09-17",
+      "arm_tps": 9.73,
+      "tip_tps": 9.60,
+      "delta_pct": 1.47,
+      "sign": "4/4",
+      "floor_pct": 5.69,
+      "verdict": "TIES",
+      "n": 4,
+      "file": "2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md",
+      "note": "small and consistently positive, which is what a correct no-op repair reads"
+    }
+  ],
+  "prefill": "r5 83.6 vs tip 84.6"
+}
