@@ -269,31 +269,29 @@ graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
 ```
-✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
   the card below is ours; the README above is antirez's, unchanged
 
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-all-fastest-newtip                         POSITIVE
+  ┌─ triple-all-fastest-newtip ──────────────────────────────── POSITIVE
   │  WHAT     the ten-lever stack rebuilt on the new tip from its manifest,
   │           one commit per lever, every conflict hunk recorded, so
   │           build_stack.sh reproduces the tree from the manifest alone
   │  SWITCH   DS4_CUDA_HITS_FIRST=1 turns the hits-first lever on
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
+  └─
 
-  RESULTS
-  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r9                            2026-09-17     9.93     9.42   +3.77%   2/3   17.27  TIES     3
-  r8     readahead ON           2026-09-17     9.80     8.96   +6.64%   3/4   10.69  TIES     4
-  r8     hits ON                2026-09-17     9.36     8.96   +5.46%   4/4   10.69  TIES     4
-  r8     both ON                2026-09-17     8.64     8.96   -5.95%   0/4   10.69  TIES     4
-  r4                            2026-09-17    10.14     9.65   +4.65%   4/4    2.71  BEATS    4
-  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
-  prefill: reported, never a verdict - r4 136.3 vs tip 80.7
-  r9  2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
-  r8  2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
-  r4  2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
+  RESULTS   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10
+  round  variant       arm t/s  tip t/s    delta  sign  floor  verdict  n
+  r9                      9.93     9.42   +3.77%   2/3  17.27  TIES     3
+  r8     readahead ON     9.80     8.96   +6.64%   3/4  10.69  TIES     4
+  r8     hits ON          9.36     8.96   +5.46%   4/4  10.69  TIES     4
+  r8     both ON          8.64     8.96   -5.95%   0/4  10.69  TIES     4
+  r4                     10.14     9.65   +4.65%   4/4   2.71  BEATS    4
+  each repeat against its two bracketing tip runs · floor = max adjacent tip pair
+  prefill: r4 136.3 vs tip 80.7
+  files   r9 2026-09-17-R9-RESULT-*.md · r8 2026-09-17-R8-RESULT-*.md
+          r4 2026-09-17-R4-RESULT-*.md
 ```
 
 NOTES
