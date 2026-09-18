@@ -2,9 +2,9 @@
   "branch": "triple-engram-4bit",
   "status": "TOOLING",
   "what": [
-    "a design record for re-encoding only the two Engram hash",
-    "tables from FP8 at 264 B a row to 4-bit at 132 B. Ships the",
-    "arithmetic, the four costs and the plan, and no engine code"
+    "a written plan, with its arithmetic, for holding the two",
+    "Engram lookup tables at 4 bits a weight instead of 8, at 132",
+    "bytes a row instead of 264. No engine code, nothing to time"
   ],
   "switch": "none",
   "output": {

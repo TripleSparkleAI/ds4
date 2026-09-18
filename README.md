@@ -273,9 +273,9 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │  BRANCH   triple-engram-4bit                                TOOLING
-  │  WHAT     a design record for re-encoding only the two Engram hash
-  │           tables from FP8 at 264 B a row to 4-bit at 132 B. Ships the
-  │           arithmetic, the four costs and the plan, and no engine code
+  │  WHAT     a written plan, with its arithmetic, for holding the two
+  │           Engram lookup tables at 4 bits a weight instead of 8, at 132
+  │           bytes a row instead of 264. No engine code, nothing to time
   │  SWITCH   none
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
@@ -285,8 +285,8 @@ it rock.
 ```
 
 NOTES
-- No rows: three files, a plan and two python scripts, no kernel and no dequant path to time.
-- Arithmetic: 6,336 B saved a token, 0.0000655 percent of the 9.670 GB/token census floor.
-- Source: engram_4bit_arithmetic.py, every input a constant with its file and line beside it.
-- Halving a row cannot halve a round trip: 12,672 B in 48 serial preads runs at 0.53 MB/s.
-- It earns its place as a capacity fact, taking a 340.6 GiB artifact to 246.2 GiB.
+- Contains: a plan and two python scripts; no kernel and no decode path, so no arm a bench could time.
+- Numbers: 6,336 bytes saved per token, which is 0.0000655 percent of the 9.670 GB read per token.
+- Source: engram_4bit_arithmetic.py, where every input is a constant printed with its file and line.
+- Caveat: halving a row does not halve a round trip; 12,672 bytes over 48 serial reads runs at 0.53 MB/s.
+- Owed: a kernel and a decode path before anything can be measured; the real gain is 340.6 to 246.2 GiB.

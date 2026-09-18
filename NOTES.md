@@ -1,5 +1,5 @@
-- No rows: three files, a plan and two python scripts, no kernel and no dequant path to time.
-- Arithmetic: 6,336 B saved a token, 0.0000655 percent of the 9.670 GB/token census floor.
-- Source: engram_4bit_arithmetic.py, every input a constant with its file and line beside it.
-- Halving a row cannot halve a round trip: 12,672 B in 48 serial preads runs at 0.53 MB/s.
-- It earns its place as a capacity fact, taking a 340.6 GiB artifact to 246.2 GiB.
+- Contains: a plan and two python scripts; no kernel and no decode path, so no arm a bench could time.
+- Numbers: 6,336 bytes saved per token, which is 0.0000655 percent of the 9.670 GB read per token.
+- Source: engram_4bit_arithmetic.py, where every input is a constant printed with its file and line.
+- Caveat: halving a row does not halve a round trip; 12,672 bytes over 48 serial reads runs at 0.53 MB/s.
+- Owed: a kernel and a decode path before anything can be measured; the real gain is 340.6 to 246.2 GiB.
