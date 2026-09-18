@@ -273,25 +273,25 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │  BRANCH   triple-granule                                    NEGATIVE
-  │  WHAT     offline, CPU only: does a sparse-distributed expansion
-  │           make a cheap front-cache lookup more discriminative than
-  │           a plain hash at the same address budget?
+  │  WHAT     an offline question, CPU only: at the same memory budget,
+  │           does spreading a key over many bits tell entries apart better
+  │           than a plain hash does? On this branch the answer is no
   │  SWITCH   none
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
 
   RESULTS
-  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r5     2026-09-17     9.51     9.60   -0.04%   2/4    5.69  TIES     4
+  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r5                            2026-09-17     9.51     9.60   -0.04%   2/4    5.69  TIES     4
   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
   prefill: reported, never a verdict - r5 86.0 vs tip 84.6
   r5  2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md
 ```
 
 NOTES
-- Both arms key a 3-gram of token ids and share one popcount readout, its threshold fitted then frozen.
-- NEGATIVE stands on this branch's own offline run of discrimination at matched budget, not on a bench delta.
-- The expansion's addresses stop listening as width grows: one active bit maps a token id onto one bit.
-- It closes one construction, the union of three random per-token codes, and names the diagnostic still ahead.
-- The experiment is CPU only and its verdict does not depend on the box.
+- Theory: spreading a key over many bits should separate near-identical contexts that a plain hash collides.
+- Test: offline on CPU at matched budget; the engine files on this branch are byte-identical to the tip.
+- Result: the spread key was no better at telling entries apart, and that run is what the verdict rests on.
+- Caveat: the bench row (-0.04 percent, floor 5.69) timed an unchanged binary and carries no information.
+- Owed: nothing for this construction; the diagnostic still ahead is named in the branch's own record.

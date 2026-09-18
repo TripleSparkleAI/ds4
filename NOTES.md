@@ -1,5 +1,5 @@
-- Both arms key a 3-gram of token ids and share one popcount readout, its threshold fitted then frozen.
-- NEGATIVE stands on this branch's own offline run of discrimination at matched budget, not on a bench delta.
-- The expansion's addresses stop listening as width grows: one active bit maps a token id onto one bit.
-- It closes one construction, the union of three random per-token codes, and names the diagnostic still ahead.
-- The experiment is CPU only and its verdict does not depend on the box.
+- Theory: spreading a key over many bits should separate near-identical contexts that a plain hash collides.
+- Test: offline on CPU at matched budget; the engine files on this branch are byte-identical to the tip.
+- Result: the spread key was no better at telling entries apart, and that run is what the verdict rests on.
+- Caveat: the bench row (-0.04 percent, floor 5.69) timed an unchanged binary and carries no information.
+- Owed: nothing for this construction; the diagnostic still ahead is named in the branch's own record.

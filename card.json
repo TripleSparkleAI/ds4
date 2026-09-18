@@ -2,19 +2,24 @@
   "branch": "triple-granule",
   "status": "NEGATIVE",
   "what": [
-    "offline, CPU only: does a sparse-distributed expansion",
-    "make a cheap front-cache lookup more discriminative than",
-    "a plain hash at the same address budget?"
+    "an offline question, CPU only: at the same memory budget,",
+    "does spreading a key over many bits tell entries apart better",
+    "than a plain hash does? On this branch the answer is no"
   ],
   "switch": "none",
-  "output": {"gated": false},
-  "base": {"branch": "triple-tip-2026-09-16", "sha": "12997e9c"},
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
   "results": [
     {
       "round": "r5",
       "date": "2026-09-17",
       "arm_tps": 9.51,
-      "tip_tps": 9.60,
+      "tip_tps": 9.6,
       "delta_pct": -0.04,
       "sign": "2/4",
       "floor_pct": 5.69,
