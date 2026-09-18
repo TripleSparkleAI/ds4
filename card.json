@@ -18,6 +18,19 @@
   },
   "results": [
     {
+      "round": "r12",
+      "date": "2026-09-18",
+      "arm_tps": 10.35,
+      "tip_tps": 9.54,
+      "delta_pct": 10.25,
+      "sign": "4/4",
+      "floor_pct": 3.81,
+      "verdict": "BEATS",
+      "n": 4,
+      "file": "2026-09-18-R12-RESULT-winners-qd16-default-and-scout-all-beat-the-tip-the-60gb-cache-loses-seven.md",
+      "note": "DS4_CUDA_FETCH_QD=16; 0.6 % above the default, inside the floor"
+    },
+    {
       "round": "r10",
       "date": "2026-09-18",
       "tip_tps": 9.73,

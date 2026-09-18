@@ -1,5 +1,5 @@
-- The combination WORKS: on round 10's quiet box every pool + hitsfirst tree beat the tip by 5.6 to 6.9 %.
-- Rounds 8 and 9 read it below its parts on loud instruments, floors 10.69 and 17.27. Round 10 retracts that.
-- The ring's queue depth is the knob: QD 16 removed the dip, spread 0.07. QD 8 is +6.58, ring off is +6.48.
-- G1 gated on this tip: greedy output is byte-identical on both reference prompts, shas in the box above.
-- Owed: a quiet-box round with more repeats against the default. Round 12 carries QD 16 beside it.
+- Pool, hitsfirst and prefetch-pool, ring queue depth 16: the highest median of round 12, +10.25, 4 of 4.
+- At least as fast as the default and has been tighter, but 10.35 against 10.29 is inside a 3.81 floor.
+- Not measurably faster, so the default stays the smaller tree; this is the standing challenger.
+- The ring's queue depth is the knob: QD 16 removed round 10's dip, spread 0.07, and carried into round 12.
+- G1 gated on this tip: greedy output byte-identical on both reference prompts, shas in the box above.
