@@ -1,5 +1,16 @@
 # PLAN - the Engram 4-bit re-encode, and why this branch carries no engine change
 
+> **2026-09-18, lane ENGRAM4BIT: the two things this record says are not built are now built,
+> as the smallest honest version.** `engram_hlwq_quantize.py` is the converter (a SIDECAR, never a
+> GGUF rewrite; `--selftest`, `--emit-fixture`, `--check`), and `ds4_engram_read` carries the
+> host dequant behind `DS4_ENGRAM_4BIT=<sidecar>` (default OFF). Steps 1 to 3 of section 3 are
+> done on this Mac against synthetic tables (the only Engram GGUF is on the spark); step 4, the
+> quality run, and every GB10 number are owed and named in the root README card. The per token
+> arithmetic below is unchanged: OFF 48 x 264 = 12,672 B, ON 48 x 132 = 6,336 B. Section 4(d)'s
+> "about 128 times the arithmetic a row" was priced against a 128 x 128 matrix product; the
+> landed dequant is a 7-pass Walsh-Hadamard butterfly, 896 adds and 128 multiplies a block.
+> Everything else in this file is the design record as written on 2026-09-16.
+
 Branch `triple-engram-4bit`, cut from `triple-antirez-tip-latest` (`e6d9d3b83`).
 
 This directory is a **design record**. It holds the arithmetic, the scope decision, the four costs

@@ -1,12 +1,12 @@
 {
   "branch": "triple-engram-4bit",
-  "status": "TOOLING",
+  "status": "NOT YET",
   "what": [
-    "a written plan, with its arithmetic, for holding the two",
-    "Engram lookup tables at 4 bits a weight instead of 8, at 132",
-    "bytes a row instead of 264. No engine code, nothing to time"
+    "the two Engram tables re-encoded to 4 bits in a sidecar (132 B",
+    "a row, was 264): a converter with a selftest, and a host dequant",
+    "in ds4_engram_read behind a switch. Not measured on the GB10 yet"
   ],
-  "switch": "none",
+  "switch": "DS4_ENGRAM_4BIT=<sidecar> turns it on; unset, the tip runs",
   "output": {
     "gated": false
   },

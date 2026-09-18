@@ -272,11 +272,11 @@ it rock.
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-engram-4bit                                TOOLING
-  │  WHAT     a written plan, with its arithmetic, for holding the two
-  │           Engram lookup tables at 4 bits a weight instead of 8, at 132
-  │           bytes a row instead of 264. No engine code, nothing to time
-  │  SWITCH   none
+  │  BRANCH   triple-engram-4bit                                NOT YET
+  │  WHAT     the two Engram tables re-encoded to 4 bits in a sidecar (132 B
+  │           a row, was 264): a converter with a selftest, and a host dequant
+  │           in ds4_engram_read behind a switch. Not measured on the GB10 yet
+  │  SWITCH   DS4_ENGRAM_4BIT=<sidecar> turns it on; unset, the tip runs
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
@@ -285,8 +285,8 @@ it rock.
 ```
 
 NOTES
-- Contains: a plan and two python scripts; no kernel and no decode path, so no arm a bench could time.
-- Numbers: 6,336 bytes saved per token, which is 0.0000655 percent of the 9.670 GB read per token.
-- Source: engram_4bit_arithmetic.py, where every input is a constant printed with its file and line.
-- Caveat: halving a row does not halve a round trip; 12,672 bytes over 48 serial reads runs at 0.53 MB/s.
-- Owed: a kernel and a decode path before anything can be measured; the real gain is 340.6 to 246.2 GiB.
+- Theory: per 128-block, divide by the L2 norm (kept F16), Walsh-Hadamard rotate, snap to 16 Lloyd-Max levels.
+- Mac gates: converter selftest PASS (rel RMSE 0.0962, cosine 0.99538); C dequant vs explicit W128, error 0.
+- Cross-check: python encoder vs C dequant, 512 rows, worst rel error 5.6e-8; ds4_test vectors OK (V4 Flash).
+- Bytes a token from the tables: OFF 48 x 264 = 12,672 B, ON 48 x 132 = 6,336 B; file 340.6 to 246.2 GiB.
+- Owed on the GB10 (lock held by PRISM): the 101 GB sidecar, G1 ON vs OFF, drift vs the q2 floor, t/s.
