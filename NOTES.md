@@ -2,3 +2,4 @@
 - One run of four dipped to 9.38; the other three are 10.17 to 10.34, against tips of 9.61 to 9.86.
 - The two lever shas are winners' own, and its 16 hitsfirst conflict hunks are resolved byte-identically.
 - Not gated: a greedy-identity run on this tree is owed before it can be a default candidate.
+- ring queue depth 16 is the shipped default since 2026-09-18 (round 10: QD 64 dipped once, QD 16 never)

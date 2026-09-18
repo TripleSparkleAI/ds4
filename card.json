@@ -6,7 +6,7 @@
     "drops prefetch-pool from the winners tree to price it",
     "measured on a quiet box: +5.58 per cent, 3 of 4 runs up"
   ],
-  "switch": "DS4_CUDA_HITS_FIRST=0, DS4_CUDA_FETCH_URING=0, _FETCH_QD=<n>",
+  "switch": "DS4_CUDA_FETCH_QD=64 restores ring depth 64; levers have off flags",
   "output": {
     "gated": false
   },

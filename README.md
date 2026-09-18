@@ -276,14 +276,14 @@ it rock.
   │  WHAT     pool plus hitsfirst and nothing else, hits-first ON
   │           drops prefetch-pool from the winners tree to price it
   │           measured on a quiet box: +5.58 per cent, 3 of 4 runs up
-  │  SWITCH   DS4_CUDA_HITS_FIRST=0, DS4_CUDA_FETCH_URING=0, _FETCH_QD=<n>
+  │  SWITCH   DS4_CUDA_FETCH_QD=64 restores ring depth 64; levers have off flags
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
 
   RESULTS
-  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r10    2026-09-18    10.27     9.73   +5.58%   3/4    2.18  BEATS    4
+  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r10                           2026-09-18    10.27     9.73   +5.58%   3/4    2.18  BEATS    4
   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
   r10 2026-09-18-R10-RESULT-the-combination-works-on-a-quiet-box-and-hitsfirst-alone-dipped-twice.md
 ```
@@ -293,3 +293,4 @@ NOTES
 - One run of four dipped to 9.38; the other three are 10.17 to 10.34, against tips of 9.61 to 9.86.
 - The two lever shas are winners' own, and its 16 hitsfirst conflict hunks are resolved byte-identically.
 - Not gated: a greedy-identity run on this tree is owed before it can be a default candidate.
+- ring queue depth 16 is the shipped default since 2026-09-18 (round 10: QD 64 dipped once, QD 16 never)
