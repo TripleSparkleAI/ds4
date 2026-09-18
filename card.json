@@ -1,6 +1,6 @@
 {
   "branch": "triple-scout",
-  "status": "NOT YET",
+  "status": "WORTH ZERO",
   "what": [
     "at layer L, also read the experts token t-1 used at L+1",
     "reads only, never math; rides the hits-first batch",
@@ -8,12 +8,40 @@
   ],
   "switch": "DS4_CUDA_SCOUT=0 restores triple-all-fastest exactly",
   "output": {
-    "gated": false
+    "gated": true,
+    "short": "5ed3e6dfe2177eca",
+    "long": "c5cb82566c628bed"
   },
   "base": {
     "branch": "triple-all-fastest",
     "sha": "28f6f102"
   },
-  "results": [],
+  "results": [
+    {
+      "round": "r12",
+      "date": "2026-09-18",
+      "arm_tps": 10.26,
+      "tip_tps": 9.54,
+      "delta_pct": 7.3,
+      "sign": "4/4",
+      "floor_pct": 3.81,
+      "verdict": "BEATS",
+      "n": 4,
+      "file": "2026-09-18-R12-RESULT-winners-qd16-default-and-scout-all-beat-the-tip-the-60gb-cache-loses-seven.md"
+    },
+    {
+      "round": "r12",
+      "date": "2026-09-18",
+      "arm_tps": 8.87,
+      "tip_tps": 9.54,
+      "delta_pct": -6.19,
+      "sign": "0/4",
+      "floor_pct": 3.81,
+      "verdict": "LOSES",
+      "n": 4,
+      "file": "2026-09-18-R12-RESULT-winners-qd16-default-and-scout-all-beat-the-tip-the-60gb-cache-loses-seven.md",
+      "note": "bench arg cache=60GB"
+    }
+  ],
   "prefill": ""
 }

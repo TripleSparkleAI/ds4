@@ -272,20 +272,26 @@ it rock.
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-scout                                      NOT YET
+  │  BRANCH   triple-scout                                      WORTH ZERO
   │  WHAT     at layer L, also read the experts token t-1 used at L+1
   │           reads only, never math; rides the hits-first batch
   │           on top of triple-all-fastest, the measured default
   │  SWITCH   DS4_CUDA_SCOUT=0 restores triple-all-fastest exactly
-  │  OUTPUT   not gated
+  │  OUTPUT   greedy-identical to the tip: G1 short 5ed3e6dfe2177eca · long c5cb82566c628bed
   │  BASE     triple-all-fastest @28f6f102
   └──────────────────────────────────────────────────────────────────────
 
-  RESULTS  none yet - never in a sealed round
+  RESULTS
+  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r12    2026-09-18    10.26     9.54   +7.30%   4/4    3.81  BEATS    4
+  r12    2026-09-18     8.87     9.54   -6.19%   0/4    3.81  LOSES    4
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  r12 2026-09-18-R12-RESULT-winners-qd16-default-and-scout-all-beat-the-tip-the-60gb-cache-loses-seven.md
 ```
 
 NOTES
-- The premise is that MoE routing is sticky token to token, so the last token's L+1 experts are a guess.
-- A scout read never takes a victim slot from a demand read, and lands at used=1 so a bad guess goes first.
-- The stats line reports scout reads and guess hits, so a false premise shows before any speed reading.
-- Not gated yet: ds4_cuda.cu is not compiled here, and G1 byte-identity on both reference prompts comes first.
+- At layer L it also reads the experts token t-1 used at L+1: reads only, no math, on the hits-first batch.
+- Worth zero over the default: 10.26 against the default's 10.29 in one session, and the lowest worst run.
+- It does beat the tip, +7.30, 4 of 4, so the code is sound; it buys nothing on top of the one lever.
+- Guess-hit rate never measured: the stats line needs DS4_CUDA_EXPERT_CACHE_STATS, absent from the argv. Owed.
+- The extra reads ride inside layer L's pool wait, as the build lane predicted, so no time is left to win.

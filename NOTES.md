@@ -1,4 +1,5 @@
-- The premise is that MoE routing is sticky token to token, so the last token's L+1 experts are a guess.
-- A scout read never takes a victim slot from a demand read, and lands at used=1 so a bad guess goes first.
-- The stats line reports scout reads and guess hits, so a false premise shows before any speed reading.
-- Not gated yet: ds4_cuda.cu is not compiled here, and G1 byte-identity on both reference prompts comes first.
+- At layer L it also reads the experts token t-1 used at L+1: reads only, no math, on the hits-first batch.
+- Worth zero over the default: 10.26 against the default's 10.29 in one session, and the lowest worst run.
+- It does beat the tip, +7.30, 4 of 4, so the code is sound; it buys nothing on top of the one lever.
+- Guess-hit rate never measured: the stats line needs DS4_CUDA_EXPERT_CACHE_STATS, absent from the argv. Owed.
+- The extra reads ride inside layer L's pool wait, as the build lane predicted, so no time is left to win.
