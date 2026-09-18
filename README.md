@@ -268,33 +268,10 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
-✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
-
 ```
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-iq2-lut-fix                                TOOLING
-  │  WHAT     a source check, not a change: does this tree carry upstream's
-  │           IQ2 decode bug, where the lookup table was filled only for
-  │           narrow models and then read anyway? It does not
-  │  SWITCH   none
-  │  OUTPUT   not gated
-  │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
-
-  RESULTS  none yet - never in a sealed round
-```
-
-NOTES
-- Contains: an edit to README.md and no other file, so there is no arm a bench could time.
-- Result: not affected. All 5 IQ2 kernels fill the table unconditionally at the current commit.
-- History: the bug was in this tree's ancestry and left at a04f46fa42, which lifted both loops out.
-- Detail: every remaining width guard wraps a copy of activations, never a table load.
-- Owed: nothing for the verdict; a 2-token run against a known output hash would cross-check it.
-
 ✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
-the card below is ours; the README above is antirez's, unchanged
+  the card below is ours; the README above is antirez's, unchanged
 
-```
   ┌──────────────────────────────────────────────────────────────────────
   │  BRANCH   triple-iq2-lut-fix                                TOOLING
   │  WHAT     a source check, not a change: does this tree carry upstream's
