@@ -28,7 +28,8 @@
       "verdict": "BEATS",
       "n": 4,
       "file": "2026-09-18-R12-RESULT-winners-qd16-default-and-scout-all-beat-the-tip-the-60gb-cache-loses-seven.md",
-      "note": "DS4_CUDA_FETCH_QD=16; 0.6 % above the default, inside the floor"
+      "note": "DS4_CUDA_FETCH_QD=16; 0.6 % above the default, inside the floor",
+      "variant": "QD=16"
     },
     {
       "round": "r10",
@@ -54,7 +55,8 @@
       "delta_pct": 6.86,
       "sign": "4/4",
       "verdict": "BEATS",
-      "note": "DS4_CUDA_FETCH_QD=16: the tightest arm of the campaign, spread 0.07"
+      "note": "DS4_CUDA_FETCH_QD=16: the tightest arm of the campaign, spread 0.07",
+      "variant": "QD=16"
     },
     {
       "round": "r9",
