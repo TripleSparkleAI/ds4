@@ -269,29 +269,27 @@ graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
 ```
-✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
   the card below is ours; the README above is antirez's, unchanged
 
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-pool                                       POSITIVE
+  ┌─ triple-pool ────────────────────────────────────────────── POSITIVE
   │  WHAT     serves expert reads from a parallel SSD pool, not one serial
   │           reader, with an io_uring O_DIRECT ring in front of the pool
   │           so queue depth is a switch and not the worker count
   │  SWITCH   DS4_CUDA_STREAMING_EXPERT_PREAD_POOL=0 restores serial
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
+  └─
 
-  RESULTS
-  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r9                            2026-09-17    10.35     9.42   +9.59%   4/4   17.27  TIES     4
-  r8                            2026-09-17    10.00     8.96   +8.56%   3/4   10.69  TIES     4
-  r4                            2026-09-17    10.39     9.65   +7.27%   3/4    2.71  BEATS    4
-  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
-  prefill: reported, never a verdict - r4 87.3 vs tip 80.7
-  r9  2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
-  r8  2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
-  r4  2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
+  RESULTS   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10
+  round  variant       arm t/s  tip t/s    delta  sign  floor  verdict  n
+  r9                     10.35     9.42   +9.59%   4/4  17.27  TIES     4
+  r8                     10.00     8.96   +8.56%   3/4  10.69  TIES     4
+  r4                     10.39     9.65   +7.27%   3/4   2.71  BEATS    4
+  each repeat against its two bracketing tip runs · floor = max adjacent tip pair
+  prefill: r4 87.3 vs tip 80.7
+  files   r9 2026-09-17-R9-RESULT-*.md · r8 2026-09-17-R8-RESULT-*.md
+          r4 2026-09-17-R4-RESULT-*.md
 ```
 
 NOTES
