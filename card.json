@@ -39,7 +39,8 @@
       "verdict": "TIES",
       "n": 4,
       "file": "2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md",
-      "note": "DS4_PREFILL_READAHEAD_HOLD=1; +5.54 on the cold-run sensitivity"
+      "note": "DS4_PREFILL_READAHEAD_HOLD=1; +5.54 on the cold-run sensitivity",
+      "variant": "readahead ON"
     },
     {
       "round": "r8",
@@ -52,7 +53,8 @@
       "verdict": "TIES",
       "n": 4,
       "file": "2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md",
-      "note": "DS4_CUDA_HITS_FIRST=1; +0.33 on the cold-run sensitivity"
+      "note": "DS4_CUDA_HITS_FIRST=1; +0.33 on the cold-run sensitivity",
+      "variant": "hits ON"
     },
     {
       "round": "r8",
@@ -65,7 +67,8 @@
       "verdict": "TIES",
       "n": 4,
       "file": "2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md",
-      "note": "both switches on; below every control run, the slowest tree measured"
+      "note": "both switches on; below every control run, the slowest tree measured",
+      "variant": "both ON"
     },
     {
       "round": "r4",
