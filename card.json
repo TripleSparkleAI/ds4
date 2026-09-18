@@ -16,6 +16,19 @@
   },
   "results": [
     {
+      "round": "r10",
+      "date": "2026-09-18",
+      "tip_tps": 9.73,
+      "floor_pct": 2.18,
+      "n": 4,
+      "file": "2026-09-18-R10-RESULT-the-combination-works-on-a-quiet-box-and-hitsfirst-alone-dipped-twice.md",
+      "arm_tps": 9.7,
+      "delta_pct": -0.64,
+      "sign": "2/4",
+      "verdict": "TIES",
+      "note": "two dips, 8.79 and 9.19, with 10.2 to 10.3 either side"
+    },
+    {
       "round": "r9",
       "date": "2026-09-17",
       "arm_tps": 10.41,

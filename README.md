@@ -283,18 +283,20 @@ it rock.
 
   RESULTS
   round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r10    2026-09-18     9.70     9.73   -0.64%   2/4    2.18  TIES     4
   r9     2026-09-17    10.41     9.42  +12.09%   4/4   17.27  TIES     4
   r8     2026-09-17    10.34     8.96  +12.31%   4/4   10.69  BEATS    4
   r4     2026-09-17    10.37     9.65   +6.47%   4/4    2.71  BEATS    4
   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  r10 2026-09-18-R10-RESULT-the-combination-works-on-a-quiet-box-and-hitsfirst-alone-dipped-twice.md
   r9  2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md
   r8  2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md
   r4  2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
 ```
 
 NOTES
-- This tree IS the tip plus hitsfirst, so the rows above are that lever's own three sealed rounds.
-- Two wins and one tie, no sealed loss. Round 9 ties only because that session's floor was 17.27.
-- Round 9 ranked every rival below it, including the ten-lever tree carrying the same lever at 9.93 t/s.
-- Earlier trees held this name: a nine-lever stack read -4.51, and one comparator revert moved it to +3.46.
+- The default stands as the tip plus hitsfirst: four sealed rounds, two wins, two ties, no sealed loss.
+- This tree IS that pair, so the rows above are the lever's own rounds, dips and all.
+- Round 10 on a quiet box put winners at QD 16 above it: +6.86 against this tree's -0.64.
+- Round 12 compares the two directly with more repeats, and the default follows that result.
 - Not gated here: sha bb06e711bc498bb9 was taken on the hitsfirst tree before the rebase onto the new tip.
