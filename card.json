@@ -1,0 +1,28 @@
+{
+  "branch": "triple-granule",
+  "status": "NEGATIVE",
+  "what": [
+    "offline, CPU only: does a sparse-distributed expansion",
+    "make a cheap front-cache lookup more discriminative than",
+    "a plain hash at the same address budget?"
+  ],
+  "switch": "none",
+  "output": {"gated": false},
+  "base": {"branch": "triple-tip-2026-09-16", "sha": "12997e9c"},
+  "results": [
+    {
+      "round": "r5",
+      "date": "2026-09-17",
+      "arm_tps": 9.51,
+      "tip_tps": 9.60,
+      "delta_pct": -0.04,
+      "sign": "2/4",
+      "floor_pct": 5.69,
+      "verdict": "TIES",
+      "n": 4,
+      "file": "2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md",
+      "note": "legacy rule +1.06; the engine files are byte-identical to the tip"
+    }
+  ],
+  "prefill": "r5 86.0 vs tip 84.6"
+}

@@ -1,0 +1,5 @@
+- Both arms key a 3-gram of token ids and share one popcount readout, its threshold fitted then frozen.
+- NEGATIVE stands on this branch's own offline run of discrimination at matched budget, not on a bench delta.
+- The expansion's addresses stop listening as width grows: one active bit maps a token id onto one bit.
+- It closes one construction, the union of three random per-token codes, and names the diagnostic still ahead.
+- The experiment is CPU only and its verdict does not depend on the box.
