@@ -1,0 +1,33 @@
+{
+  "branch": "triple-hippocampal-warmset",
+  "status": "WORTH ZERO",
+  "what": [
+    "persisted expert hot list gets a longer horizon: carried",
+    "free inside a day, halved at a day boundary, durable once",
+    "a (layer, expert) pair is demanded on three distinct days"
+  ],
+  "switch": "DS4_WARMSET_TIER=session|day, default session, today's path",
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
+  "results": [
+    {
+      "round": "r6",
+      "date": "2026-09-17",
+      "arm_tps": 9.57,
+      "tip_tps": 9.69,
+      "delta_pct": -1.54,
+      "sign": "0/3",
+      "floor_pct": 3.35,
+      "verdict": "TIES",
+      "n": 3,
+      "file": "2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md",
+      "note": "one session cannot exercise a multi-day rule; this is the carry cost"
+    }
+  ],
+  "prefill": "83.97 t/s median against the tip's 89.16, n=4; no prefill verdict in round 6"
+}

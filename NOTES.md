@@ -1,0 +1,5 @@
+- Round 6 measured what carrying the machinery costs, not the longer horizon it adds.
+- The day and durable tiers need runs on distinct calendar days; round 6 ran 21 runs in 46 minutes.
+- make test-warmset: 102 checks, 0 failures, host compiler, re-run 2026-09-17.
+- A wrong entry costs one empty cache slot and can never reach an output byte.
+- Owed: make cuda-spark, a session against day A/B across two days, then the greedy check.
