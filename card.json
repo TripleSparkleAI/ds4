@@ -38,7 +38,8 @@
       "verdict": "LOSES",
       "n": 4,
       "file": "2026-09-18-R12-RESULT-winners-qd16-default-and-scout-all-beat-the-tip-the-60gb-cache-loses-seven.md",
-      "note": "bench arg cache=60GB: a smaller expert cache is a loss, not a trade"
+      "note": "bench arg cache=60GB: a smaller expert cache is a loss, not a trade",
+      "variant": "cache=60GB"
     },
     {
       "round": "r10",

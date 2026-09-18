@@ -282,13 +282,13 @@ it rock.
   └──────────────────────────────────────────────────────────────────────
 
   RESULTS
-  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r12    2026-09-18    10.29     9.54   +9.07%   4/4    3.81  BEATS    4
-  r12    2026-09-18     8.86     9.54   -7.14%   0/4    3.81  LOSES    4
-  r10    2026-09-18     9.70     9.73   -0.64%   2/4    2.18  TIES     4
-  r9     2026-09-17    10.41     9.42  +12.09%   4/4   17.27  TIES     4
-  r8     2026-09-17    10.34     8.96  +12.31%   4/4   10.69  BEATS    4
-  r4     2026-09-17    10.37     9.65   +6.47%   4/4    2.71  BEATS    4
+  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r12                           2026-09-18    10.29     9.54   +9.07%   4/4    3.81  BEATS    4
+  r12    cache=60GB             2026-09-18     8.86     9.54   -7.14%   0/4    3.81  LOSES    4
+  r10                           2026-09-18     9.70     9.73   -0.64%   2/4    2.18  TIES     4
+  r9                            2026-09-17    10.41     9.42  +12.09%   4/4   17.27  TIES     4
+  r8                            2026-09-17    10.34     8.96  +12.31%   4/4   10.69  BEATS    4
+  r4                            2026-09-17    10.37     9.65   +6.47%   4/4    2.71  BEATS    4
   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
   r12 2026-09-18-R12-RESULT-winners-qd16-default-and-scout-all-beat-the-tip-the-60gb-cache-loses-seven.md
   r10 2026-09-18-R10-RESULT-the-combination-works-on-a-quiet-box-and-hitsfirst-alone-dipped-twice.md
