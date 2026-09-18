@@ -268,33 +268,10 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
-✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
-
 ```
-  ┌──────────────────────────────────────────────────────────────────────
-  │  BRANCH   triple-engram-4bit                                NOT YET
-  │  WHAT     the two Engram tables re-encoded to 4 bits in a sidecar (132 B
-  │           a row, was 264): a converter with a selftest, and a host dequant
-  │           in ds4_engram_read behind a switch. Not measured on the GB10 yet
-  │  SWITCH   DS4_ENGRAM_4BIT=<sidecar> turns it on; unset, the tip runs
-  │  OUTPUT   not gated
-  │  BASE     triple-tip-2026-09-16 @12997e9c
-  └──────────────────────────────────────────────────────────────────────
-
-  RESULTS  none yet - never in a sealed round
-```
-
-NOTES
-- Theory: per 128-block, divide by the L2 norm (kept F16), Walsh-Hadamard rotate, snap to 16 Lloyd-Max levels.
-- Mac gates: converter selftest PASS (rel RMSE 0.0962, cosine 0.99538); C dequant vs explicit W128, error 0.
-- Cross-check: python encoder vs C dequant, 512 rows, worst rel error 5.6e-8; ds4_test vectors OK (V4 Flash).
-- Bytes a token from the tables: OFF 48 x 264 = 12,672 B, ON 48 x 132 = 6,336 B; file 340.6 to 246.2 GiB.
-- Owed on the GB10 (lock held by PRISM): the 101 GB sidecar, G1 ON vs OFF, drift vs the q2 floor, t/s.
-
 ✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
-the card below is ours; the README above is antirez's, unchanged
+  the card below is ours; the README above is antirez's, unchanged
 
-```
   ┌──────────────────────────────────────────────────────────────────────
   │  BRANCH   triple-engram-4bit                                NOT YET
   │  WHAT     the two Engram tables re-encoded to 4 bits in a sidecar (132 B
