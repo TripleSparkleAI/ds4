@@ -1,5 +1,5 @@
-- Round 6 measured what carrying the machinery costs, not the longer horizon it adds.
-- The day and durable tiers need runs on distinct calendar days; round 6 ran 21 runs in 46 minutes.
-- make test-warmset: 102 checks, 0 failures, host compiler, re-run 2026-09-17.
-- A wrong entry costs one empty cache slot and can never reach an output byte.
-- Owed: make cuda-spark, a session against day A/B across two days, then the greedy check.
+- Theory: an expert wanted on many days deserves a cache slot tomorrow, so the list should outlive one run.
+- Test: interleaved against the tip, ctx 4096 and 6144, 3 repeats, round 6, whose floor was 3.35 percent.
+- Result: -1.54 percent and no repeat above the tip; one run cannot exercise a rule about separate days.
+- Caveat: round 6's floor came off a noisy box, so this priced carrying the machinery and nothing else.
+- Owed: a CUDA build, one run per day across two days, then the greedy-identical check.

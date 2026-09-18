@@ -2,9 +2,9 @@
   "branch": "triple-hippocampal-warmset",
   "status": "WORTH ZERO",
   "what": [
-    "persisted expert hot list gets a longer horizon: carried",
-    "free inside a day, halved at a day boundary, durable once",
-    "a (layer, expert) pair is demanded on three distinct days"
+    "the list of experts worth keeping warm survives longer: kept",
+    "free within one run, halved at a day boundary, and permanent",
+    "once an expert has been wanted on three different days"
   ],
   "switch": "DS4_WARMSET_TIER=session|day, default session, today's path",
   "output": {
@@ -29,5 +29,17 @@
       "note": "one session cannot exercise a multi-day rule; this is the carry cost"
     }
   ],
-  "prefill": "83.97 t/s median against the tip's 89.16, n=4; no prefill verdict in round 6"
+  "prefill": "83.97 t/s median against the tip's 89.16, n=4; no prefill verdict in round 6",
+  "tried": [
+    {
+      "branch": "triple-hitsfirst",
+      "best": "+12.3%",
+      "line": "the lever that won on this box: launch resident experts before the miss reads land"
+    },
+    {
+      "branch": "triple-pool",
+      "best": "+9.6%",
+      "line": "parallel SSD reads with an io_uring ring; fast alone, loses under CPU load"
+    }
+  ]
 }
