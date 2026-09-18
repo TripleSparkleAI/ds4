@@ -6,7 +6,7 @@
     "the three levers that won round 4 solo, and nothing else",
     "on a quiet box it beats the tip by 6.5 to 6.9 per cent"
   ],
-  "switch": "DS4_CUDA_HITS_FIRST=0, _FETCH_URING=0, _SSD_PREFETCH_POOL=0",
+  "switch": "DS4_CUDA_FETCH_QD=64 restores ring depth 64; levers have off flags",
   "output": {
     "gated": true,
     "short": "5ed3e6dfe2177eca",

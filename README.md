@@ -276,18 +276,18 @@ it rock.
   │  WHAT     pool, hitsfirst and prefetch-pool stacked, hits-first ON
   │           the three levers that won round 4 solo, and nothing else
   │           on a quiet box it beats the tip by 6.5 to 6.9 per cent
-  │  SWITCH   DS4_CUDA_HITS_FIRST=0, _FETCH_URING=0, _SSD_PREFETCH_POOL=0
+  │  SWITCH   DS4_CUDA_FETCH_QD=64 restores ring depth 64; levers have off flags
   │  OUTPUT   greedy-identical to the tip: G1 short 5ed3e6dfe2177eca · long c5cb82566c628bed
   │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
 
   RESULTS
-  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
-  r12    2026-09-18    10.35     9.54  +10.25%   4/4    3.81  BEATS    4
-  r10    2026-09-18    10.40     9.73   +6.53%   3/4    2.18  BEATS    4
-  r10    2026-09-18    10.40     9.73   +6.86%   4/4    2.18  BEATS    4
-  r9     2026-09-17    10.20     9.42   +5.03%   3/3   17.27  TIES     3
-  r8     2026-09-17     9.18     8.96   +1.54%   2/3   10.69  TIES     3
+  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r12    QD=16                  2026-09-18    10.35     9.54  +10.25%   4/4    3.81  BEATS    4
+  r10                           2026-09-18    10.40     9.73   +6.53%   3/4    2.18  BEATS    4
+  r10    QD=16                  2026-09-18    10.40     9.73   +6.86%   4/4    2.18  BEATS    4
+  r9                            2026-09-17    10.20     9.42   +5.03%   3/3   17.27  TIES     3
+  r8                            2026-09-17     9.18     8.96   +1.54%   2/3   10.69  TIES     3
   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
   prefill: reported, never a verdict - r8 135.1 vs tip 84.3
   r12 2026-09-18-R12-RESULT-winners-qd16-default-and-scout-all-beat-the-tip-the-60gb-cache-loses-seven.md
@@ -300,5 +300,5 @@ NOTES
 - Pool, hitsfirst and prefetch-pool, ring queue depth 16: the highest median of round 12, +10.25, 4 of 4.
 - At least as fast as the default and has been tighter, but 10.35 against 10.29 is inside a 3.81 floor.
 - Not measurably faster, so the default stays the smaller tree; this is the standing challenger.
-- The ring's queue depth is the knob: QD 16 removed round 10's dip, spread 0.07, and carried into round 12.
+- ring queue depth 16 is the shipped default since 2026-09-18 (round 10: QD 64 dipped once, QD 16 never)
 - G1 gated on this tip: greedy output byte-identical on both reference prompts, shas in the box above.
