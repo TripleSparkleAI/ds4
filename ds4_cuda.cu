@@ -220,6 +220,22 @@ static FILE    *g_route_trace;
 static int      g_route_state = -1;
 static uint64_t g_route_token;
 static int64_t  g_route_last_layer = -1;
+/* ROUTE TRACE, the `t` line: the TOKEN ID of the decode step being traced,
+ * noted by the single-token embed entries (exactly one of them runs per
+ * decode step on CUDA; the q8_0 entry delegates to the quant one, so the two
+ * hooks below cover all three).  -1 until a single-token embed has run, so a
+ * `t` line is written only when the id is real and a prefill batch never
+ * fabricates one.  Lane FORECASTLEARN's token-id table reads this line.
+ * The absolute KV position is NOT reachable at this seam (the embed entries
+ * do not carry one), so the `t` line's first field is the trace's own token
+ * counter, which is the position within the traced decode stream, per
+ * process - the same key every other line of the trace uses.  One line per
+ * token: g_route_t_written is the counter value already written. */
+static int32_t  g_route_token_id = -1;
+static uint64_t g_route_t_written = UINT64_MAX;
+static inline void cuda_route_trace_note_token(uint32_t token) {
+    if (g_route_state != 0) g_route_token_id = (int32_t)token;   /* -1 unread, 1 on */
+}
 extern "C" void ds4_gpu_stream_expert_cache_prefetch_finish(bool cancel);
 static void cuda_stream_prefetch_before_load(const ds4_gpu_stream_expert_table *table);
 static bool cuda_stream_prefetch_protects(const cuda_stream_expert_slot &slot);
@@ -263,6 +279,8 @@ static void cuda_stream_selected_cache_release(void) {
     memset(g_scout_mem, 0, sizeof g_scout_mem);   /* SCOUT: a new model, no memory */
     memset(g_jev_guess, 0, sizeof g_jev_guess);   /* JEV ROUTER: nor a pending guess */
     if (g_route_trace) fflush(g_route_trace);      /* ROUTE TRACE: a released cache keeps its tail */
+    g_route_token_id = -1;                         /* ROUTE TRACE: a new model, no token id until one embeds */
+    g_route_t_written = UINT64_MAX;
 }
 
 typedef struct {
@@ -14738,6 +14756,7 @@ __global__ static void topk_mask_kernel(float *mask, const uint32_t *topk, uint3
 
 extern "C" int ds4_gpu_embed_token_hc_tensor(ds4_gpu_tensor *out_hc, const void *model_map, uint64_t model_size, uint64_t weight_offset, uint32_t n_vocab, uint32_t token, uint32_t n_embd, uint32_t n_hc) {
     (void)n_vocab;
+    cuda_route_trace_note_token(token);   /* ROUTE TRACE: the `t` line's token id */
     if (!out_hc || !model_map || weight_offset >= model_size) return 0;
     uint64_t weight_bytes = (uint64_t)n_vocab * n_embd * sizeof(uint16_t);
     if (weight_offset > model_size || weight_bytes > model_size - weight_offset) return 0;
@@ -28084,6 +28103,15 @@ static int cuda_stream_selected_cache_begin_load(
             if (tr) {
                 if ((int64_t)table->layer <= g_route_last_layer) g_route_token++;
                 g_route_last_layer = (int64_t)table->layer;
+                /* The `t` line, once per token, immediately before that
+                 * token's first layer line: the token id the decode step is
+                 * embedding.  Skipped while no single-token embed has run
+                 * (g_route_token_id < 0) rather than written with a made-up
+                 * id, so a missing `t` line means NOT AVAILABLE, never 0. */
+                if (g_route_token != g_route_t_written && g_route_token_id >= 0) {
+                    fprintf(tr, "t %llu %d\n", (unsigned long long)g_route_token, g_route_token_id);
+                    g_route_t_written = g_route_token;
+                }
                 fprintf(tr, "%llu %u", (unsigned long long)g_route_token, table->layer);
                 for (size_t i = 0; i < unique.size(); i++) fprintf(tr, " %d", unique[i]);
                 fprintf(tr, "\nm %llu %u", (unsigned long long)g_route_token, table->layer);
@@ -28754,6 +28782,7 @@ extern "C" int ds4_gpu_embed_token_quant_tensor(
         token >= n_vocab) {
         return 0;
     }
+    cuda_route_trace_note_token(token);   /* ROUTE TRACE: the `t` line's token id */
     if (weight_type != 8u) {   /* DS4_TENSOR_Q8_0 */
         fprintf(stderr, "ds4: embed_token_quant: unsupported type %u\n",
                 weight_type);

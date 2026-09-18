@@ -67,7 +67,7 @@ except ImportError:  # pragma: no cover
 
 def read_trace(path):
     """Returns (tok, hid): tok is a dict token -> dict layer -> list of ids; hid token -> array or None."""
-    tok, hid = {}, {}
+    tok, hid, tid = {}, {}, {}
     with open(path) as f:
         for raw in f:
             parts = raw.split()
@@ -77,12 +77,19 @@ def read_trace(path):
                 t = int(parts[1])
                 hid[t] = np.asarray([float(x) for x in parts[2:]], dtype=np.float32)
                 continue
+            if parts[0] == "t":
+                # The token id of this decode step (writer: the single-token embed
+                # entries). Read here only so its COVERAGE is measured rather than
+                # assumed; a token with no `t` line is NOT AVAILABLE, never id 0.
+                # Lane FORECASTLEARN's token-id table is the consumer.
+                tid[int(parts[1])] = int(parts[2])
+                continue
             if not parts[0].isdigit():
                 continue  # m / w / f / o records belong to replay_three_tier.py
             t, layer = int(parts[0]), int(parts[1])
             ids = [int(x) for x in parts[2:]]
             tok.setdefault(t, {})[layer] = ids
-    return tok, hid
+    return tok, hid, tid
 
 
 def split_in_order(n_tokens, frac=0.2):
@@ -267,6 +274,8 @@ def synth_trace(path, tokens=3000, layers=8, E=64, K=6, sticky_prob=0.5, perm_no
             pool = [e for e in range(E) if e not in keep]
             ids0 = keep + list(rng.choice(pool, K - len(keep), replace=False))
             cur = ids0
+            # the `t` line the engine writes: one per token, before its first layer line
+            f.write("t %d %d\n" % (t, 1000 + (t % 97)))
             for L in range(layers):
                 f.write("%d %d %s\n" % (t, L, " ".join(str(int(e)) for e in sorted(cur))))
                 nxt = [int(perms[L][e]) for e in cur]
@@ -284,13 +293,14 @@ def synth_trace(path, tokens=3000, layers=8, E=64, K=6, sticky_prob=0.5, perm_no
 
 
 def run(trace, out=None, out_ahead=None, K=8, quiet=False):
-    tok, hid = read_trace(trace)
+    tok, hid, tid = read_trace(trace)
     tokens = sorted(tok)
     if len(tokens) < 10:
         raise SystemExit("train_next_layer.py: fewer than 10 tokens in %s" % trace)
     # re-index tokens densely in order
     tok = {i: tok[t] for i, t in enumerate(tokens)}
     hid = {i: hid[t] for i, t in enumerate(tokens) if t in hid} if hid else {}
+    tid = {i: tid[t] for i, t in enumerate(tokens) if t in tid} if tid else {}
     layers = sorted({L for t in tok for L in tok[t]})
     E = 1 + max(e for t in tok for L in tok[t] for e in tok[t][L])
     n_layers = 1 + max(layers)
@@ -305,7 +315,13 @@ def run(trace, out=None, out_ahead=None, K=8, quiet=False):
     res = {"layers": layers, "E": E, "K": K, "w": w, "min": m, "n_train": len(train), "n_held": len(held),
            "a": a, "b": b, "c": c, "avg_a": _avg(a), "avg_b": _avg(b), "avg_c": _avg(c),
            "c_signature": "hidden state (%d dims)" % len(next(iter(hid.values()))) if hid else
-                          "routing signature (%d layers x %d experts, 0/1)" % (len(layers), E)}
+                          "routing signature (%d layers x %d experts, 0/1)" % (len(layers), E),
+           # `t` line coverage: how many traced tokens carry a token id, and how many
+           # DISTINCT ids they are. Reported, never used here: it is the precondition
+           # lane FORECASTLEARN's token-id table needs, so it is measured rather than
+           # assumed. n_tid == 0 means the trace predates the `t` line, or no
+           # single-token embed ran, and shape A cannot run on this trace.
+           "n_tid": len(tid), "n_tid_distinct": len(set(tid.values()))}
     if not quiet:
         print_table(res, trace)
     if out:
@@ -326,6 +342,10 @@ def print_table(res, trace):
           % (res["n_train"], res["n_held"], res["E"], res["K"]))
     print("(b) picked on train: sticky bonus %.2f, min score %.2f · (c) input: %s"
           % (res["w"], res["min"], res["c_signature"]))
+    n_tok = res["n_train"] + res["n_held"]
+    print("`t` token ids: %d of %d tokens carry one (%d distinct)%s"
+          % (res["n_tid"], n_tok, res["n_tid_distinct"],
+             "" if res["n_tid"] else "  <- shape A (token-id table) CANNOT run on this trace"))
     print()
     print("  layer   (a) sticky   (b) layer L->L+1   (c) token-ahead     b-a      c-a")
     for L in res["layers"]:
@@ -382,13 +402,24 @@ def selftest():
             for line in src:
                 f.write(line)
                 p = line.split()
-                if p and p[0] != "#" and p[1] == "0":
+                if p and p[0].isdigit() and p[1] == "0":   # a layer line, not # / t / h
                     v = np.zeros(64); v[[int(x) for x in p[2:]]] = 1.0  # the hidden state IS the layer-0 ids
                     f.write("h %s %s\n" % (p[0], " ".join("%.1f" % x for x in v)))
         rh = run(hs, K=6, quiet=True)
         checks.append(("hidden-state line is read for (c)", rh["c_signature"].startswith("hidden state (64")))
         checks.append(("(c) from a hidden state that encodes layer 0 beats sticky at layer 1",
                        _avg({1: rh["c"][1]}) > _avg({1: rh["a"][1]})))
+        # the `t` line: read, counted, and it disturbs neither (a) nor (b).
+        # rt is the same planted trace that produced r0 above, so the two hit
+        # rates must be IDENTICAL, not merely close - a `t` line carries no
+        # routing and may not move a score.
+        rt = run(tr, K=6, quiet=True)
+        checks.append(("`t` lines are counted: one per token, 97 distinct ids planted",
+                       rt["n_tid"] == rt["n_train"] + rt["n_held"] and rt["n_tid_distinct"] == 97))
+        checks.append(("a `t` line moves neither (a) nor (b)",
+                       rt["avg_a"] == res["avg_a"] and rt["avg_b"] == res["avg_b"]))
+        checks.append(("a trace with no `t` line reports n_tid 0, not a fabricated id",
+                       rf["n_tid"] == 0 and rf["n_tid_distinct"] == 0))
     for name, ok in checks:
         print("  %s  %s" % ("ok  " if ok else "FAIL", name))
         fails += 0 if ok else 1

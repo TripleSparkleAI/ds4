@@ -7,7 +7,17 @@ construction (the hook moves reads, never math):
    path). Format, one record per single-token streaming call, appended:
    ```
    # ds4 route trace 1
-   <token> <layer> <id> <id> ...        the router's routed ids at this layer (top-6 of 256 on Flash)
+   t <token> <token_id>                 the TOKEN ID this decode step is embedding, once per token,
+                                        immediately before that token's first layer line. Written
+                                        only when a single-token embed has run, so a token with no
+                                        `t` line is NOT AVAILABLE, never id 0. The absolute KV
+                                        position is not reachable at the embed seam, so <token> -
+                                        the trace's own counter, the key every other line uses - is
+                                        the position within the traced decode stream, per process.
+                                        Lane FORECASTLEARN's token-id table (shape A) reads this.
+   <token> <layer> <id> <id> ...        the router's routed ids at this layer (top-6 of 384 on
+                                        V4.1 Flash, measured: n_routed_experts 384,
+                                        num_experts_per_tok 6, 40 layers)
    m <token> <layer> <0|1> <0|1> ...    aligned to the ids: 1 = miss, read from the SSD this call
    w <token> <layer> <wait_us> <n_miss> the hits-first pool wait for this layer's miss batch
    f <token> <layer> <source> <reads> <id>:<conf> ...
@@ -29,7 +39,7 @@ construction (the hook moves reads, never math):
    worst windows from it.
    `<token>` is a counter that advances when a layer at or below the last seen layer arrives, so
    it is per process, not the sampler's position. Prefill batches (more than 8 ids) are not
-   logged. About 1.3 KB per token as text on Flash (43 layers). Lane FORECASTLEARN's guesser
+   logged. About 1.3 KB per token as text on Flash (V4.1: 40 layers, top-6 of 384; one expert is 9,953,280 B = 9.49 MiB on disk, gate 3,041,280 + up 3,041,280 IQ2_XXS + down 3,870,720 Q2_K). Lane FORECASTLEARN's guesser
    reads this same format.
 2. **`train_next_layer.py`** (numpy): one held-out split (the last 20 % of tokens, in order),
    one table with the hit rate per layer and averaged for three guess sources against the sticky

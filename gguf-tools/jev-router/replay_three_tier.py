@@ -282,6 +282,7 @@ def _synth(path, tokens=600, layers=4, E=48, K=6, hot=8, seed=1):
     rng = np.random.default_rng(seed)
     with open(path, "w") as f:
         for t in range(tokens):
+            f.write("t %d %d\n" % (t, 1000 + (t % 97)))   # the engine's `t` line; this replay ignores it
             for L in range(layers):
                 n_cold = 2 if (t % 3) else 1   # 1 or 2 one-offs, so the wait fit has a slope to find
                 hot_ids = list(rng.choice(hot, K - n_cold, replace=False))
