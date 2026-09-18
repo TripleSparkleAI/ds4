@@ -1,0 +1,5 @@
+- Nine levers live on the new tip, with hits-first and the readahead hold off by default behind switches.
+- Round 4 beat the tip by 4.65 percent on all four repeats, at 10.14 t/s against 9.65.
+- Round 8 flipped both switches: each alone ties, both together is the slowest tree measured that day.
+- The single hits-first lever alone reads higher and far tighter, so the other nine carry something costly.
+- Owed: an output gate, and a reading that attributes the stack's number to any one lever.

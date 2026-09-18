@@ -1,0 +1,85 @@
+{
+  "branch": "triple-all-fastest-newtip",
+  "status": "POSITIVE",
+  "what": [
+    "the ten-lever stack rebuilt on the new tip from its manifest,",
+    "one commit per lever, every conflict hunk recorded, so",
+    "build_stack.sh reproduces the tree from the manifest alone"
+  ],
+  "switch": "DS4_CUDA_HITS_FIRST=1 turns the hits-first lever on",
+  "output": {
+    "gated": false
+  },
+  "base": {
+    "branch": "triple-tip-2026-09-16",
+    "sha": "12997e9c"
+  },
+  "results": [
+    {
+      "round": "r9",
+      "date": "2026-09-17",
+      "arm_tps": 9.93,
+      "tip_tps": 9.42,
+      "delta_pct": 3.77,
+      "sign": "2/3",
+      "floor_pct": 17.27,
+      "verdict": "TIES",
+      "n": 3,
+      "file": "2026-09-17-R9-RESULT-the-default-holds-hitsfirst-is-the-tightest-tree-on-a-loud-instrument.md",
+      "note": "DS4_CUDA_HITS_FIRST=1; lowest median of five arms, widest spread at 1.30"
+    },
+    {
+      "round": "r8",
+      "date": "2026-09-17",
+      "arm_tps": 9.8,
+      "tip_tps": 8.96,
+      "delta_pct": 6.64,
+      "sign": "3/4",
+      "floor_pct": 10.69,
+      "verdict": "TIES",
+      "n": 4,
+      "file": "2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md",
+      "note": "DS4_PREFILL_READAHEAD_HOLD=1; +5.54 on the cold-run sensitivity"
+    },
+    {
+      "round": "r8",
+      "date": "2026-09-17",
+      "arm_tps": 9.36,
+      "tip_tps": 8.96,
+      "delta_pct": 5.46,
+      "sign": "4/4",
+      "floor_pct": 10.69,
+      "verdict": "TIES",
+      "n": 4,
+      "file": "2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md",
+      "note": "DS4_CUDA_HITS_FIRST=1; +0.33 on the cold-run sensitivity"
+    },
+    {
+      "round": "r8",
+      "date": "2026-09-17",
+      "arm_tps": 8.64,
+      "tip_tps": 8.96,
+      "delta_pct": -5.95,
+      "sign": "0/4",
+      "floor_pct": 10.69,
+      "verdict": "TIES",
+      "n": 4,
+      "file": "2026-09-17-R8-RESULT-hitsfirst-alone-beats-through-the-noise-the-winners-tree-does-not.md",
+      "note": "both switches on; below every control run, the slowest tree measured"
+    },
+    {
+      "round": "r4",
+      "date": "2026-09-17",
+      "arm_tps": 10.14,
+      "tip_tps": 9.65,
+      "delta_pct": 4.65,
+      "sign": "4/4",
+      "floor_pct": 2.71,
+      "verdict": "BEATS",
+      "n": 4,
+      "file": "2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md",
+      "note": "kept reading +6.87; both switchable levers off, compiled first time"
+    }
+  ],
+  "prefill": "r4 136.3 vs tip 80.7"
+}
