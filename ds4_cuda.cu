@@ -27932,11 +27932,23 @@ static int cuda_stream_selected_cache_begin_load(
         int hits_first_started = 0;
         if (!tasks.empty() && pool_ok && slot_count <= 8u) {
             static int hits_first_on = -1;
+            static uint32_t hits_first_min_miss = 0;
             if (hits_first_on < 0) {
                 const char *e = getenv("DS4_CUDA_HITS_FIRST");
                 hits_first_on = !(e && e[0] == '0');
+                /* The split costs one extra gate/up launch and, when the down
+                 * is split, one extra partial launch; below a few misses that
+                 * can outweigh what the overlap hides.  The Metal backend
+                 * declines its own split under three missing experts for the
+                 * same reason.  1 = split whenever anything is missing. */
+                const char *m = getenv("DS4_CUDA_HITS_FIRST_MIN_MISS");
+                hits_first_min_miss = 1u;
+                if (m && m[0]) {
+                    long v = strtol(m, NULL, 10);
+                    if (v > 0 && v < 32) hits_first_min_miss = (uint32_t)v;
+                }
             }
-            if (hits_first_on) {
+            if (hits_first_on && (uint32_t)task_victim.size() >= hits_first_min_miss) {
                 /* Same tasks, same destinations; only the pick-up order
                  * changes: gate and up of every miss, then the downs. */
                 const uint32_t n_miss = (uint32_t)task_victim.size();
