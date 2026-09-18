@@ -2886,7 +2886,7 @@ static int  cuda_expert_pread_pool_wait(void)       { return cuda_pread_pool_wai
  * The pread pool above removes the serial bottleneck, but it pays one pinned
  * staging buffer and one thread per in-flight read, so its queue depth is the
  * worker count (16 here).  This engine submits O_DIRECT reads straight to the
- * kernel ring at a configurable queue depth (DS4_CUDA_FETCH_QD, default 64,
+ * kernel ring at a configurable queue depth (DS4_CUDA_FETCH_QD, default 16,
  * clamped 8-512) and reaps completions on the calling thread, then uploads
  * each landed payload on one upload stream.  It is the CUDA twin of the Metal
  * port's reader pool in spirit, and of the upstream ds4 io_uring engine in
@@ -2918,7 +2918,11 @@ static int  cuda_expert_pread_pool_wait(void)       { return cuda_pread_pool_wai
 
 #if defined(DS4_CUDA_HAVE_IO_URING)
 
-#define DS4_URING_QD_DEFAULT 64u
+/* 16, not 64, since 2026-09-18 (round 10, quiet box, four interleaved repeats):
+ * QD 64 had one dip to 9.03 t/s, QD 16 had none and the smallest spread of any
+ * arm in the campaign (0.07).  A deep queue lets the ring's reads crowd the
+ * reads hits-first is overlapping.  DS4_CUDA_FETCH_QD=64 restores the old depth. */
+#define DS4_URING_QD_DEFAULT 16u
 #define DS4_URING_QD_MIN      8u
 #define DS4_URING_QD_MAX    512u
 #define CUDA_FETCH_BUF_POOL_MAX 128u
