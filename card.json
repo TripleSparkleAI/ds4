@@ -2,9 +2,9 @@
   "branch": "triple-spec-under-offload",
   "status": "NOT YET",
   "what": [
-    "does DSpark speculative decoding pay on a box whose weights",
-    "stream from disk? A residency axis crossed with a spec axis:",
-    "cold and warm working set, four legs, no engine code added"
+    "a runner, not a change: does speculative decoding still pay",
+    "when the weights stream from disk? Four legs, cold and warm",
+    "working set, with and without drafting. No engine code"
   ],
   "switch": "--dspark --mtp-model FILE; the off leg is DS4_MTP_SPEC_DISABLE=1",
   "output": {

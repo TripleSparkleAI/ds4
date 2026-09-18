@@ -273,9 +273,9 @@ it rock.
 ```
   ┌──────────────────────────────────────────────────────────────────────
   │  BRANCH   triple-spec-under-offload                         NOT YET
-  │  WHAT     does DSpark speculative decoding pay on a box whose weights
-  │           stream from disk? A residency axis crossed with a spec axis:
-  │           cold and warm working set, four legs, no engine code added
+  │  WHAT     a runner, not a change: does speculative decoding still pay
+  │           when the weights stream from disk? Four legs, cold and warm
+  │           working set, with and without drafting. No engine code
   │  SWITCH   --dspark --mtp-model FILE; the off leg is DS4_MTP_SPEC_DISABLE=1
   │  OUTPUT   not gated
   │  BASE     triple-tip-2026-09-16 @12997e9c
@@ -285,8 +285,8 @@ it rock.
 ```
 
 NOTES
-- No rows: a runner with no engine code, so an arm built here would be the tip compiled twice.
-- The four result files under try-results/ are templates; every numeric cell is blank on purpose.
-- The warm arm is the one never run: the F16 drafter at 117.73 GiB with the target does not fit.
-- The sign can fall either way, which is the reason to run it rather than to predict it.
-- Owed: make cuda-spark, the four legs and their repeat, accept length tau, and greedy identity.
+- Contains: a runner and four result templates whose every numeric cell is deliberately left blank.
+- Test: none run. An arm built here is the tip compiled twice, so a bench round would time nothing.
+- Blocker: the warm leg needs drafter and target resident together at 117.73 GiB, which does not fit.
+- Caveat: the answer can fall either way, which is the reason to measure it rather than argue it.
+- Owed: a CUDA build, the four legs and a repeat, accepted tokens per step, and the greedy-identical check.
