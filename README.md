@@ -268,151 +268,30 @@ The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
 
----
-
-**✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦   T R I P L E S P A R K L E   ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦ ✧ ✦**
-
-**✦ above: the upstream README, unchanged · below: this branch's card and numbers**
-
-Rebased onto triple-tip-2026-09-16 (12997e9c8) on 2026-09-17; tests make test 42 pass lines, 5 pre-existing failures (the Qwen3.8 and GLM 5.3 model-absent skips, counted as failures by ds4_test and identical on every branch); make test-host-range-cache 1 PASS.
+✦ TRIPLESPARKLE ✦  this branch's card is below; antirez's README above is unchanged
 
 ```
   ┌──────────────────────────────────────────────────────────────────────
-  │
-  │  BRANCH     triple-lfu-offsetkey                              WORTH ZERO
-  │
-  │  WHAT       ports upstream NeutronStar's host expert cache: byte ranges
-  │             keyed by FILE OFFSET, a 16-way table, a per-slot uses counter
-  │             halved every 4096 inserts. Three arms out of one binary isolate
-  │             the eviction POLICY on one structure
-  │
-  │  LATEST     round 6 · 2026-09-17 · TIES · -0.20 % ·
-  │             2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
-  │
-  │  GEN        -0.20 %  floor 3.35 %  sign 1/3  n=3
-  │             raw: arm min-across median 9.71 t/s (9.52 · 9.85 · 9.64 · 9.77)
-  │             vs the tip's 9.69 t/s (9.67 · 9.56 · 9.88 · 9.70 kept, 9.45
-  │             contention-dropped; the result file's figure line reads 9.67).
-  │             gen_steady at min across 4096/6144. The delta is each run
-  │             against its bracketing TIP runs, not against that median
-  │             control = triple-tip-2026-09-16 @12997e9c, interleaved
-  │             session = 2026-09-17 11:12-11:58Z · DGX Spark GB10 ·
-  │             native 24.87 MB .text (tip 24.86 MB) · lean regime 4096/6144
-  │  PREFILL    reported, not a verdict: 85.90 t/s min-across median vs the
-  │             tip's 89.16 t/s, n=4. Round 6 makes no prefill verdict.
-  │
-  │  VERDICT    WORTH ZERO - inside the floor, with a repeat range of -0.8 to
-  │             +2.4 % and one repeat of three positive. The CUDA build that
-  │             was owed here exists and ran; the policy costs nothing and
-  │             buys nothing on this tip. Both rules give this verdict
-  │
-  │  SWITCH     DS4_EXPERT_CACHE_MODE=hotlist|offsetkey|offsetkey-lru, default
-  │             hotlist, in which the cache is inert: it never allocates, probes
-  │             or inserts. DS4_CUDA_HOST_EXPERT_CACHE_GB=<GiB> sizes it; unset,
-  │             it takes the configured expert-cache byte size
-  │  OUTPUT     not re-run. Residency changes WHEN a byte arrives, never WHICH
-  │
+  │  BRANCH   triple-lfu-offsetkey                              WORTH ZERO
+  │  WHAT     ports upstream's host expert cache: byte ranges keyed by
+  │           file offset, a 16-way table, a per-slot uses counter halved
+  │           every 4096 inserts. Three arms isolate the eviction policy
+  │  SWITCH   DS4_EXPERT_CACHE_MODE=hotlist|offsetkey|offsetkey-lru
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
   └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r6     2026-09-17     9.71     9.69   -0.20%   1/3    3.35  TIES     3
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - 85.90 t/s median against the tip's 89.16, n=4; no prefill verdict in round 6
+  r6  2026-09-17-R6-RESULT-the-superseded-six-lever-stack-beats-the-tip-three-ties.md
 ```
 
-## Round 6, and what it does and does not settle
-
-- The offset-keyed structure with the frequency policy is **measured and worth zero**: -0.20 % gen,
-  1 of 3, inside a 3.35 % floor. It is the widest repeat range of the three tied arms.
-- So the upstream-versus-us policy disagreement below is not resolved in either direction by round
-  6: a tie says the structure did not move the token rate on this tip, not that LFU beats LRU.
-- The three-arm sweep that isolates `offsetkey` against `offsetkey-lru` is still owed; round 6 ran
-  one arm of the three.
-
-## The question
-
-- Upstream and we disagree about POLICY, not size. NeutronStar's code says "Frequency-weighted
-  eviction protects repeatedly hit experts from being flushed by one-shot streams (pure LRU
-  thrashes at these cache sizes)".
-- Our own record measured a hotness-with-decay rule LOSING to plain LRU: hit rate 0.851 against
-  0.868, and 4.95 against 5.28 t/s, and it was reverted
-  (`WIKI/theory/177-the-sparkport-day-a-cache-that-was-a-stub-and-a-token-that-is-latency-not-bytes-2026-09-13.md`
-  section 3, re-read 2026-09-17).
-- Our decay was not their decay: ours was a route-hotness table, theirs is a per-slot uses counter
-  halved on an insert count. That is the whole reason this branch exists.
-- `WIKI/theory/48-decode-speedup-levers.md` sections 5 and 8 record the knee from
-  `ds4-why --sweep-cache`: cache SIZE is not the lever, so only a policy difference earns a branch.
-- ⚠ Those `WIKI/` paths are not in this branch's tree. The branch is rooted on the upstream tip,
-  which carries no `WIKI/`, so they resolve in the dwarfstar working branch.
-
-## Why a host cache exists at all
-
-- The Linux path reads experts with `O_DIRECT`, so the page cache never retains them.
-- We measured the other side: `O_DIRECT` off costs about 40 percent, 5.80 and 6.09 t/s against
-  9.72 and 9.70, with expert read time 27.5 s against 5.7 s per 256 tokens (`WIKI/theory/177`
-  section 16, re-read 2026-09-17).
-
-## The mechanism, as ported
-
-- The cache sits in front of `pread` in `cuda_model_copy_to_device_streamed`, the only integration
-  point.
-- A hit uploads the same bytes from pageable host RAM and skips the disk read. A miss takes the
-  existing path byte for byte, then captures a pageable copy and inserts it.
-- It can only SKIP a read, so a wrong entry costs a fetch and never a wrong output.
-- The four cache laws of
-  `experiments/track3-semiotic-codebook/NEW_IDEA_THE_CEREBELLAR_FRONT_CACHE_2026-09-01.md` section 3
-  hold by construction: the deep path is untouched, a miss is free, correctness never depends on the
-  cache, and the 4096-insert decay learns from the miss stream.
-- Constants read from `ds4_host_range_cache.h` at HEAD: `DS4_HRC_WAYS` 16, `DS4_HRC_MAX_ENTRY`
-  16 MiB, `DS4_HRC_AGING_INSERTS` 4096, `DS4_HRC_SLOT_BYTES` 1 MiB, `DS4_HRC_MAX_SLOTS` 262144.
-
-```
-   read(offset, bytes)
-        │
-        ├── bucket = murmur(offset) % nslots ──▶ 16-slot probe window
-        │
-        HIT   uses++ · age = ++tick · upload from host RAM · disk SKIPPED
-        MISS  pread as before · upload as before · capture a copy · INSERT
-                 every 4096th insert:  all uses >>= 1
-                 victim = least uses, oldest age breaks the tie,
-                 taken even when an empty slot exists (the budget fills first)
-
-   arm            table    victim rule            what it tests
-   hotlist        INERT    n/a                    today's expert-ID arena  ◀ default
-   offsetkey      this     least uses, age tie    upstream's policy exactly
-   offsetkey-lru  this     oldest age wins        the policy control
-```
-
-## Kept from upstream, and changed
-
-- **Kept:** 16 ways, the offset hash, the 4096-insert aging, the age tiebreak, the least-uses
-  victim, the empty-slot rule, the 262,144 slot cap, one slot per MiB.
-- **Changed:** we copy on insert, because our pinned four-deep staging ring cannot be donated. The
-  entry cap is 16 MiB and not 64, because our expert tensors are about 3 MiB. The budget defaults to
-  our configured expert-cache byte size so the arms are size-matched. Their quiet `contains()` probe
-  is omitted, because our look-ahead fills the VRAM arena and publishes a slot as valid before its
-  copies are issued.
-
-## Structural caveat
-
-- On the GB10 the device arena is already host RAM, so this cache is a second tier behind the arena
-  competing for the same memory. That differs from upstream's disk to host to GPU tiering and is the
-  likeliest reason a result here would differ from theirs.
-
-## What is held today
-
-**⚠ Corrected here, twice.** The previous card said "17 checks" and "The harness is not committed".
-Both are now false and were checked rather than reasoned:
-
-- The harness IS committed, as `tests/test_host_range_cache.c`, 206 lines, with its own Makefile
-  target `make test-host-range-cache` and a `clean` entry.
-- Run on this Mac 2026-09-17 it prints `Host range cache: PASS`.
-- It carries **36** `check()` assertions, not 17. Counted as call sites minus the one definition at
-  line 22, two ways, both giving 36.
-- Among them: `offsetkey` parses to `DS4_HRC_LFU` and `offsetkey-lru` to `DS4_HRC_LRU`, and one
-  hand-built window where frequency and recency disagree, where LFU keeps the old hot entry and LRU
-  keeps the once-recent one.
-
-## Owed
-
-- The CUDA build. Nothing on this branch has been compiled against CUDA.
-- Three arms interleaved out of one binary, control first, the 2048 frontier discarded as warmup,
-  read beside the in-run tip floor.
-- The cache prints a hit rate, resident GiB, inserts and evictions every 2048 lookups
-  (`ds4_cuda.cu:264`) and a `hit_rate=` final line at exit, so the two policy arms can be told apart
-  from the log before any token rate is read.
+NOTES
+- A tie says the structure did not move the token rate on this tip, not that LFU beats LRU.
+- The cache can only skip a read, so a wrong entry costs a fetch and never a wrong output.
+- make test-host-range-cache: PASS, 36 check assertions, host compiler, run 2026-09-17.
+- On the GB10 the device arena is already host RAM, so this is a second tier for the same memory.
+- Owed: the three arms interleaved from one binary, control first, the 2048 frontier discarded.
