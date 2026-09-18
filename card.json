@@ -1,0 +1,28 @@
+{
+  "branch": "triple-engram-lead",
+  "status": "WORTH ZERO",
+  "what": [
+    "starts the Engram table read one token ahead of first use,",
+    "speculating on the current step's own argmax, so the read",
+    "overlaps the step instead of landing exposed inside it"
+  ],
+  "switch": "DS4_V41_ENGRAM_LEAD_OFF turns it off; the lead is ON by default",
+  "output": {"gated": false},
+  "base": {"branch": "triple-tip-2026-09-16", "sha": "12997e9c"},
+  "results": [
+    {
+      "round": "r5",
+      "date": "2026-09-17",
+      "arm_tps": 9.43,
+      "tip_tps": 9.60,
+      "delta_pct": -1.04,
+      "sign": "1/4",
+      "floor_pct": 5.69,
+      "verdict": "TIES",
+      "n": 4,
+      "file": "2026-09-17-R5-RESULT-seven-ties-under-a-noisy-floor.md",
+      "note": "the round's lowest arm, and its four repeats are the tightest of the seven"
+    }
+  ],
+  "prefill": "r5 86.9 vs tip 84.6"
+}

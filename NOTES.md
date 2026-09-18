@@ -1,0 +1,5 @@
+- Row ids are a pure function of token and history tail, so the next step's rows are computable early.
+- A rewind, a fork or a rejected token falls back to the demand read, so a miss is unhelpful, never wrong.
+- The profiled read window is a property of the shipped path, not a measure of what this branch recovers.
+- The 2026-09-16 attribution series measured a nine-lever tree on another history, naming no lever's share.
+- Owed: both gates, greedy identity and the distribution ladder, and a genuinely cold long-prompt read.
