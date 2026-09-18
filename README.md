@@ -267,3 +267,52 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+```
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
+  the card below is ours; the README above is antirez's, unchanged
+
+  ┌─ triple-hitsfirst ───────────────────────────────────────── POSITIVE
+  │  WHAT     for each token, run the matmuls of the experts already in the
+  │           GPU expert cache while the missing ones are still being read
+  │           from the SSD, instead of waiting for the slowest read first
+  │  SWITCH   DS4_CUDA_HITS_FIRST=0 turns it off; the pread pool stays on
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
+  └─
+
+  RESULTS   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10
+  round  variant       arm t/s  tip t/s    delta  sign  floor  verdict  n
+  r22    vs main         10.70     9.83   +7.97%   3/3   2.44  BEATS    3
+  r12                    10.29     9.54   +9.07%   4/4   3.81  BEATS    4
+  r10                     9.70     9.73   -0.64%   2/4   2.18  TIES     4
+  r9                     10.41     9.42  +12.09%   4/4  17.27  TIES     4
+  r8                     10.34     8.96  +12.31%   4/4  10.69  BEATS    4
+  r4                     10.37     9.65   +6.47%   4/4   2.71  BEATS    4
+  each repeat against its two bracketing tip runs · floor = max adjacent tip pair
+  prefill: unchanged within noise (r12 hitsfirst 89.0 vs tip 85.6 t/s)
+  files   r22 2026-09-18-R22-RESULT-*.md · r12 2026-09-18-R12-RESULT-*.md
+          r10 2026-09-18-R10-RESULT-*.md · r9 2026-09-17-R9-RESULT-*.md
+          r8 2026-09-17-R8-RESULT-*.md · r4 2026-09-17-R4-RESULT-*.md
+```
+
+NOTES
+- Theory: with SSD-streamed experts a token waits on its slowest miss read; this hides most of that wait.
+- Ships with a threaded pread pool (8 workers) that the overlap needs; DS4_CUDA_HITS_FIRST=0 keeps the pool.
+- Test: one prompt, 128 tokens, ctx 4096 and 6144, each run between two tip runs, 4 repeats, quiet box.
+- Result: +6.5, +12.3, +9.1 % on our own tip; +8.0 % against antirez main itself (r22, 3/3).
+- Output: greedy identity vs main on this exact code: short 5ed3e6dfe2177eca, long c5cb82566c628bed.
+
+```
+  ALSO TRIED
+  triple-tooling              -       the CLI: sealed rounds, the card tool, the stack builder
+                                      not sent: tooling, not engine code; its own branch
+  triple-all-fastest          +12.3%  the shipped default: tip + this lever + the index
+                                      not sent: this lever plus house files; nothing more
+  triple-winners              +10.3%  pool + hitsfirst + prefetch, QD 16; +6.9, +10.3 quiet
+                                      not sent: not above hitsfirst alone; three changes
+  triple-pool                 +9.6%   parallel SSD reads via io_uring, 16 in flight
+                                      not sent: loses ~15 % under CPU load; needs liburing
+  triple-pool-and-hitsfirst   +6.2%   pool plus this change, one binary
+                                      not sent: below hitsfirst alone in two rounds
+```
