@@ -295,3 +295,32 @@ NOTES
 - It is correct and tested and worth nothing on the clock: -1.39 percent, positive on 1 of 4 repeats.
 - The measured cost it attacks is real: engram is 23.9 ms of a 198.6 ms step on this box, 12.0 percent.
 - Owed: the one-wave prefill read, which is the untested half, and a CUDA output gate on this revision.
+
+✦━━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━━
+the card below is ours; the README above is antirez's, unchanged
+
+```
+  ┌──────────────────────────────────────────────────────────────────────
+  │  BRANCH   triple-engram-read-threads                        WORTH ZERO
+  │  WHAT     takes the decode step's Engram read off the batch machinery:
+  │           one token goes straight to the serial reader, with no malloc,
+  │           no qsort and no pool dispatch. The prefill read is unchanged
+  │  SWITCH   DS4_ENGRAM_READ_THREADS=1 clamps the prefill read to serial
+  │  OUTPUT   not gated
+  │  BASE     triple-tip-2026-09-16 @12997e9c
+  └──────────────────────────────────────────────────────────────────────
+
+  RESULTS
+  round  variant                date        arm t/s  tip t/s    delta  sign   floor  verdict  n
+  r4                            2026-09-17     9.60     9.65   -1.39%   1/4    2.71  TIES     4
+  gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10 · each repeat against its bracketing tip runs · floor = max adjacent tip pair
+  prefill: reported, never a verdict - r4 82.6 vs tip 80.7
+  r4  2026-09-17-R4-RESULT-hitsfirst-pool-and-the-newtip-stack-beat-the-tip-readahead-order-loses-eleven.md
+```
+
+NOTES
+- A decode step's Engram read was 48 serial 264-byte reads behind a malloc, a qsort and a 32-worker wakeup.
+- That machinery cannot help a one-token read, so removing it should have freed time on the critical path.
+- It is correct and tested and worth nothing on the clock: -1.39 percent, positive on 1 of 4 repeats.
+- The measured cost it attacks is real: engram is 23.9 ms of a 198.6 ms step on this box, 12.0 percent.
+- Owed: the one-wave prefill read, which is the untested half, and a CUDA output gate on this revision.
