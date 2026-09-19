@@ -40981,7 +40981,9 @@ static bool ds41_attention(ds41_gpu_graph *g, const ds4_model *m,
     ds4_gpu_tensor *out = g->block;
     if (!ds41_tp_slab_off()) {
         out = g->tp_out[il * DS4_TP_GATES_PER_LAYER + DS4_TP_GATE_ATTN];
+#if defined(__APPLE__)
         ds4_gpu_tp_flag_fold_request(il, DS4_TP_GATE_ATTN);
+#endif
     }
     return ds41_attention_output(g, m, l, (int)il, out) &&
            (g->tp_gate_fused ? ds41_gate_partial(g, g->block, il, DS4_TP_GATE_ATTN) :
@@ -41146,8 +41148,14 @@ static bool ds41_moe_partial(ds41_gpu_graph *g, const ds4_model *m,
     if (!routed_ok) return false;
     /* Keep the shared expert's BF16 boundary, then include it exactly once
      * in the existing F32 reduction. Alternate ownership across layers. */
-    if (shared_owner && (shared_split || g->tp_rank == (il & 1u)) &&
-        !ds4_gpu_add_tensor_tp_flag(routed, routed, g->shared, DS4_N_EMBD, il, DS4_TP_GATE_FFN)) return false;
+    if (shared_owner && (shared_split || g->tp_rank == (il & 1u))) {
+#if defined(__APPLE__)
+        if (!ds4_gpu_add_tensor_tp_flag(routed, routed, g->shared, DS4_N_EMBD, il, DS4_TP_GATE_FFN)) return false;
+#else
+        /* the flag fold is a Metal kernel; other backends add and let the gate publish */
+        if (!ds4_gpu_add_tensor(routed, routed, g->shared, DS4_N_EMBD)) return false;
+#endif
+    }
     return true;
 }
 
