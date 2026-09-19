@@ -267,3 +267,26 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+```
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
+  the card below is ours; the README above is antirez's, unchanged
+
+  ┌─ glm53 ───────────────────────────────────────────────────── TOOLING
+  │  WHAT     GLM 5.3 Flash on the DGX Spark without our lever: the measured Q2
+  │           rows in antirez's docs, resident and streamed, plus the Q4
+  │           predicate widening for CUDA (#907), env-gated off. Not a lever
+  │  SWITCH   DS4_GLM_Q4_GENERIC=1 puts the Q4 file on the generic CUDA MoE path
+  │  OUTPUT   not gated
+  │  BASE     main @8db1d1d1
+  └─
+
+  RESULTS   none yet - never in a sealed round
+```
+
+NOTES
+- No arm: RESULTS is empty because nothing here is compared against a tip. The baseline is the number
+- q2 MEASURED (GLM-R1): resident 14.675/14.635/14.600 t/s at ctx 2048/4096/6144, 6 runs; streamed 4.50 @2048
+- q4: predicate widening landed (ds4.c +26/-5), env-gated OFF, unbuilt on the spark, Q4_K fixture NOT run
+- fp8: absent; weight_scale_inv has zero readers in ds4.c (packager only); "not implemented" in his table
+- vision: a CUDA path exists in the tree and is unmeasured on GLM here
