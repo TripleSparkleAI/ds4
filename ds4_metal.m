@@ -45971,17 +45971,6 @@ int ds4_gpu_dsv41_hc_block_input_rows(ds4_gpu_tensor *mix, ds4_gpu_tensor *x, ds
     }
 }
 
-int ds4_gpu_dsv41_hc_block_input(ds4_gpu_tensor *mix, ds4_gpu_tensor *x, ds4_gpu_tensor *norm,
-                                 ds4_gpu_tensor *split, const ds4_gpu_tensor *stream,
-                                 const ds4_gpu_tensor *pre, const void *model_map, uint64_t model_size,
-                                 uint64_t fn_offset, uint64_t scale_offset, uint64_t base_offset,
-                                 uint64_t norm_offset, uint32_t n, uint32_t mix_dim, uint32_t n_embd,
-                                 uint32_t n_hc, uint32_t sinkhorn_iters, float hc_eps, float norm_eps) {
-    return ds4_gpu_dsv41_hc_block_input_rows(mix, x, norm, split, stream, pre, model_map, model_size,
-        fn_offset, scale_offset, base_offset, norm_offset, n, mix_dim, n_embd, n_hc, sinkhorn_iters,
-        hc_eps, norm_eps, 1u, n_hc);
-}
-
 int ds4_gpu_dsv41_hc_input(ds4_gpu_tensor *x, ds4_gpu_tensor *norm, ds4_gpu_tensor *split,
                            const ds4_gpu_tensor *mix, const ds4_gpu_tensor *residual,
                            const ds4_gpu_tensor *pre, const void *model_map, uint64_t model_size,
@@ -49154,15 +49143,6 @@ int ds4_gpu_dsv41_matmul_expand_rows(ds4_gpu_tensor *out_hc, const void *model_m
     }
 }
 
-int ds4_gpu_dsv41_matmul_expand(ds4_gpu_tensor *out_hc, const void *model_map, uint64_t model_size,
-                                uint64_t weight_offset, uint32_t in_dim, uint32_t out_dim,
-                                const ds4_gpu_tensor *x, const ds4_gpu_tensor *add,
-                                const ds4_gpu_tensor *residual_hc, const ds4_gpu_tensor *split,
-                                uint32_t n_hc) {
-    return ds4_gpu_dsv41_matmul_expand_rows(out_hc, model_map, model_size, weight_offset, in_dim, out_dim,
-                                            x, add, residual_hc, split, n_hc, 1u);
-}
-
 int ds4_gpu_dsv41_attention_low(ds4_gpu_tensor *low, const void *model_map, uint64_t model_size,
                                 uint64_t out_a_offset, uint32_t group_dim, uint32_t rank,
                                 uint32_t n_groups, ds4_gpu_tensor *heads, uint32_t pos, bool compressed) {
@@ -49259,13 +49239,6 @@ int ds4_gpu_dsv41_norm_pair_rows(ds4_gpu_tensor *out0, const ds4_gpu_tensor *x0,
         ds4_gpu_end_compute_encoder(cb, enc);
         return ds4_gpu_finish_command_buffer(cb, owned, "V4.1 paired norm");
     }
-}
-
-int ds4_gpu_dsv41_norm_pair(ds4_gpu_tensor *out0, const ds4_gpu_tensor *x0, uint64_t weight0_offset, uint32_t n0,
-                            ds4_gpu_tensor *out1, const ds4_gpu_tensor *x1, uint64_t weight1_offset, uint32_t n1,
-                            const void *model_map, uint64_t model_size, float eps) {
-    return ds4_gpu_dsv41_norm_pair_rows(out0, x0, weight0_offset, n0, out1, x1, weight1_offset, n1,
-                                        model_map, model_size, eps, 1u);
 }
 
 int ds4_gpu_dsv41_rope_quantize(const ds4_gpu_tensor *x, ds4_gpu_tensor *dst, uint64_t dst_offset,

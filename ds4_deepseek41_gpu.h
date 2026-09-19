@@ -172,12 +172,6 @@ int ds4_gpu_dsv41_hc_project(ds4_gpu_tensor *mix, const ds4_gpu_tensor *residual
 /* One block's whole HC input in one dispatch: the mixer projection with its
  * norm, then split, weighted sum with `pre`'s first n_hc weights and norm
  * (0: not fused). */
-int ds4_gpu_dsv41_hc_block_input(ds4_gpu_tensor *mix, ds4_gpu_tensor *x, ds4_gpu_tensor *norm,
-                                 ds4_gpu_tensor *split, const ds4_gpu_tensor *stream,
-                                 const ds4_gpu_tensor *pre, const void *model_map, uint64_t model_size,
-                                 uint64_t fn_offset, uint64_t scale_offset, uint64_t base_offset,
-                                 uint64_t norm_offset, uint32_t n, uint32_t mix_dim, uint32_t n_embd,
-                                 uint32_t n_hc, uint32_t sinkhorn_iters, float hc_eps, float norm_eps);
 /* The same for a few rows: `pre` advances pre_stride floats per row. */
 int ds4_gpu_dsv41_hc_block_input_rows(ds4_gpu_tensor *mix, ds4_gpu_tensor *x, ds4_gpu_tensor *norm,
                                       ds4_gpu_tensor *split, const ds4_gpu_tensor *stream,
@@ -227,11 +221,6 @@ int ds4_gpu_dsv41_project_q(ds4_gpu_tensor *out, const void *model_map, uint64_t
                             const ds4_gpu_tensor *x, uint32_t pos, bool compressed);
 /* A bf16 Q8_0 matvec of one row expanded straight into the n_hc residual
  * streams; `add` (optional) joins the row before the expand. */
-int ds4_gpu_dsv41_matmul_expand(ds4_gpu_tensor *out_hc, const void *model_map, uint64_t model_size,
-                                uint64_t weight_offset, uint32_t in_dim, uint32_t out_dim,
-                                const ds4_gpu_tensor *x, const ds4_gpu_tensor *add,
-                                const ds4_gpu_tensor *residual_hc, const ds4_gpu_tensor *split,
-                                uint32_t n_hc);
 int ds4_gpu_dsv41_matmul_expand_rows(ds4_gpu_tensor *out_hc, const void *model_map, uint64_t model_size,
                                      uint64_t weight_offset, uint32_t in_dim, uint32_t out_dim,
                                      const ds4_gpu_tensor *x, const ds4_gpu_tensor *add,
@@ -246,9 +235,6 @@ int ds4_gpu_dsv41_attention_low(ds4_gpu_tensor *low, const void *model_map, uint
 int ds4_gpu_dsv41_norm_pair_rows(ds4_gpu_tensor *out0, const ds4_gpu_tensor *x0, uint64_t weight0_offset, uint32_t n0,
                                  ds4_gpu_tensor *out1, const ds4_gpu_tensor *x1, uint64_t weight1_offset, uint32_t n1,
                                  const void *model_map, uint64_t model_size, float eps, uint32_t rows);
-int ds4_gpu_dsv41_norm_pair(ds4_gpu_tensor *out0, const ds4_gpu_tensor *x0, uint64_t weight0_offset, uint32_t n0,
-                            ds4_gpu_tensor *out1, const ds4_gpu_tensor *x1, uint64_t weight1_offset, uint32_t n1,
-                            const void *model_map, uint64_t model_size, float eps);
 /* Gather 512-wide F32 KV rows; IDs must come from top-k over source_rows. */
 int ds4_gpu_dsv41_gather_kv(ds4_gpu_tensor *out, const ds4_gpu_tensor *source,
                            const ds4_gpu_tensor *ids, uint32_t source_rows,

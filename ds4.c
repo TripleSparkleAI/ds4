@@ -40770,10 +40770,10 @@ static bool ds41_hc_mix(ds41_gpu_graph *g, const ds4_model *m,
     const ds4_tensor *norm = ffn ? l->ffn_norm : l->attn_norm;
     ds4_gpu_tensor *split = ffn ? g->ffn_split : g->attn_split;
     if (fn->type == DS4_TENSOR_F16 && !ds41_hc_block_input_off() &&
-        ds4_gpu_dsv41_hc_block_input(g->mix, g->x, g->norm, split, residual, pre, m->map, m->size,
-                                     fn->abs_offset, scale->abs_offset, base->abs_offset, norm->abs_offset,
-                                     DS4_N_HC * DS4_N_EMBD, 24u, DS4_N_EMBD, DS4_N_HC,
-                                     DS4_N_HC_SINKHORN_ITER, DS4_HC_EPS, DS4_RMS_EPS)) return true;
+        ds4_gpu_dsv41_hc_block_input_rows(g->mix, g->x, g->norm, split, residual, pre, m->map, m->size,
+                                          fn->abs_offset, scale->abs_offset, base->abs_offset, norm->abs_offset,
+                                          DS4_N_HC * DS4_N_EMBD, 24u, DS4_N_EMBD, DS4_N_HC,
+                                          DS4_N_HC_SINKHORN_ITER, DS4_HC_EPS, DS4_RMS_EPS, 1u, DS4_N_HC)) return true;
     if (!((fn->type == DS4_TENSOR_F16 &&
            ds4_gpu_dsv41_hc_project(g->mix, residual, m->map, m->size, fn->abs_offset,
                                     DS4_N_HC * DS4_N_EMBD, 24u, DS4_RMS_EPS)) ||
@@ -40835,9 +40835,9 @@ static bool ds41_attention_expand(ds41_gpu_graph *g, const ds4_model *m,
                                   const ds4_layer_weights *l, int rope_il) {
     if (!ds41_attention_low(g, m, l, rope_il)) return false;
     if (l->attn_output_b->type == DS4_TENSOR_Q8_0 && !ds41_expand_fusion_off() &&
-        ds4_gpu_dsv41_matmul_expand(g->after_attn, m->map, m->size, l->attn_output_b->abs_offset,
+        ds4_gpu_dsv41_matmul_expand_rows(g->after_attn, m->map, m->size, l->attn_output_b->abs_offset,
             l->attn_output_b->dim[0], l->attn_output_b->dim[1], g->low, NULL, g->residual,
-            g->attn_split, DS4_N_HC)) return true;
+            g->attn_split, DS4_N_HC, 1u)) return true;
     return ds41_attention_b(g, m, l, g->block) &&
         ds4_gpu_hc_expand_split_bf16_tensor(g->after_attn, g->block, g->residual, g->attn_split, DS4_N_EMBD, DS4_N_HC);
 }
@@ -40948,9 +40948,9 @@ static bool ds41_attention_project(ds41_gpu_graph *g, const ds4_model *m,
             (uint32_t)l->attn_q_a->dim[1], (uint32_t)l->attn_kv->dim[1], g->norm);
     if (!(paired || (ds41_matmul(g->qr, m, l->attn_q_a, g->norm, true) &&
                      ds41_matmul(g->kv, m, l->attn_kv, g->norm, true)))) return false;
-    if (!ds4_gpu_dsv41_norm_pair(g->qr, g->qr, l->attn_q_a_norm->abs_offset, DS4_N_LORA_Q,
-                                 g->kv, g->kv, l->attn_kv_a_norm->abs_offset, DS4_N_HEAD_DIM,
-                                 m->map, m->size, DS4_RMS_EPS) &&
+    if (!ds4_gpu_dsv41_norm_pair_rows(g->qr, g->qr, l->attn_q_a_norm->abs_offset, DS4_N_LORA_Q,
+                                      g->kv, g->kv, l->attn_kv_a_norm->abs_offset, DS4_N_HEAD_DIM,
+                                      m->map, m->size, DS4_RMS_EPS, 1u) &&
         !(ds41_norm(g->qr, g->qr, m, l->attn_q_a_norm) &&
           ds41_norm(g->kv, g->kv, m, l->attn_kv_a_norm))) return false;
     if (rope_il >= 0 && l->attn_q_b->type == DS4_TENSOR_Q8_0 &&
@@ -41597,9 +41597,9 @@ static bool ds41_graph_after_moe(ds41_gpu_graph *g, const ds4_model *m,
               ds4_gpu_hc_expand_split_bf16_tensor(g->residual, g->block, g->after_attn, g->ffn_split, DS4_N_EMBD, DS4_N_HC)))
             return false;
     } else if (!(l && !g->shared_done && l->ffn_down_shexp->type == DS4_TENSOR_Q8_0 && !ds41_expand_fusion_off() &&
-                 ds4_gpu_dsv41_matmul_expand(g->residual, m->map, m->size, l->ffn_down_shexp->abs_offset,
+                 ds4_gpu_dsv41_matmul_expand_rows(g->residual, m->map, m->size, l->ffn_down_shexp->abs_offset,
                      l->ffn_down_shexp->dim[0], l->ffn_down_shexp->dim[1], g->shared_mid, g->routed,
-                     g->after_attn, g->ffn_split, DS4_N_HC)) &&
+                     g->after_attn, g->ffn_split, DS4_N_HC, 1u)) &&
                !((!l || g->shared_done || ds41_shared_down(g, m, l)) &&
                  ds4_gpu_hc_expand_split_add_bf16_tensor(g->residual, g->routed, g->shared, g->after_attn, g->ffn_split,
                                                          DS4_N_EMBD, DS4_N_HC))) return false;

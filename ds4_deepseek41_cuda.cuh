@@ -470,16 +470,6 @@ extern "C" int ds4_gpu_dsv41_project_q(ds4_gpu_tensor *, const void *, uint64_t,
                                        const ds4_gpu_tensor *, uint32_t, bool) { return 0; }
 extern "C" int ds4_gpu_dsv41_attention_low(ds4_gpu_tensor *, const void *, uint64_t, uint64_t, uint32_t, uint32_t,
                                            uint32_t, ds4_gpu_tensor *, uint32_t, bool) { return 0; }
-extern "C" int ds4_gpu_dsv41_norm_pair(ds4_gpu_tensor *, const ds4_gpu_tensor *, uint64_t, uint32_t,
-                                       ds4_gpu_tensor *, const ds4_gpu_tensor *, uint64_t, uint32_t,
-                                       const void *, uint64_t, float) { return 0; }
-extern "C" int ds4_gpu_dsv41_hc_block_input(ds4_gpu_tensor *, ds4_gpu_tensor *, ds4_gpu_tensor *, ds4_gpu_tensor *,
-                                            const ds4_gpu_tensor *, const ds4_gpu_tensor *, const void *, uint64_t,
-                                            uint64_t, uint64_t, uint64_t, uint64_t, uint32_t, uint32_t, uint32_t,
-                                            uint32_t, uint32_t, float, float) { return 0; }
-extern "C" int ds4_gpu_dsv41_matmul_expand(ds4_gpu_tensor *, const void *, uint64_t, uint64_t, uint32_t, uint32_t,
-                                           const ds4_gpu_tensor *, const ds4_gpu_tensor *, const ds4_gpu_tensor *,
-                                           const ds4_gpu_tensor *, uint32_t) { return 0; }
 extern "C" int ds4_gpu_dsv41_hc_block_input_rows(ds4_gpu_tensor *, ds4_gpu_tensor *, ds4_gpu_tensor *,
                                                  ds4_gpu_tensor *, const ds4_gpu_tensor *, const ds4_gpu_tensor *,
                                                  const void *, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
