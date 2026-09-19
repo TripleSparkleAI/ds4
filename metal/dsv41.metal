@@ -12,9 +12,6 @@ static inline float dsv41_bf16(float x) {
         bits += 0x7fffu + ((bits >> 16u) & 1u);
     return as_type<float>(bits & 0xffff0000u);
 }
-static inline float4 dsv41_bf16(float4 v) {
-    return float4(dsv41_bf16(v.x), dsv41_bf16(v.y), dsv41_bf16(v.z), dsv41_bf16(v.w));
-}
 
 static inline float dsv41_pow2_ceil(float x) {
     const uint bits = as_type<uint>(x);
@@ -251,7 +248,7 @@ kernel void kernel_dsv41_norm_pair(
     for (int i = int(t); i < ne00_t; i += int(ntg)) {
         float4 v = x[i]*scale;
         v = v*w[i];
-        y[i] = dsv41_bf16(v);
+        y[i] = ds4_bf16_round(v);
     }
 }
 
