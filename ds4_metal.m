@@ -10621,7 +10621,6 @@ static void *ds4_gpu_tp_keepalive_thread(void *arg) {
 static void *ds4_gpu_tp_service_thread(void *arg) {
     (void)arg;
     const bool profile = getenv("DS4_TP_GATE_PROFILE") != NULL;
-    const bool trace = getenv("DS4_TP_INLINE_GATE_TRACE") != NULL;
     while (1) {
         pthread_mutex_lock(&g_tp_mutex);
         while (g_tp_queue_count == 0 && !g_tp_shutdown)
@@ -10758,11 +10757,6 @@ static void *ds4_gpu_tp_service_thread(void *arg) {
                 g_tp_failed_flag = 1;
             }
             if (profile) g_tp_stat_spin_iters += prev_spin;
-            if (trace)
-                fprintf(stderr, "ds4: TP inline gate seq %llu layer %u gate %u: flag +%.1f us, exchange %.1f us, released +%.1f us, wait(seq %llu) %u spins\n",
-                        (unsigned long long)req.seq, req.layer, req.gate, (t1 - t0) * 1000.0,
-                        (t_ex - t1) * 1000.0, (ds4_gpu_now_ms() - t0) * 1000.0,
-                        (unsigned long long)req.seq - 1u, prev_spin);
         } else if (req.rows > 0 && !req.poll) {
             const double br0 = profile ? ds4_gpu_now_ms() : 0.0;
             g_tp_batch_cpu_event.signaledValue = req.seq;
@@ -10937,8 +10931,6 @@ int ds4_gpu_tp_init(uint32_t rank,
                 (uint32_t)ds4_gpu_env_u64("DS4_TP_INLINE_SPIN_ITERS", 8000000u, 100000u, 200000000u);
         }
     }
-    fprintf(stderr, "ds4: TP gate release: %s\n",
-            g_tp_release_ptr ? "inline spin kernel" : g_tp_poll_gates ? "poll" : "shared event");
     g_tp_gpu_event = [g_device newSharedEvent];
     g_tp_cpu_event = [g_device newSharedEvent];
     g_tp_batch_gpu_event = [g_device newSharedEvent];
