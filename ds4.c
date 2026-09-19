@@ -1419,6 +1419,7 @@ DS41_KP_FLAG(ds41_kp_round_in_kernel, "DS4_KP_ROUND_IN_KERNEL") /* d95f8b610 */
 DS41_KP_FLAG(ds41_kp_select_batch, "DS4_KP_SELECT_BATCH")     /* ce5a812fd */
 DS41_KP_FLAG(ds41_kp_short_rows, "DS4_KP_SHORT_ROWS")         /* 3b7f8f224 */
 DS41_KP_FLAG(ds41_kp_head_early, "DS4_KP_HEAD_EARLY")         /* 4fbbc4a45 */
+static uint32_t ds41_decode_flush_layers(void);
 
 static void ds4_die_errno(const char *what, const char *path) {
     fprintf(stderr, "ds4: %s '%s': %s\n", what, path, strerror(errno));
@@ -40337,12 +40338,34 @@ static void ds41_graph_reset(ds41_gpu_graph *g) {
      * partial pair is overwritten by its even-position token before use. */
 }
 
+/* One line per process so a run log names its own arm; nothing prints when
+ * every flag is off (main's graph). */
+static void ds41_kp_stamp(void) {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    const struct { const char *name; bool (*on)(void); } flags[] = {
+        {"QUEUE_LAYERS", ds41_kp_queue_layers}, {"SKIP_SELECT", ds41_kp_skip_select},
+        {"ROUND_IN_KERNEL", ds41_kp_round_in_kernel}, {"SELECT_BATCH", ds41_kp_select_batch},
+        {"SHORT_ROWS", ds41_kp_short_rows}, {"HEAD_EARLY", ds41_kp_head_early},
+    };
+    char line[256] = "";
+    for (size_t i = 0; i < sizeof(flags) / sizeof(flags[0]); i++) {
+        if (!flags[i].on()) continue;
+        strncat(line, line[0] ? "," : "", sizeof(line) - strlen(line) - 1);
+        strncat(line, flags[i].name, sizeof(line) - strlen(line) - 1);
+    }
+    if (line[0]) fprintf(stderr, "ds4: V4.1 kernelpool flags on: %s (flush layers %u)\n",
+                         line, ds41_decode_flush_layers());
+}
+
 static DS4_MAYBE_UNUSED bool ds41_graph_alloc(ds41_gpu_graph *g, const ds4_model *m,
                                               const ds4_weights *w, const char *path,
                                               uint32_t ctx, bool streaming) {
     memset(g, 0, sizeof(*g));
     g->table[0].fd = g->table[1].fd = -1;
     if (!ctx || ctx > 1048576 || DS4_MODEL_FAMILY != DS4_MODEL_FAMILY_DEEPSEEK41) return false;
+    ds41_kp_stamp();
     g->ctx = ctx;
     g->prefill_cap = ds41_prefill_limit(ctx);
     g->carry_cap = ds41_carry_cap(ctx);
