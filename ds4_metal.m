@@ -44333,7 +44333,8 @@ int ds4_gpu_routed_moe_batch_tensor(
          */
         const bool resident_tile_types =
             (gate_type == DS4_METAL_TENSOR_MXFP4 && down_type == DS4_METAL_TENSOR_MXFP4) ||
-            (gate_type == DS4_METAL_TENSOR_Q4_K && down_type == DS4_METAL_TENSOR_Q4_K);
+            (v41_packed &&    /* Q4_K verified on the V4.1 shape only */
+             gate_type == DS4_METAL_TENSOR_Q4_K && down_type == DS4_METAL_TENSOR_Q4_K);
         const bool use_pre_m5_mxfp4_mm_id_pair_swiglu_compact_tile_default =
             ds4_gpu_device_is_pre_m5_apple_silicon() &&
             !g_ssd_streaming_mode &&
