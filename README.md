@@ -272,21 +272,33 @@ it rock.
 ✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
   the card below is ours; the README above is antirez's, unchanged
 
-  ┌─ glm53 ───────────────────────────────────────────────────── TOOLING
-  │  WHAT     GLM 5.3 Flash on the DGX Spark without our lever: the measured Q2
-  │           rows in antirez's docs, resident and streamed, plus the Q4
-  │           predicate widening for CUDA (#907), env-gated off. Not a lever
-  │  SWITCH   DS4_GLM_Q4_GENERIC=1 puts the Q4 file on the generic CUDA MoE path
-  │  OUTPUT   not gated
-  │  BASE     main @8db1d1d1
+  ┌─ glm53-hitsfirst ────────────────────────────────────────── POSITIVE
+  │  WHAT     the hits-first split of #1083, unchanged, measured on a second
+  │           model family: GLM 5.3 Flash Q2 on the DGX Spark, resident as the
+  │           baseline and forced to stream (24GB expert cache) for the lever
+  │  SWITCH   DS4_CUDA_HITS_FIRST=0 turns it off; the pread pool stays on
+  │  OUTPUT   greedy-identical to the tip: G1 short a84e448ec8e5458f · long 89cffa1b02d565eb
+  │  BASE     glm53 @fdb63f4a3 + 4c827924d + 6803d6dba
   └─
 
-  RESULTS   none yet - never in a sealed round
+  RESULTS   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10
+  round  variant       arm t/s  tip t/s    delta  sign  floor  verdict  n
+  glm-r2 stream 24GB      4.74     3.79  +25.23%   3/3   5.32  BEATS    3
+  glm-r2 MIN_MISS=3       4.59     3.76  +22.07%   3/3   5.32  BEATS    3
+  each repeat against its two bracketing tip runs · floor = max adjacent tip pair
+  prefill: streamed, +84 to +86 % both arms (hitsfirst 165.7-167.2 vs tip 85.9-90.9 t/s at 4096)
+  files   glm-r2 2026-09-19-GLM-R2-RESULT-*.md
 ```
 
 NOTES
-- No arm: RESULTS is empty because nothing here is compared against a tip. The baseline is the number
-- q2 MEASURED (GLM-R1): resident 14.675/14.635/14.600 t/s at ctx 2048/4096/6144, 6 runs; streamed 4.50 @2048
-- q4: predicate widening landed (ds4.c +26/-5), env-gated OFF, unbuilt on the spark, Q4_K fixture NOT run
-- fp8: absent; weight_scale_inv has zero readers in ds4.c (packager only); "not implemented" in his table
-- vision: a CUDA path exists in the tree and is unmeasured on GLM here
+- Baseline (GLM-R1, no lever): resident 14.675 / 14.635 / 14.600 t/s at ctx 2048 / 4096 / 6144, 6 runs
+- Engine code: #1083 (4c827924d) + the 13-line MIN_MISS switch (6803d6dba), on top of the glm53 branch
+- Test: same file forced to stream, 24GB expert cache, 3 cycles each between two tip runs, 3 warm-ups
+- Output: byte-identical at n_expert_used=8, ten dumps @6803d6db: short a84e448ec8e5458f long 89cffa1b02d565eb
+- Flagged, not fixed: glm53-full-q2 IQ2_XXS down has no launcher; GLM launcher 256 vs 288. q4: see glm53
+
+```
+  ALSO TRIED
+  triple-hitsfirst-minmiss    +22.1%  decline the split under 3 misses, as Metal does
+                                      not sent: below hitsfirst alone on GLM as on DeepSeek
+```
