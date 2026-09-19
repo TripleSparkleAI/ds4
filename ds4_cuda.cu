@@ -6694,7 +6694,19 @@ __global__ static void rms_norm_plain_f16_batch8_kernel(
     }
 }
 
-__global__ static void rms_norm_weight_kernel(float *out, const float *x, const float *w, uint32_t n, uint32_t rows, float eps) {
+/* DS4_KP_ROUND_IN_KERNEL (kernelpool d95f8b610 on Metal): round-to-nearest-even
+ * to bf16 applied on the store, the same function of the same fp32 value that the
+ * standalone dsv41_bf16_kernel pass applies afterwards, so a ROUND=true kernel
+ * followed by nothing equals a ROUND=false kernel followed by that pass. */
+__device__ static __forceinline__ float cuda_store_round_bf16(float x) {
+    uint32_t bits = __float_as_uint(x);
+    if ((bits & 0x7f800000u) != 0x7f800000u)
+        bits += 0x7fffu + ((bits >> 16u) & 1u);
+    return __uint_as_float(bits & 0xffff0000u);
+}
+
+template <bool ROUND>
+__device__ static __forceinline__ void rms_norm_weight_body(float *out, const float *x, const float *w, uint32_t n, uint32_t rows, float eps) {
     uint32_t row = blockIdx.x;
     if (row >= rows) return;
     const float *xr = x + (uint64_t)row * n;
@@ -6708,8 +6720,15 @@ __global__ static void rms_norm_weight_kernel(float *out, const float *x, const 
     sum = block_sum_f32_256(sum, partial);
     float scale = rsqrtf(sum / (float)n + eps);
     for (uint32_t i = threadIdx.x; i < n; i += blockDim.x) {
-        orow[i] = xr[i] * scale * w[i];
+        const float v = xr[i] * scale * w[i];
+        orow[i] = ROUND ? cuda_store_round_bf16(v) : v;
     }
+}
+__global__ static void rms_norm_weight_kernel(float *out, const float *x, const float *w, uint32_t n, uint32_t rows, float eps) {
+    rms_norm_weight_body<false>(out, x, w, n, rows, eps);
+}
+__global__ static void rms_norm_weight_round_kernel(float *out, const float *x, const float *w, uint32_t n, uint32_t rows, float eps) {
+    rms_norm_weight_body<true>(out, x, w, n, rows, eps);
 }
 
 __global__ static void dsv4_qkv_rms_norm_rows_kernel(
@@ -11810,7 +11829,8 @@ __global__ static void hc_split_sinkhorn_kernel(float *out, const float *mix, co
     hc4_split_one(out + (uint64_t)row * 24, mix + (uint64_t)row * 24, scale, base, sinkhorn_iters, epsv);
 }
 
-__global__ static void hc_weighted_sum_kernel(float *out, const float *x, const float *w, uint32_t n_embd, uint32_t n_hc, uint32_t n_tokens, uint32_t weight_stride_f32) {
+template <bool ROUND>
+__device__ static __forceinline__ void hc_weighted_sum_body(float *out, const float *x, const float *w, uint32_t n_embd, uint32_t n_hc, uint32_t n_tokens, uint32_t weight_stride_f32) {
     uint64_t gid = (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
     uint64_t n = (uint64_t)n_embd * n_tokens;
     if (gid >= n) return;
@@ -11821,10 +11841,17 @@ __global__ static void hc_weighted_sum_kernel(float *out, const float *x, const 
         acc += x[(uint64_t)t * n_hc * n_embd + (uint64_t)h * n_embd + d] *
                w[(uint64_t)t * weight_stride_f32 + h];
     }
-    out[(uint64_t)t * n_embd + d] = acc;
+    out[(uint64_t)t * n_embd + d] = ROUND ? cuda_store_round_bf16(acc) : acc;
+}
+__global__ static void hc_weighted_sum_kernel(float *out, const float *x, const float *w, uint32_t n_embd, uint32_t n_hc, uint32_t n_tokens, uint32_t weight_stride_f32) {
+    hc_weighted_sum_body<false>(out, x, w, n_embd, n_hc, n_tokens, weight_stride_f32);
+}
+__global__ static void hc_weighted_sum_round_kernel(float *out, const float *x, const float *w, uint32_t n_embd, uint32_t n_hc, uint32_t n_tokens, uint32_t weight_stride_f32) {
+    hc_weighted_sum_body<true>(out, x, w, n_embd, n_hc, n_tokens, weight_stride_f32);
 }
 
-__global__ static void hc_expand_kernel(
+template <bool ROUND>
+__device__ static __forceinline__ void hc_expand_body(
         float *out_hc,
         const float *block_out,
         const float *block_add,
@@ -11859,8 +11886,17 @@ __global__ static void hc_expand_kernel(
         float res_v = residual_hc[(uint64_t)t * n_hc * n_embd + (uint64_t)src_hc * n_embd + d];
         acc += comb_v * res_v;
     }
-    out_hc[(uint64_t)t * n_hc * n_embd + (uint64_t)dst_hc * n_embd + d] = acc;
+    out_hc[(uint64_t)t * n_hc * n_embd + (uint64_t)dst_hc * n_embd + d] = ROUND ? cuda_store_round_bf16(acc) : acc;
 }
+#define HC_EXPAND_KERNEL_PARAMS \
+        float *out_hc, const float *block_out, const float *block_add, const float *block_add2, \
+        const float *residual_hc, const float *post, const float *comb, uint32_t n_embd, uint32_t n_hc, \
+        uint32_t n_tokens, uint32_t post_stride, uint32_t comb_stride, int has_add, int has_add2
+#define HC_EXPAND_KERNEL_ARGS \
+        out_hc, block_out, block_add, block_add2, residual_hc, post, comb, n_embd, n_hc, n_tokens, \
+        post_stride, comb_stride, has_add, has_add2
+__global__ static void hc_expand_kernel(HC_EXPAND_KERNEL_PARAMS) { hc_expand_body<false>(HC_EXPAND_KERNEL_ARGS); }
+__global__ static void hc_expand_round_kernel(HC_EXPAND_KERNEL_PARAMS) { hc_expand_body<true>(HC_EXPAND_KERNEL_ARGS); }
 
 __global__ static void hc_split_weighted_sum_fused_kernel(
         float *out,
@@ -16650,6 +16686,18 @@ extern "C" int ds4_gpu_rms_norm_weight_tensor(ds4_gpu_tensor *out, const ds4_gpu
     const float *w = (const float *)wptr;
     rms_norm_weight_kernel<<<1, 256, 0, cuda_decode_stream()>>>((float *)out->ptr, (const float *)x->ptr, w, n, 1, eps);
     return cuda_ok(cudaGetLastError(), "rms_norm_weight launch");
+}
+extern "C" int ds4_gpu_rms_norm_weight_round_tensor(ds4_gpu_tensor *out, const ds4_gpu_tensor *x, const void *model_map, uint64_t model_size, uint64_t weight_offset, uint32_t n, float eps) {
+    if (!out || !x || !model_map || weight_offset > model_size ||
+        model_size - weight_offset < (uint64_t)n * sizeof(float) ||
+        out->bytes < (uint64_t)n * sizeof(float) ||
+        x->bytes < (uint64_t)n * sizeof(float)) return 0;
+    const int logical_tier = ds4_tensor_device_idx(out);
+    const char *wptr = cuda_resolve_weight_ptr(model_map, weight_offset, (uint64_t)n * sizeof(float), logical_tier, "rms_weight");
+    if (!wptr) return 0;
+    const float *w = (const float *)wptr;
+    rms_norm_weight_round_kernel<<<1, 256, 0, cuda_decode_stream()>>>((float *)out->ptr, (const float *)x->ptr, w, n, 1, eps);
+    return cuda_ok(cudaGetLastError(), "rms_norm_weight_round launch");
 }
 extern "C" int ds4_gpu_rms_norm_weight_rows_tensor(ds4_gpu_tensor *out, const ds4_gpu_tensor *x, const void *model_map, uint64_t model_size, uint64_t weight_offset, uint32_t n, uint32_t rows, float eps) {
     if (!out || !x || !model_map || weight_offset > model_size ||
@@ -26516,6 +26564,23 @@ extern "C" int ds4_gpu_hc_weighted_sum_split_tensor(ds4_gpu_tensor *out, const d
         n_embd, n_hc, n_tokens, stride);
     return cuda_ok(cudaGetLastError(), "hc_weighted_sum_split launch");
 }
+extern "C" int ds4_gpu_hc_weighted_sum_round_tensor(ds4_gpu_tensor *out, const ds4_gpu_tensor *residual_hc, const ds4_gpu_tensor *weights, uint32_t n_embd, uint32_t n_hc) {
+    if (!out || !residual_hc || !weights || n_embd == 0 || n_hc == 0) return 0;
+    uint32_t n_tokens = (uint32_t)(out->bytes / ((uint64_t)n_embd * sizeof(float)));
+    hc_weighted_sum_round_kernel<<<((uint64_t)n_embd * n_tokens + 255) / 256, 256, 0, cuda_decode_stream()>>>(
+        (float *)out->ptr, (const float *)residual_hc->ptr, (const float *)weights->ptr,
+        n_embd, n_hc, n_tokens, n_hc);
+    return cuda_ok(cudaGetLastError(), "hc_weighted_sum_round launch");
+}
+extern "C" int ds4_gpu_hc_weighted_sum_split_round_tensor(ds4_gpu_tensor *out, const ds4_gpu_tensor *residual_hc, const ds4_gpu_tensor *split, uint32_t n_embd, uint32_t n_hc) {
+    if (!out || !residual_hc || !split || n_embd == 0 || n_hc == 0) return 0;
+    uint32_t n_tokens = (uint32_t)(out->bytes / ((uint64_t)n_embd * sizeof(float)));
+    uint32_t stride = (uint32_t)(2u * n_hc + n_hc * n_hc);
+    hc_weighted_sum_round_kernel<<<((uint64_t)n_embd * n_tokens + 255) / 256, 256, 0, cuda_decode_stream()>>>(
+        (float *)out->ptr, (const float *)residual_hc->ptr, (const float *)split->ptr,
+        n_embd, n_hc, n_tokens, stride);
+    return cuda_ok(cudaGetLastError(), "hc_weighted_sum_split_round launch");
+}
 extern "C" int ds4_gpu_hc_split_weighted_sum_tensor(
         ds4_gpu_tensor       *out,
         ds4_gpu_tensor       *split,
@@ -26718,6 +26783,23 @@ extern "C" int ds4_gpu_hc_expand_split_tensor(ds4_gpu_tensor *out_hc, const ds4_
                                                     n_embd, n_hc, n_tokens,
                                                     mix_hc, mix_hc, 0, 0);
     return cuda_ok(cudaGetLastError(), "hc_expand_split launch");
+}
+extern "C" int ds4_gpu_hc_expand_split_round_tensor(ds4_gpu_tensor *out_hc, const ds4_gpu_tensor *block_out, const ds4_gpu_tensor *residual_hc, const ds4_gpu_tensor *split, uint32_t n_embd, uint32_t n_hc) {
+    if (!out_hc || !block_out || !residual_hc || !split || n_embd == 0 || n_hc == 0) return 0;
+    uint32_t n_tokens = (uint32_t)(out_hc->bytes / ((uint64_t)n_hc * n_embd * sizeof(float)));
+    uint32_t mix_hc = 2u * n_hc + n_hc * n_hc;
+    uint64_t n_elem = (uint64_t)n_tokens * n_hc * n_embd;
+    const float *base = (const float *)split->ptr;
+    hc_expand_round_kernel<<<(n_elem + 255) / 256, 256, 0, cuda_decode_stream()>>>((float *)out_hc->ptr,
+                                                    (const float *)block_out->ptr,
+                                                    (const float *)block_out->ptr,
+                                                    (const float *)block_out->ptr,
+                                                    (const float *)residual_hc->ptr,
+                                                    base + n_hc,
+                                                    base + 2u * n_hc,
+                                                    n_embd, n_hc, n_tokens,
+                                                    mix_hc, mix_hc, 0, 0);
+    return cuda_ok(cudaGetLastError(), "hc_expand_split_round launch");
 }
 extern "C" int ds4_gpu_hc_expand_add_split_tensor(ds4_gpu_tensor *out_hc, const ds4_gpu_tensor *block_out, const ds4_gpu_tensor *block_add, const ds4_gpu_tensor *residual_hc, const ds4_gpu_tensor *split, uint32_t n_embd, uint32_t n_hc) {
     if (!out_hc || !block_out || !block_add || !residual_hc || !split || n_embd == 0 || n_hc == 0) return 0;
