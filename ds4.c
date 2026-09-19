@@ -41092,7 +41092,12 @@ static bool ds41_index_batch(ds41_gpu_graph *g, const ds4_model *m,
                 q, weights, g->index_cache[owner], n_comp, rows, start + off, ratio));
         ds4_gpu_tensor_free(weights);
         ds4_gpu_tensor_free(q);
-        const bool batch_topk = (start + off + 1u) / ratio >= 1024u &&
+        /* DS4_KP_SHORT_ROWS (3b7f8f224): batch top-k from the second row of any
+         * batch, with rows of at most 512 visible keys taking every key in
+         * order; off, main batches only from 1024 compressed rows and scores
+         * every row. */
+        const bool kp_short_rows = ds41_kp_short_rows();
+        const bool batch_topk = (kp_short_rows ? count > 1u : (start + off + 1u) / ratio >= 1024u) &&
             !getenv("DS4_METAL_DISABLE_V41_BATCH_TOPK");
         /* DS4_KP_SELECT_BATCH (ce5a812fd): the candidate blocks of a whole
          * index batch are scored, selected and masked in one call per batch;
@@ -41111,10 +41116,24 @@ static bool ds41_index_batch(ds41_gpu_graph *g, const ds4_model *m,
             ds4_gpu_tensor_free(row.index_scores);
         }
         if (ok && batch_topk) {
+            /* The batch sorts its selection by key later, so rows with at
+             * most top_k visible keys just take all of them. */
             const uint64_t id_bytes = DS4_N_INDEXER_TOP_K * sizeof(int32_t);
+            const uint32_t limit = (DS4_N_INDEXER_TOP_K + 1u) * ratio;
+            const uint32_t all = kp_short_rows && start + off + 1u < limit ? limit - 1u - start - off : 0u;
+            const uint32_t whole = all < rows ? all : rows;
             ds4_gpu_tensor *ids = ds4_gpu_tensor_view(b->selected_comp, off * id_bytes, rows * id_bytes);
-            ok = ids && ds4_gpu_dsv41_indexer_topk_batch(ids, g->index_scores,
-                                                       n_comp, rows, start + off, ratio);
+            ds4_gpu_tensor *rest = ids && whole < rows ? ds4_gpu_tensor_view(b->selected_comp,
+                (off + whole) * id_bytes, (rows - whole) * id_bytes) : NULL;
+            ds4_gpu_tensor *scores = rest ? ds4_gpu_tensor_view(g->index_scores,
+                (uint64_t)whole * n_comp * sizeof(float),
+                (uint64_t)(rows - whole) * n_comp * sizeof(float)) : NULL;
+            ok = ids && (whole == rows || (rest && scores)) &&
+                (!whole || ds4_gpu_dsv41_indexer_all_batch(ids, whole, start + off, ratio)) &&
+                (whole == rows || ds4_gpu_dsv41_indexer_topk_batch(rest, scores, n_comp,
+                    rows - whole, start + off + whole, ratio));
+            ds4_gpu_tensor_free(scores);
+            ds4_gpu_tensor_free(rest);
             ds4_gpu_tensor_free(ids);
         }
         if (!ok) return false;
