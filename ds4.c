@@ -40630,7 +40630,6 @@ static bool ds41_env_flag(const char *name, int *cached) {
 }
 static bool ds41_expand_fusion_off(void) { static int c = -1; return ds41_env_flag("DS4_METAL_DISABLE_V41_EXPAND_FUSION", &c); }
 static bool ds41_hc_block_input_off(void) { static int c = -1; return ds41_env_flag("DS4_METAL_DISABLE_V41_HC_BLOCK_INPUT", &c); }
-static bool ds41_rows_attention_on(void) { static int c = -1; return ds41_env_flag("DS4_METAL_ENABLE_V41_ROWS_ATTENTION", &c); }
 static bool ds41_tp_slab_off(void) {
 #ifdef __APPLE__
     static int c = -1; return ds41_env_flag("DS4_METAL_DISABLE_V41_TP_SLAB_WRITE", &c);
@@ -41439,10 +41438,7 @@ static bool ds41_index_batch(ds41_gpu_graph *g, const ds4_model *m,
                 q, weights, g->index_cache[owner], n_comp, rows, start + off, ratio));
         ds4_gpu_tensor_free(weights);
         ds4_gpu_tensor_free(q);
-        /* on the exact rows path a few rows pick as decode steps do (the same
-         * ids in the same order) */
-        const bool batch_topk = count > 1u && !getenv("DS4_METAL_DISABLE_V41_BATCH_TOPK") &&
-            !(count <= DS4_TP_BATCH_MAX_ROWS && ds41_rows_attention_on());
+        const bool batch_topk = count > 1u && !getenv("DS4_METAL_DISABLE_V41_BATCH_TOPK");
         if (ok && batch_topk && il >= 20u)
             ok = ds41_candidates_batch(g, il, n_comp, start + off, off, rows);
         for (uint32_t t = 0; ok && !batch_topk && t < rows; t++) {
@@ -41505,9 +41501,7 @@ static bool ds41_attention_batch(ds41_gpu_graph *g, const ds4_model *m,
     if (!ds4_gpu_tensor_copy(g->raw_prefill, previous * row_bytes, b->kv, 0, count * row_bytes))
         return false;
     ds41_gpu_graph row = *g;
-    /* the exact rows path scores and picks each row as a decode step does */
-    const bool exact_rows = count <= DS4_TP_BATCH_MAX_ROWS && ds41_rows_attention_on();
-    const bool batch_index = ds41_index_source(il) && !exact_rows &&
+    const bool batch_index = ds41_index_source(il) &&
         !getenv("DS4_METAL_DISABLE_V41_BATCH_INDEX");
     const bool batch_publish = ds41_kv_source(il) &&
         !getenv("DS4_METAL_DISABLE_V41_BATCH_COMPRESS");
@@ -41531,50 +41525,7 @@ static bool ds41_attention_batch(ds41_gpu_graph *g, const ds4_model *m,
     }
     if (batch_index && !ds41_index_batch(g, m, l, il, count)) return false;
     bool ok;
-    if (exact_rows) {
-        /* Opt-in: the rows attend with the decode kernels over the
-         * chronological raw copy and their own selected compressed rows, so
-         * every row's heads match a decode step at that position (rows that
-         * see the same key counts share one dispatch); better drafts, but the
-         * per-row staging costs more than the batched kernels. */
-        const uint64_t q_row = (uint64_t)heads * DS4_N_HEAD_DIM * sizeof(float);
-        ok = true;
-        bool single = false;   /* a refused group goes row by row */
-        for (uint32_t t = 0; ok && t < count;) {
-            const uint32_t pos = start + t;
-            const uint32_t raw_rows = pos + 1u < 128u ? pos + 1u : 128u;
-            const uint32_t raw_first = previous + t + 1u - raw_rows;
-            const uint32_t comp = ratio ? (pos + 1u) / ratio : 0u;
-            const uint32_t attended = comp < DS4_N_INDEXER_TOP_K ? comp : DS4_N_INDEXER_TOP_K;
-            uint32_t run = 1;
-            while (!single && comp && raw_rows == 128u && t + run < count) {
-                const uint32_t c = (start + t + run + 1u) / ratio;
-                if ((c < DS4_N_INDEXER_TOP_K ? c : DS4_N_INDEXER_TOP_K) != attended) break;
-                run++;
-            }
-            ds4_gpu_tensor *q = ds4_gpu_tensor_view(b->q, t * q_row, run * q_row);
-            ds4_gpu_tensor *out = ds4_gpu_tensor_view(b->heads, t * q_row, run * q_row);
-            ds4_gpu_tensor *ids = comp ? ds4_gpu_tensor_view(b->selected_comp,
-                (uint64_t)t * DS4_N_INDEXER_TOP_K * sizeof(int32_t),
-                (uint64_t)run * DS4_N_INDEXER_TOP_K * sizeof(int32_t)) : NULL;
-            const uint32_t comp_last = ratio ? (start + t + run) / ratio : 0u;
-            ok = q && out && (!comp || ids) &&
-                ((comp && ds4_gpu_dsv41_attention_decode_rows(out, m->map, m->size, sinks, q,
-                     g->raw_prefill, raw_rows, g->prefill_cap + 128u, raw_first, g->compressed[owner],
-                     ids, DS4_N_INDEXER_TOP_K, comp_last, attended, heads, DS4_N_HEAD_DIM, run)) ||
-                 (run == 1u &&
-                  (!comp || ds4_gpu_dsv41_gather_kv(g->selected_kv, g->compressed[owner], ids, comp, attended)) &&
-                  ds4_gpu_attention_decode_heads_tensor(out, m->map, m->size, sinks, q,
-                     g->raw_prefill, raw_rows, g->prefill_cap + 128u, raw_first,
-                     g->selected_kv, 0, attended, NULL, 0, heads, DS4_N_HEAD_DIM)));
-            ds4_gpu_tensor_free(ids);
-            ds4_gpu_tensor_free(out);
-            ds4_gpu_tensor_free(q);
-            if (!ok && run > 1u) { single = true; ok = true; continue; }
-            single = false;
-            t += run;
-        }
-    } else if (!n_comp) {
+    if (!n_comp) {
         /* Raw attention rounds probabilities per key block. Keep its existing
          * partitions even when the surrounding dense/FFN batches are wider. */
         ok = true;

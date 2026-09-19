@@ -217,14 +217,6 @@ int ds4_gpu_dsv41_project_f16_bf16(ds4_gpu_tensor *out, const void *model_map, u
                                    const ds4_gpu_tensor *x);
 /* Decode attention over the raw ring and the compressed rows selected by
  * ids, staged in one pass (0: not available; `selected` is gather scratch). */
-/* The same for `rows` consecutive query rows in one dispatch: row r uses the
- * raw window from raw_start + r and the ids at r * ids_stride. */
-int ds4_gpu_dsv41_attention_decode_rows(ds4_gpu_tensor *heads, const void *model_map, uint64_t model_size,
-                                        uint64_t sinks_offset, const ds4_gpu_tensor *q,
-                                        const ds4_gpu_tensor *raw_kv, uint32_t n_raw, uint32_t raw_cap,
-                                        uint32_t raw_start, const ds4_gpu_tensor *comp_cache,
-                                        const ds4_gpu_tensor *ids, uint32_t ids_stride, uint32_t n_comp,
-                                        uint32_t attended, uint32_t n_head, uint32_t head_dim, uint32_t rows);
 int ds4_gpu_dsv41_attention_decode(ds4_gpu_tensor *heads, const void *model_map, uint64_t model_size,
                                    uint64_t sinks_offset, const ds4_gpu_tensor *q,
                                    const ds4_gpu_tensor *raw_kv, uint32_t n_raw, uint32_t raw_cap,
