@@ -50,7 +50,11 @@ Sealed prediction, written before the run so it can be wrong in public: the head
 0.0 % on CUDA; the branch as a whole reads +1 .. +6 % from the removed syncs and the skipped
 selection, and is greedy-identical to main on both prompts.
 
-**Outcome: the speed half landed, the losslessness half did not.** +1.74 % is inside the predicted
+**Outcome: the speed half landed, the losslessness half did not, and the header half is not yet
+separable.** The "header contributes 0.0 %" clause is UNSCOREABLE from this round: the arm carries
+the whole branch, so the header's own share cannot be read off it. A per-mechanism matrix (each of
+your commits behind its own switch, run against tip one at a time) is what isolates it, and it has
+not been run yet. +1.74 % is inside the predicted
 band, but it is also inside our own tip-versus-tip floor for this round (3.10 % max over three
 adjacent main pairs), so by our pre-registered rule the branch **TIES** main on CUDA decode here and
 we are not claiming a speed win. The prediction we got wrong is the one worth your attention: the
