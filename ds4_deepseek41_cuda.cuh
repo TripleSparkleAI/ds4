@@ -894,13 +894,6 @@ extern "C" int ds4_gpu_hc_weighted_sum_bf16_tensor(
            ds4_gpu_dsv41_quantize(out, n_embd, ds4_gpu_dsv41_rows_of(out, n_embd), DS4_V41_BF16);
 }
 
-extern "C" int ds4_gpu_hc_weighted_sum_split_bf16_tensor(
-        ds4_gpu_tensor *out, const ds4_gpu_tensor *residual_hc, const ds4_gpu_tensor *split,
-        uint32_t n_embd, uint32_t n_hc) {
-    return ds4_gpu_hc_weighted_sum_split_tensor(out, residual_hc, split, n_embd, n_hc) &&
-           ds4_gpu_dsv41_quantize(out, n_embd, ds4_gpu_dsv41_rows_of(out, n_embd), DS4_V41_BF16);
-}
-
 extern "C" int ds4_gpu_hc_expand_split_bf16_tensor(
         ds4_gpu_tensor *out_hc, const ds4_gpu_tensor *block_out, const ds4_gpu_tensor *residual_hc,
         const ds4_gpu_tensor *split, uint32_t n_embd, uint32_t n_hc) {

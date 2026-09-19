@@ -45603,17 +45603,6 @@ int ds4_gpu_hc_weighted_sum_split_tensor(
                                              "HC weighted sum split");
 }
 
-int ds4_gpu_hc_weighted_sum_split_bf16_tensor(
-        ds4_gpu_tensor       *out,
-        const ds4_gpu_tensor *residual_hc,
-        const ds4_gpu_tensor *split,
-        uint32_t                n_embd,
-        uint32_t                n_hc) {
-    const uint64_t mix_hc = 2ull * n_hc + (uint64_t)n_hc * n_hc;
-    return ds4_gpu_hc_weighted_sum_strided(out, residual_hc, split, 0, mix_hc * sizeof(float),
-                                             n_embd, n_hc, 1, "HC weighted sum split");
-}
-
 /* Release decode fused HC pre-sublayer operation.  The graph driver owns the
  * optional reference fallback so this function stays a direct fused dispatch. */
 int ds4_gpu_hc_split_weighted_sum_tensor(
