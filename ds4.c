@@ -40688,7 +40688,10 @@ static bool ds41_attention_publish(ds41_gpu_graph *g, const ds4_model *m,
 static bool ds41_attention_candidates(ds41_gpu_graph *g, uint32_t il) {
     const uint32_t pos = g->pos, ratio = ds4_layer_compress_ratio(il);
     const uint32_t n_comp = ratio ? (pos + 1u) / ratio : 0u;
-    if (n_comp && ds41_index_source(il)) {
+    /* DS4_KP_SKIP_SELECT (e76839617): up to 2048 blocks every block is a
+     * candidate and the mask stays zero, so the selection launches are skipped;
+     * off, main selects min(blocks, 2048) of them every time. */
+    if (n_comp && ds41_index_source(il) && (!ds41_kp_skip_select() || (n_comp + 7u) / 8u > 2048u)) {
         if (il == 20) {
             const uint32_t blocks = (n_comp + 7u) / 8u, top = blocks < 2048u ? blocks : 2048u;
             if (!ds4_gpu_dsv41_candidate_blocks(g->block_scores, g->index_scores, n_comp, 1, pos, ratio) ||
