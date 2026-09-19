@@ -131,3 +131,106 @@ FOLLOW-UP SEALS NAMED HERE, NOT RUN HERE
        tip: the CUDA reading of 2a281b080 that the Metal default hides. Its own seal.
   KP3  the first port (DESIGN_the-port-ranked-by-mechanism_2026-09-20.md names it): its own
        seal with its own G1 gate, on a branch that is 8db1d1d1 + that one port.
+
+==============================================================================
+A1  THE G1 GATE, run 2026-09-19 02:37:16Z .. 02:41:07Z under lane KP1FIRE's own lock
+    (appended, never edited above; the seal's THE G1 GATE block is the rule this ran)
+==============================================================================
+Procedure: ~/g1_clean.sh copied to ~/kp1_g1.sh with exactly the R29 A1 changes - label prefix
+kp1_ , no lock-owner write, cache stays 90GB as g1_clean.sh has it - plus a TAG= so two mints of
+one binary cannot overwrite each other. argv as the seal names it: ./ds4 -m
+gguf/DeepSeek-V4.1-Flash-Q2.gguf --cuda --ssd-streaming --ssd-streaming-cache-experts 90GB
+--ctx 32768 --temp 0 --dump-logprobs, -n 32 inline short, -n 16 on head -c 14000 of promessi.
+CONT net keyed to the G1 driver's own pid (1389318, watchdog 1389321); 0 CONTs needed.
+Box at G1 start: load 0.31, memavail 120GB, gpu 0%, driver 580.159.03. The q4 fetch
+(hf download antirez/glm-5.3-flash-gguf, pid 1240535) was running throughout and was recorded,
+not stopped.
+
+  run            worktree         sha256(16)        bytes   rc  UTC
+  kp1_m1_short   kp-main          5ed3e6dfe2177eca  73515   0   02:37:39Z
+  kp1_m1_long    kp-main          c5cb82566c628bed  36655   0   02:38:30Z
+  kp1_m2_short   kp-main          5ed3e6dfe2177eca  73515   0   02:38:59Z
+  kp1_m2_long    kp-main          c5cb82566c628bed  36655   0   02:39:49Z
+  kp1_arm_short  pr1073-cudafix   4db2aca7f0814259  73309   0   02:40:16Z
+  kp1_arm_long   pr1073-cudafix   97149a6aeed01181  36634   0   02:41:02Z
+
+G1a  PASS. Both mints agree in sha and byte count on both prompts, AND both reproduce R29 A1's
+     90GB references byte for byte: short 5ed3e6dfe2177eca / 73515 B, long c5cb82566c628bed /
+     36655 B. Same file, same sha, same regime, as the seal expected. P4 HIT.
+
+G1b  FAIL on BOTH prompts. The arm's shas differ from G1a's on both. The seal's rule applies:
+     the round does NOT stop, the t/s IS read, and the arm's D is reported under the words
+     NOT GREEDY-IDENTICAL with the first divergent token index recorded. It is recorded here.
+
+     THE CONTROL THAT MAKES THIS A FINDING AND NOT NOISE: tip m1 vs tip m2, short prompt, is
+     identical in every selected token id over 32 steps AND zero in every top-20 logit delta
+     (max |delta| = 0.000000). The instrument is deterministic on this box at this regime, so
+     the divergence below is the arm's, not run-to-run floating point.
+
+     SHORT prompt - the tokens diverge.
+       FIRST DIVERGENT SELECTED-TOKEN INDEX = 6 (0-based, of 32 generated).
+       at step 6 the tip selects id 16 '.' and the arm selects id 3939 ' why'.
+         tip  top2: '.' 37.596123 | ' why' 36.691921   margin 0.904201
+         arm  top2: ' why' 38.129314 | '.' 37.756294   margin 0.373020
+       Pre-divergence perturbation, steps 0..5 only (after step 6 the two contexts differ, so a
+       later delta is context drift and is NOT the arm's perturbation): per-step max |logit
+       delta| 2.1224 2.6203 1.4014 1.4473 0.8448 0.8991, worst 2.620255 at step 1.
+       The tip's own top1-top2 margin over steps 0..5: min 0.8819, median 5.0441.
+       => a ~2.6 logit perturbation against a 0.90 logit margin flips the token. The divergence
+          is a consequence of the perturbation, not of a tie being broken differently.
+       Texts after the flip:
+         tip  "We need answer in two sentences. Need explain Rayleigh scattering. Two sentences."
+         arm  "We need answer in two sentences why sky blue. Need concise. Explain Rayleigh"
+
+     LONG prompt - the tokens are IDENTICAL, the distribution is NOT.
+       FIRST DIVERGENT SELECTED-TOKEN INDEX = NONE over all 16 generated steps.
+       Max |logit delta| over the shared top-20 = 0.136036, at step 15; per-step 0.0589 0.0610
+       0.0431 0.0457 0.0528 0.0326 0.0563 0.0359 0.0459 0.0541 0.0352 0.0662 0.0379 0.0199
+       0.0363 0.1360. The tip's top1-top2 margin over those steps: min 0.2049.
+       => no token flipped because 0.1360 < 0.2049. That is a MARGIN accident, not losslessness:
+          the sha and the byte count still differ (36655 vs 36634 B) because the logprob VALUES
+          differ. Reported as SAME TOKENS, DAMAGED DISTRIBUTION, never as a pass.
+
+     WHY THIS IS THE ROUND'S MOST IMPORTANT RESULT, in the seal's own words: the seal reasoned
+     that d95f8b610 moves bf16 rounding on Metal only, and that 2a281b080 (sync pattern) and
+     e76839617 (skipped launches) "should not change a single fp32 reduction order on CUDA".
+     THEY DID, and the CUDA device code itself says so. Measured after the round, with cuobjdump
+     from /usr/local/cuda-13.0/bin (it is NOT on the default PATH - see the trap note below):
+
+       named device kernels   tip 1,143  ->  arm 1,147
+       genuinely NEW in the arm, 4:  dsv41_hc_mean_kernel · dsv41_indexer_all_kernel
+                                     dsv41_markov_part_kernel · dsv41_markov_final_kernel
+       CHANGED SIGNATURE, 1:  dsv41_candidates_kernel
+                              tip  _Z23dsv41_candidates_kernelPfPKfS1_jjjj   (4 uint params)
+                              arm  _Z23dsv41_candidates_kernelPfPKfS1_jjjjj  (5 uint params)
+
+     ★ THE CANDIDATE-SELECTION KERNEL GAINED A PARAMETER. That is the kernel e76839617 is about,
+     it exists on both sides, and its signature is different - so this is not new code sitting
+     unreferenced beside the old path, it is the OLD path's kernel replaced by a different one.
+     Together with the +16,904 B of .nv_fatbin growth recorded in the runlog header, the census's
+     reading that the CUDA decode runs "the same operator sequence as main" is CONTRADICTED for
+     candidate selection. The seal's escalation clause therefore fires - re-read
+     ds4_deepseek41_cuda.cuh for a fused entry that returns non-zero on CUDA - even though the
+     clause's own trigger (the arm reading more than +10 %) did NOT fire: the arm read +1.74 %.
+
+     ⚠ WHAT IS NOT MEASURED, AND THIS PROJECT HAS A LAW ABOUT IT: that these kernels are PRESENT
+     as device code does NOT prove they RUN on our decode path. That is the CALL-PATH GATE in its
+     mirror form - never claim a kernel executes because it compiled in - and closing it needs an
+     nsys capture, which this round did not take. What IS established without a profile: the G1
+     divergence proves that SOMETHING numerically different executed, because the same binary pair
+     on the same file at the same regime produced different logits from token 0. The changed
+     candidates signature is the leading HYPOTHESIS for it, not a demonstrated cause.
+
+     ⚠ TWO MEASUREMENT TRAPS MET WHILE ESTABLISHING THIS, both recorded because both produce a
+     confident false answer:
+       ① `cuobjdump` is not on the default PATH on this box. A first attempt with 2>/dev/null
+          swallowed "command not found" and reported "kernels=0" for BOTH arms, which reads as
+          "no device code at all" rather than "no instrument". A false zero from a missing tool.
+       ② A naive kernel-name diff reports ~29 differences. TWENTY-FIVE OF THEM ARE
+          ANONYMOUS-NAMESPACE TU-HASH RENAMES (_GLOBAL__N__d275f802_ vs _GLOBAL__N__e4369d22_),
+          the same kernels recompiled. Stripping the hash makes the two anon sets BYTE-IDENTICAL.
+          The real answer is 4 new plus 1 changed; reporting 29 would have overstated the change
+          by ~6x and pointed at the MoE quant kernels, which did not change at all.
+
+     Two prompts, two perturbation magnitudes (2.62 vs 0.14 logits) is a further clue: whatever
+     changed is sensitive to shape or token count, not a constant re-rounding.

@@ -2,10 +2,9 @@
 
 > ⛔ THIS FILE IS THE DELIVERABLE. Nothing below has been submitted anywhere: no
 > `gh pr comment`, no `gh pr review`, no issue, nothing on antirez's repository. The navigator
-> posts it by hand if he chooses, after the `[NOT YET MEASURED]` slots are filled from the KP1
-> RESULT doc. Every number present was measured by lane KERNELPOOLSPARK on 2026-09-19/20 and is
-> traceable to `BUILD_as-is-cuda_2026-09-20.md`; every slot marked `[NOT YET MEASURED]` is owed
-> to the sealed KP1 round, which is queued behind another lane's lock. No slot is a guess.
+> posts it by hand if he chooses. The measurement slots are now FILLED from the sealed KP1 round
+> (fired 2026-09-19, `2026-09-20-KP1-RESULT-ties-at-plus1.74pct-...md`). Every number present was measured by lane KERNELPOOLSPARK on 2026-09-19/20 and is
+> traceable to `BUILD_as-is-cuda_2026-09-20.md` or to the KP1 RESULT doc. No slot is a guess.
 
 ---
 
@@ -42,14 +41,29 @@ is ~31) and e76839617 (skipping candidate selection under 2048 blocks).
 
 | | main 8db1d1d1 | this branch (0bbca98ee) | delta |
 |---|---:|---:|---:|
-| gen t/s, min across 4096/6144 | [NOT YET MEASURED] | [NOT YET MEASURED] | [NOT YET MEASURED] |
-| prefill t/s (2048-token increment) | [NOT YET MEASURED] | [NOT YET MEASURED] | [NOT YET MEASURED] |
-| 1-min load before / after | [NOT YET MEASURED] | [NOT YET MEASURED] | |
-| greedy identity vs main, `--temp 0 --dump-logprobs`, 2 prompts | reference | [NOT YET MEASURED] | |
+| gen t/s, min across 4096/6144 | 9.55 | 9.67 | **+1.74 %** (paired vs bracketing main runs, sign 3/3, SE 1.05, range +0.26 .. +3.88) |
+| prefill t/s (2048-token increment) | 82.7 | 81.7 | +1.74 % paired, sign 2/3, SE 3.48, range -6.78 .. +4.85 (not separable) |
+| 1-min load before / after | 1.30-1.61 / 1.34-3.07 | 1.30-1.87 / 1.69-2.97 | expert cache 8941 slots / 82.88 GiB on every run, both arms |
+| greedy identity vs main, `--temp 0 --dump-logprobs`, 2 prompts | reference | **NOT IDENTICAL on either prompt** | short: first differing token at index 6 of 32; long: same 16 tokens, different logprobs |
 
 Sealed prediction, written before the run so it can be wrong in public: the header contributes
 0.0 % on CUDA; the branch as a whole reads +1 .. +6 % from the removed syncs and the skipped
 selection, and is greedy-identical to main on both prompts.
+
+**Outcome: the speed half landed, the losslessness half did not.** +1.74 % is inside the predicted
+band, but it is also inside our own tip-versus-tip floor for this round (3.10 % max over three
+adjacent main pairs), so by our pre-registered rule the branch **TIES** main on CUDA decode here and
+we are not claiming a speed win. The prediction we got wrong is the one worth your attention: the
+branch is **not greedy-identical to main on CUDA**. Same binary pair, same file, same 90 GB cache,
+`--temp 0`: the short prompt's 7th generated token flips (main takes `.` over ` why` by 0.904 logits,
+the branch reverses it), and the long prompt keeps all 16 tokens while its logprobs differ, with a
+peak top-20 logit delta of 0.136. Our control is main against itself, twice, which is identical to
+0.000000 in every top-20 logit over 32 steps, so this is the branch and not run-to-run noise.
+One corroborating build fact: `cuobjdump` shows four new device kernels
+(`dsv41_hc_mean_kernel`, `dsv41_indexer_all_kernel`, the two Markov ones) and, more to the point,
+**`dsv41_candidates_kernel` gains a parameter** (`...jjjj` to `...jjjjj`) - so candidate selection on
+CUDA is genuinely different code, not the same op sequence. We have NOT profiled whether it fires on
+our decode path, so that is a hypothesis for the divergence rather than a cause we have shown.
 
 **What did not transfer, in one line:** the fused kernels are all Metal, and on the GB10 at this
 regime the decode is bandwidth-bound (expert reads, not dispatch), so the mechanism that bought
