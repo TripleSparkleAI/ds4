@@ -272,91 +272,76 @@ it rock.
 ✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
   the card below is ours; the README above is antirez's, unchanged
 
-  ┌─ triple-glm53-spark ──────────────────────────────────────── TOOLING
-  │  WHAT     GLM 5.3 Flash on the DGX Spark with hits-first OFF: the measured
-  │           Q2 decode rows in antirez's docs, resident and streamed, plus the
-  │           Q4 predicate widening for CUDA (#907), env-gated off. Not a lever
-  │  SWITCH   DS4_GLM_Q4_GENERIC=1 puts the Q4 file on the generic CUDA MoE path
-  │  OUTPUT   Q4 gated and passing: two mints byte-identical, and the 24GB and
-  │           48GB runs byte-identical across 1,244 against 3,064 resident
-  │           experts, a 2.46x change in which experts miss
-  │  BASE     main @8db1d1d1
+  ┌─ triple-glm53-hitsfirst-spark ───────────────────────────── POSITIVE
+  │  WHAT     the hits-first split, unchanged, measured on a second model
+  │           family: GLM 5.3 Flash Q2 on the DGX Spark, forced to stream so
+  │           there are misses to hide, both arms at the same expert cache
+  │  SWITCH   DS4_CUDA_HITS_FIRST=0 turns it off; the pread pool stays on
+  │  OUTPUT   greedy-identical: G1 short a84e448ec8e5458f · long 89cffa1b02d565eb
+  │  BASE     triple-glm53-spark @fe20b8cc4 + 5264aa4b5 + 2a03cef9b
   └─
 ```
 
-**RESULTS** no arm - nothing here is compared against a tip, so the baseline IS the number · DGX Spark GB10 sm_121 · driver 580.159.03 · 128 gen tokens · one process per run walking the three contexts
+**RESULTS** DGX Spark GB10 sm_121 · driver 580.159.03 · 128 gen tokens · GLM 5.3 Flash Q2, 89.9 GiB, SSD-streamed · 3 cycles, each hits-first run taken between two runs with it off, after 3 discarded warm-ups
 
-| file | mode | ctx | cache asked | experts resident | decode t/s | runs |
-|---|---|---:|---|---|---|---|
-| Q2  89.9 GiB | resident | 2048 | none | all, the file fits | 14.675 | 6 |
-| Q2  89.9 GiB | resident | 4096 | none | all, the file fits | 14.635 | 6 |
-| Q2  89.9 GiB | resident | 6144 | none | all, the file fits | 14.600 | 6 |
-| Q2  89.9 GiB | streamed | 2048 | 24GB | 3,064   24.74 % | 4.50 | 4 |
-| Q2  89.9 GiB | streamed | 4096 | 24GB | 3,064   24.74 % | 4.32 | 4 |
-| Q2  89.9 GiB | streamed | 6144 | 24GB | 3,064   24.74 % | 3.79 | 4 |
-| Q4 177.8 GiB | streamed | 2048 | 24GB | 1,244   10.04 % | 2.38 | 3 |
-| Q4 177.8 GiB | streamed | 4096 | 24GB | 1,244   10.04 % | 2.60 | 3 |
-| Q4 177.8 GiB | streamed | 6144 | 24GB | 1,244   10.04 % | 2.55 | 3 |
-| Q4 177.8 GiB | streamed | - | 48GB | 3,064   24.74 % | output onl | y   2 |
+| arm | ctx | cache asked | experts resident | t/s | delta | sign |
+|---|---:|---|---|---:|---:|---|
+| hits-first OFF | 2048 | 24GB | 3,064 of 12,384 | 4.50 | - | - |
+| hits-first ON | 2048 | 24GB | 3,064 of 12,384 | 5.28 | +17.11% | 3/3 |
+| hits-first OFF | 4096 | 24GB | 3,064 of 12,384 | 4.32 | - | - |
+| hits-first ON | 4096 | 24GB | 3,064 of 12,384 | 5.20 | +20.10% | 3/3 |
+| hits-first OFF | 6144 | 24GB | 3,064 of 12,384 | 3.79 | - | - |
+| hits-first ON | 6144 | 24GB | 3,064 of 12,384 | 4.74 | +25.23% | 3/3 |
+| hits-first ON, MIN_MISS=3 | 6144 | 24GB | 3,064 of 12,384 | 4.59 | +22.07% | 3/3 |
 
 ```
-columns   cache asked = --ssd-streaming-cache-experts · resident = the engine's own line
-          a resident row streams nothing, so it says none rather than blank
-          coverage is of the 43 x 288 = 12,384 routed set: 288 is the file's own count,
-          not the 256 the GLM-specific launcher hardcodes
+floor     5.32 % from this round's own hits-first OFF pairs · 6144 BEATS at 4.74x
+          cycle readings at 6144: +25.23, +24.93, +25.27
 
-3,064 x2  it means two different runs. a Q4 expert is 13.50 MiB, a Q2 expert 6.75, exactly
-          double, and the headrooms are 7.59 and 3.80 GiB, so Q2 at 24GB and Q4 at 48GB
-          land on one integer · read the file and the cache on every row, not the count
+cache     both arms asked 24GB and the engine gave both 3,064 slots, so the delta
+          measures the lever, not the memory
+          3,064 = 24.74 % of the 43 x 288 = 12,384 routed set, 6.75 MiB each
+          cache asked = --ssd-streaming-cache-experts · resident = the engine's own line
 
-48GB row  carries no t/s on purpose: it pairs with the 24GB row above it, and what it
-          measures is that the output does not change when 2.46x more experts are resident
+wall      every OFF run 164-169 s, every ON run 117-121 s · no statistic needed
 
-prefill   Q2 streamed 24GB 79.7 / 90.4 / 90.7 · Q4 24GB 62.0 / 69.1 / 67.3 t/s
+prefill   about 90 to about 166 t/s at 4096 and 6144 · TTFT about 560 to 315 ms
 
-fixtures  Q2 resident, 100 cases: avg_nll 0.461783551 first_match 90 avg_lcp 7.490,
-          antirez's own Spark reference to the last published digit
-          Q4 streamed 24GB, 100 cases, 11,559 tokens: avg_nll 0.300986170 first_match 90
-          avg_lcp 9.970 · make cuda-regression GREEN
+MIN_MISS  =3 measures +22.07 % against +25.23 %, so the default stays at 1
 
-reports   the same dispatch gap, four reporters, four CUDA architectures, two Q4 files
-          #682  AlphaMo99      2026-08-04  404.35 GiB full GLM    Quadro RTX 5000  sm_75
-          #907  accdropdbd-ai  2026-08-30  177.77 GiB Flash Q4_K  H100 PCIe        sm_90
-          #682  ChicoPinto70   2026-09-12  the same Flash file    3x RTX 3090      sm_86
-          #682  chenwei0930    2026-09-19  the same error, no hardware stated
-          ours                             the same Flash file    DGX Spark GB10   sm_121
-          #907's author: "Happy to test patches or provide more diagnostics on the H100"
-
-files     glm53/measured/2026-09-19-GLM-R1-RESULT-*.md (resident Q2)
-          2026-09-19-GLM-R2-RESULT-*.md (the streamed Q2 rows, tip arm)
-          2026-09-20-GLM-B-RESULT-*.md (the Q4 door) · GLM-GATES · NEUTRALITY
+files     glm53/measured/2026-09-19-GLM-R2-RESULT-*.md (the sealed round)
+          2026-09-20-GLM-A5-RESULT-*.md (the streamed fixture and the split)
 ```
 
 NOTES
 **WHAT THIS IS**
-- GLM 5.3 Flash on the DGX Spark without the hits-first lever: the measured Q2 rows, resident and
-  streamed, plus the Q4 predicate widening for CUDA (#907), env-gated off.
-- Not a lever. Nothing here is compared against a tip; the baseline is the number.
+- The hits-first lever on the CUDA streaming path, measured on a second model family. Metal has
+  declined its own split under three misses in ds4_gpu_stream_expert_split_worthwhile() all along.
+- Engine code is the two commits named in BASE, on top of the glm53 branch. Nothing else differs.
 
-**Q2, MEASURED (GLM-R1, GLM-R2)**
-- Resident: six live runs after one discarded warm-up, MAD 0.080 / 0.020 / 0.030. One warm-up is
-  not enough: the warm-up and live run 1 sat within 0.42 % of each other.
+**THE POOL DOES MOST OF THE WORK, NOT THE ORDERING**
+- The commit has two parts. Turned on separately (round GLM-A5, its own total, not the table above):
+  pread pool 23.4 · hits-first ordering 4.9 · together 29.4 %
+- The ordering on its own sits near that round's floor. Said here because the branch is named
+  after the smaller half.
+- Both parts ship together. DS4_CUDA_HITS_FIRST=0 keeps the pool, as in #1083.
 
-**Q4 ON CUDA, MEASURED (GLM-B, GLM-GATES)**
-- The predicate widening landed (ds4.c +26/-5), env-gated OFF. Unset, it reproduces #907 verbatim
-  and exits 1 one second into prefill. Set, it decodes coherently: the first CUDA decode of this
-  file on record. Build rc=0 in 1 min 29 s, zero errors, zero warnings.
-- The 100-case Q4 fixture WAS run, streamed: 0.300986170 / 90 / 9.970 against the QA section's
-  reference 0.299917952 / 90 / 9.66. What is NOT done is the resident run: QA §8 says not to
-  attempt the 178 GiB artifact on one 128 GB Spark, so ours streamed where his was resident on Metal.
+**OUTPUT**
+- Byte-identical at n_expert_used=8 over ten dumps, shas in the box above.
+- The streamed 100-case fixture agrees to the last digit on both arms: avg_nll 0.459763833,
+  first_match 88, avg_lcp 7.810, 11,559 tokens, per-case files byte-identical on cmp.
 
-**THE DISPATCH GAP IS NOT SPARK-SPECIFIC**
-- Four reporters, four CUDA architectures (sm_75 / 86 / 90 / 121), two different Q4 files: the
-  reports block above lists them. #907's author offers his H100, the one we cannot reach.
-- Verbatim true at main today: glm_graph_layer_uses_generic_routed_moe() returns on
-  DS4_TENSOR_IQ2_XXS alone, and DS4_GLM_Q4_GENERIC is 0 rows in main's ds4.c (control:
-  DS4_GLM_MEMORY_GUARD, 8 rows, so the search sees what is there).
+**RESIDENT BASELINE, FOR SCALE**
+- No cache at all (GLM-R1, resident): 14.675 / 14.635 / 14.600 t/s at 2048 / 4096 / 6144, six runs.
+  Streaming is what creates the misses this lever hides.
 
 **FLAGGED, NOT FIXED**
-- fp8: weight_scale_inv has zero readers in ds4.c (packager only), "not implemented" in his table.
-  vision: a CUDA path exists in the tree and is unmeasured on GLM here.
+- glm53-full-q2 IQ2_XXS down has no launcher; the GLM launcher hardcodes 256 experts where this
+  file declares 288.
+- q4: see the glm53 card.
+
+```
+  ALSO TRIED
+  DS4_CUDA_HITS_FIRST_MIN_MISS=3 +22.1%  decline the split under 3 misses, as Metal does
+                                         not adopted: below the split alone, GLM and DeepSeek
+```
