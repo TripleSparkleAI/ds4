@@ -40633,7 +40633,13 @@ static bool ds41_env_flag(const char *name, int *cached) {
 static bool ds41_expand_fusion_off(void) { static int c = -1; return ds41_env_flag("DS4_METAL_DISABLE_V41_EXPAND_FUSION", &c); }
 static bool ds41_hc_block_input_off(void) { static int c = -1; return ds41_env_flag("DS4_METAL_DISABLE_V41_HC_BLOCK_INPUT", &c); }
 static bool ds41_rows_attention_on(void) { static int c = -1; return ds41_env_flag("DS4_METAL_ENABLE_V41_ROWS_ATTENTION", &c); }
-static bool ds41_tp_slab_off(void) { static int c = -1; return ds41_env_flag("DS4_METAL_DISABLE_V41_TP_SLAB_WRITE", &c); }
+static bool ds41_tp_slab_off(void) {
+#ifdef __APPLE__
+    static int c = -1; return ds41_env_flag("DS4_METAL_DISABLE_V41_TP_SLAB_WRITE", &c);
+#else
+    return true;
+#endif
+}
 
 /* Each rank takes half of the ordered selection, so neither waits on an
  * uneven split of the experts it owns. Both ranks then map every expert. */
@@ -40979,10 +40985,12 @@ static bool ds41_attention(ds41_gpu_graph *g, const ds4_model *m,
                                        ds4_layer_compress_ratio(il) != 0, true) != 0;
     if (g->tp_world != 2) return ds41_attention_expand(g, m, l, (int)il);
     ds4_gpu_tensor *out = g->block;
+#ifdef __APPLE__
     if (!ds41_tp_slab_off()) {
         out = g->tp_out[il * DS4_TP_GATES_PER_LAYER + DS4_TP_GATE_ATTN];
         ds4_gpu_tp_flag_fold_request(il, DS4_TP_GATE_ATTN);
     }
+#endif
     return ds41_attention_output(g, m, l, (int)il, out) &&
            (g->tp_gate_fused ? ds41_gate_partial(g, g->block, il, DS4_TP_GATE_ATTN) :
             ds41_sum_partial(g, g->block, il, DS4_TP_GATE_ATTN) && ds41_bf16(g->block, DS4_N_EMBD));
@@ -41146,8 +41154,13 @@ static bool ds41_moe_partial(ds41_gpu_graph *g, const ds4_model *m,
     if (!routed_ok) return false;
     /* Keep the shared expert's BF16 boundary, then include it exactly once
      * in the existing F32 reduction. Alternate ownership across layers. */
-    if (shared_owner && (shared_split || g->tp_rank == (il & 1u)) &&
-        !ds4_gpu_add_tensor_tp_flag(routed, routed, g->shared, DS4_N_EMBD, il, DS4_TP_GATE_FFN)) return false;
+    if (shared_owner && (shared_split || g->tp_rank == (il & 1u))) {
+#ifdef __APPLE__
+        if (!ds4_gpu_add_tensor_tp_flag(routed, routed, g->shared, DS4_N_EMBD, il, DS4_TP_GATE_FFN)) return false;
+#else
+        if (!ds4_gpu_add_tensor(routed, routed, g->shared, DS4_N_EMBD)) return false;
+#endif
+    }
     return true;
 }
 
