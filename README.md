@@ -267,3 +267,62 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+```
+✦━━━━━━━━━━━━━━━━━━━⟡ T R I P L E S P A R K L E ⟡━━━━━━━━━━━━━━━━━━━
+  the card below is ours; the README above is antirez's, unchanged
+
+  ┌─ flash41-kernelpool-spark ───────────────────────────────────── TIES
+  │  WHAT     PR #1073's V4.1 Flash work, carried to CUDA on a DGX Spark
+  │           GB10 and measured. It does NOT compile as-is there, so the
+  │           branch adds the two smallest fixes that make it build, puts
+  │           each of his mechanisms behind its own switch, and reports
+  │           what the port is worth. A MEASUREMENT BRANCH, not a lever
+  │  SWITCH   DS4_KP_ALL=0 turns the port off wholesale; per mechanism,
+  │           DS4_KP_HEAD_EARLY · DS4_KP_QUEUE_LAYERS · DS4_KP_SKIP_SELECT
+  │           and DS4_CUDA_V41_DECODE_FLUSH_LAYERS, one at a time or many
+  │  OUTPUT   ⛔ GATED AND FAILING. see NOTES: not greedy-identical to main
+  │  BASE     main @8db1d1d1
+  └─
+
+  RESULTS   gen tokens/s at min across ctx 4096 and 6144 · DGX Spark GB10
+            driver 580.159.03 · V4.1-Flash-Q2 · 90GB cache, 8941 slots
+  round  variant            arm t/s  tip t/s   delta  sign  floor  verdict  n
+  kp1    whole port           9.67    9.55    +1.74%   3/3   3.10  TIES     3
+  prefill 2048-token chunks  81.7    82.7     +1.74%   2/3   3.48  not sep.
+  paired against bracketing tip runs · floor = max adjacent tip pair
+  the delta is INSIDE the predicted +1..+6 band AND inside our own floor
+```
+
+NOTES
+- IT DOES NOT BUILD AS-IS ON CUDA at af7c02b59: six `identifier is undefined` in
+  ds4_deepseek41_cuda.cuh (the fused entries call three `*_bf16_tensor` helpers defined at the
+  end of the same header, and ds4_cuda.cu does not include ds4_gpu.h), then a link failure on
+  `ds4_gpu_tp_flag_fold_request` and `ds4_gpu_add_tensor_tp_flag`, which only ds4_metal.m
+  defines. Three forward declarations and two `#if defined(__APPLE__)` guards fix it
+- ⛔ THE HEADLINE IS THE LOSSLESSNESS FAILURE, NOT THE SPEED. Same binary pair, same file,
+  same 90GB cache, `--temp 0 --dump-logprobs`: the short prompt's 7th generated token FLIPS
+  (main takes `.` over ` why` by 0.904 logits, the branch reverses it) and the long prompt
+  keeps all 16 tokens with different logprobs, peak top-20 logit delta 0.136. Our control is
+  main against itself twice, identical to 0.000000 in every top-20 logit over 32 steps, so
+  this is the branch and not run-to-run noise
+- WHICH OF HIS 36 COMMITS TOUCH CUDA: d95f8b610, ce5a812fd, 3b7f8f224, d8d1523b3 (429 lines in
+  ds4_deepseek41_cuda.cuh). Read by function: 9 entry points `return 0` so ds4.c runs the
+  unfused chain, 8 are compositions of ops main already ran, 4 are new kernels. So on CUDA the
+  decode graph is the SAME operator sequence as main
+- THE TWO THAT DO CHANGE A CUDA DECODE ARE NOT METAL COMMITS: 2a281b080 (single-node layer
+  queueing; on CUDA both flush entry points are `cudaDeviceSynchronize`, so main's
+  drain-every-layer is ~60 syncs/token against ~31 at the default) and e76839617 (skipping
+  candidate selection under 2048 blocks)
+- `cuobjdump` shows four new device kernels and, more to the point,
+  `dsv41_candidates_kernel` GAINS A PARAMETER, so candidate selection on CUDA is genuinely
+  different code rather than the same op sequence. Whether it fires on our decode path is
+  UNPROFILED, so that is a hypothesis for the divergence and not a cause we have shown
+- `.text` of ds4-server: 24,862,747 (main) to 24,945,559 (+82,812 B)
+- THE HEADER'S OWN SHARE IS UNSCOREABLE FROM THIS ROUND: the arm carries the whole branch. A
+  per-mechanism matrix is what isolates it and has not been run. `kp_matrix.sh` is the harness
+- WHAT DID NOT TRANSFER, in one line: the fused kernels are all Metal, and at this regime the
+  GB10's decode is bandwidth-bound (expert reads, not dispatch), so the mechanism worth 1.8x on
+  an M3 Ultra is bounded to a few percent here even once ported
+- Full prereg, build log, census, design and the drafted upstream comment are in
+  `flash41-kernelpool-spark/`. NOTHING here has been posted upstream
