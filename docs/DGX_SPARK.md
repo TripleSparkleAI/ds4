@@ -117,14 +117,13 @@ warm-up runs before taking numbers. Each load builds its aligned CUDA
 artifacts in memory (about 15 seconds) before the first token.
 
 The same file forced to stream with a 24 GB expert cache measures the
-hits-first split on a second model family. The split is the Metal backend's
-own, in `ds4_gpu_stream_expert_split_worthwhile()`, ported to the CUDA
-streaming path. Same day, same harness, medians of four runs with the split
-off and three with it on after three discarded warm-ups, each hits-first run
-taken between two runs with it off. Both arms asked for the same 24 GB
-expert cache and the engine gave both 3,064 resident expert slots of the
-43 x 288 routed set at 6.75 MiB each, so the two columns differ by the split
-and not by the memory.
+hits-first lever on a second model family: the CUDA streaming path takes the
+split that `ds4_gpu_stream_expert_split_worthwhile()` applies on Metal. Same
+day, same harness, medians of four runs with it off and three with it on
+after three discarded warm-ups, each hits-first run taken between two runs
+with it off. Both arms asked for the same 24 GB expert cache and the engine
+gave both 3,064 resident expert slots of the 43 x 288 routed set at 6.75 MiB
+each, so the two columns differ by the lever and not by the memory.
 
 | Context | SSD streaming, hits-first OFF | SSD streaming, hits-first ON |
 | --- | ---: | ---: |
