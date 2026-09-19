@@ -1,6 +1,19 @@
 /* V4.1-specific operations. Included after the shared CUDA kernels. */
 #include "ds4_deepseek41_gpu.h"
 
+/* The bf16 rounding wrappers are defined at the end of this file and used by
+ * the fused entry points above them; ds4_cuda.cu does not include ds4_gpu.h,
+ * so declare them here. */
+extern "C" int ds4_gpu_rms_norm_weight_bf16_tensor(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *x, const void *model_map,
+        uint64_t model_size, uint64_t weight_offset, uint32_t n, float eps);
+extern "C" int ds4_gpu_matmul_q8_0_bf16_tensor(
+        ds4_gpu_tensor *out, const void *model_map, uint64_t model_size, uint64_t weight_offset,
+        uint64_t in_dim, uint64_t out_dim, const ds4_gpu_tensor *x, uint64_t n_tok);
+extern "C" int ds4_gpu_hc_weighted_sum_bf16_tensor(
+        ds4_gpu_tensor *out, const ds4_gpu_tensor *residual_hc, const ds4_gpu_tensor *weights,
+        uint32_t n_embd, uint32_t n_hc);
+
 static bool dsv41_has_floats(const ds4_gpu_tensor *t, uint64_t count) {
     return t && t->ptr && count <= t->bytes / sizeof(float);
 }
