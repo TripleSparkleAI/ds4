@@ -253,8 +253,6 @@ int ds4_gpu_preload_q4_expert_tables(const void *model_map, uint64_t model_size,
                                      uint32_t n_total_expert);
 int ds4_gpu_should_use_managed_kv_cache(uint64_t kv_cache_bytes, uint64_t context_bytes);
 void ds4_gpu_set_quality(bool quality);
-/* Tests pick the V4.1 single-row index scoring kernel: 0 per key, 1 wide, -1 by row count. */
-void ds4_gpu_glm_indexer_score_one_force_wide(int mode);
 void ds4_gpu_set_glm_model(bool enabled);
 void ds4_gpu_set_ssd_streaming(bool enabled);
 void ds4_gpu_set_glm_streaming_prefill_full_layer(bool enabled);
@@ -277,6 +275,8 @@ enum {
     DS4_GPU_TEST_MXFP4_DOWN_HALF_LUT = 1u << 4,
     DS4_GPU_TEST_OUTPUT_HC_WEIGHTS4 = 1u << 5,
     DS4_GPU_TEST_HC_RMS_SCALE_PROJ = 1u << 6,
+    DS4_GPU_TEST_INDEX_SCORE_DIRECT = 1u << 7,
+    DS4_GPU_TEST_INDEX_SCORE_WIDE = 1u << 8,
 };
 void ds4_gpu_test_set_flags(uint32_t flags);
 void ds4_gpu_release_zero_prefix_prefill_mask_cache(void);

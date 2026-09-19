@@ -544,7 +544,6 @@ static id<MTLComputePipelineState> g_glm_indexer_rope_tail_pipeline;
 static id<MTLComputePipelineState> g_glm_indexer_score_one_pipeline;
 static id<MTLComputePipelineState> g_glm_indexer_score_one_direct_pipeline;
 static id<MTLComputePipelineState> g_glm_indexer_score_one_wide_pipeline;
-static int g_glm_indexer_score_one_wide_force = -1;   /* tests pick a kernel: 0 direct, 1 wide */
 static id<MTLComputePipelineState> g_glm_indexer_scores_batch_pipeline;
 static id<MTLComputePipelineState> g_glm_indexer_scores_tiled_pipeline;
 static id<MTLComputePipelineState> g_glm_indexer_scores_tiled_f32_pipeline;
@@ -36788,10 +36787,6 @@ static int ds4_gpu_v41_index_score_wide_off(void) {
     return off;
 }
 
-void ds4_gpu_glm_indexer_score_one_force_wide(int mode) {
-    g_glm_indexer_score_one_wide_force = mode;
-}
-
 int ds4_gpu_glm_indexer_score_one_tensor(
         ds4_gpu_tensor       *scores,
         const ds4_gpu_tensor *q,
@@ -36838,9 +36833,9 @@ int ds4_gpu_glm_indexer_score_one_tensor(
 
         if (n_head == 32u && head_dim == 128u) {
             /* long rows stream one key per thread; short ones keep the per-key kernel */
-            const int force = g_glm_indexer_score_one_wide_force;
-            const bool wide = force >= 0 ? force != 0 :
-                n_rows >= 8192u && !ds4_gpu_v41_index_score_wide_off();
+            const bool wide = (g_test_flags & DS4_GPU_TEST_INDEX_SCORE_WIDE) != 0u ||
+                ((g_test_flags & DS4_GPU_TEST_INDEX_SCORE_DIRECT) == 0u &&
+                 n_rows >= 8192u && !ds4_gpu_v41_index_score_wide_off());
             id<MTLComputePipelineState> direct_pipeline = wide ?
                 ds4_gpu_hot_pipeline(g_glm_indexer_score_one_wide_pipeline,
                                      "kernel_glm_indexer_score_one_wide") :

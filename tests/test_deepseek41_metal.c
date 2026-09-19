@@ -1308,7 +1308,7 @@ static int check_index_score_wide(void) {
         direct[keys] = wide[keys] = 12345;
         double seconds[2] = {0, 0};
         for (int mode = 0; mode < 2; mode++) {
-            ds4_gpu_glm_indexer_score_one_force_wide(mode);
+            ds4_gpu_test_set_flags(mode ? DS4_GPU_TEST_INDEX_SCORE_WIDE : DS4_GPU_TEST_INDEX_SCORE_DIRECT);
             for (int round = 0; round < ROUNDS; round++) {
                 const double t0 = monotonic_seconds();
                 CHECK(ds4_gpu_glm_indexer_score_one_tensor(mode ? sw : sd, qt, wt, kt,
@@ -1317,7 +1317,7 @@ static int check_index_score_wide(void) {
                 if (round) seconds[mode] += monotonic_seconds() - t0;
             }
         }
-        ds4_gpu_glm_indexer_score_one_force_wide(-1);
+        ds4_gpu_test_set_flags(0);
         CHECK(direct[keys] == 12345 && wide[keys] == 12345);
         double worst[2] = {0, 0}, gap = 0;
         for (uint32_t j = 0; j < keys; j++) {
