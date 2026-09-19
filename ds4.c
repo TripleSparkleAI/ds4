@@ -46073,13 +46073,34 @@ static bool glm_graph_dense_tensor_layout(
     return true;
 }
 
+/* DS4_GLM_Q4_GENERIC=1 routes a uniform Q4_K GLM expert layer (gate, up and
+ * down all Q4_K, the layout of GLM-5.3-Flash-Q4_K.gguf) through the generic
+ * routed MoE launcher instead of the GLM-specific one. On CUDA the generic
+ * launcher carries a Q4_K/Q4_K expert path and the streaming selected-expert
+ * cache; the GLM-specific CUDA launcher accepts Q2_K only and its Q4 scalar
+ * entry is a stub, so without this switch a Q4_K GLM file has no CUDA
+ * compute path. Off by default: Metal and ROCm keep their own GLM Q4 paths
+ * byte-identical, and the generic route on CUDA is unmeasured until it has
+ * passed the GLM quality fixtures. */
+static bool glm_graph_q4_generic_routed_moe_enabled(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *v = getenv("DS4_GLM_Q4_GENERIC");
+        cached = (v && v[0] && v[0] != '0') ? 1 : 0;
+    }
+    return cached == 1;
+}
+
 static bool glm_graph_layer_uses_generic_routed_moe(
         const ds4_layer_weights *l) {
-    return l &&
-           l->ffn_gate_exps &&
-           l->ffn_up_exps &&
-           l->ffn_down_exps &&
-           l->ffn_gate_exps->type == DS4_TENSOR_IQ2_XXS;
+    if (!l || !l->ffn_gate_exps || !l->ffn_up_exps || !l->ffn_down_exps) {
+        return false;
+    }
+    if (l->ffn_gate_exps->type == DS4_TENSOR_IQ2_XXS) return true;
+    return glm_graph_q4_generic_routed_moe_enabled() &&
+           l->ffn_gate_exps->type == DS4_TENSOR_Q4_K &&
+           l->ffn_up_exps->type == DS4_TENSOR_Q4_K &&
+           l->ffn_down_exps->type == DS4_TENSOR_Q4_K;
 }
 
 static bool glm_tp_validate_ownership_kernels(
