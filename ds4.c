@@ -3062,10 +3062,8 @@ static ds4_dspark_summary model_dspark_summary(const ds4_model *m) {
         s.has_target_layers = true;
     }
 
-    static const char *const expert_keys[] = {"dspark.n_routed_experts"};
-    static const char *const used_keys[] = {"dspark.num_experts_per_tok"};
-    (void)model_get_u32_any(m, expert_keys, 1, &s.n_expert);
-    (void)model_get_u32_any(m, used_keys, 1, &s.n_expert_used);
+    (void)model_get_u32(m, "dspark.n_routed_experts", &s.n_expert);
+    (void)model_get_u32(m, "dspark.num_experts_per_tok", &s.n_expert_used);
     uint32_t max_stage = 0;
     bool have_stage = false;
     for (uint64_t i = 0; i < m->n_tensors; i++) {
@@ -43231,7 +43229,7 @@ struct ds4_engine {
     ds4_weights weights;
     ds4_mtp_weights mtp_weights;
     ds4_dspark_weights dspark_weights;
-    bool ds41_dspark;           /* V4.1 stages, in the model or the support file */
+    bool ds41_dspark;           /* V4.1 drafting from the DSpark support file */
 #ifndef DS4_NO_GPU
     ds4_glm53_vision_weights vision_weights;
     ds4_deepseek4_vision_weights deepseek4_vision_weights;
@@ -72134,23 +72132,12 @@ static int ds4_engine_open_internal(ds4_engine **out,
     }
     if (DS4_MODEL_FAMILY == DS4_MODEL_FAMILY_DEEPSEEK41) {
         /* The V4.1 engine drafts on its own: the V4 DSpark paths stay off. */
-        ds4_dspark_summary dspark = {0};
         if (e->support_kind == DS4_SUPPORT_DSPARK) {
             e->support_kind = DS4_SUPPORT_NONE;
             e->ds41_dspark = e->dspark;
-        } else if (e->dspark && (dspark = model_dspark_summary(&e->model)).stages) {
-            dspark_weights_bind_optional(&e->dspark_weights, &e->model, &dspark);
-            e->ds41_dspark = true;
-            fprintf(stderr, "ds4: DSpark stages in the model (stages=%u block=%u markov_rank=%u "
-                    "experts=%u/%u tensors=%u missing=%u invalid=%u metadata_errors=%u)\n",
-                    e->dspark_weights.n_stages, dspark.block_size, dspark.markov_rank,
-                    dspark.n_expert_used, dspark.n_expert, e->dspark_weights.present_tensors,
-                    e->dspark_weights.missing_tensors, e->dspark_weights.invalid_tensors,
-                    e->dspark_weights.metadata_errors);
         }
         if (e->dspark && !e->ds41_dspark) {
-            fprintf(stderr, "ds4: --dspark needs the DSpark stages: pass --mtp-model FILE or "
-                    "convert the model with them\n");
+            fprintf(stderr, "ds4: --dspark needs the DSpark stages: pass --mtp-model FILE\n");
             ds4_engine_close(e);
             *out = NULL;
             return 1;
@@ -73844,8 +73831,7 @@ int ds4_session_create(ds4_session **out, ds4_engine *e, int ctx_size) {
         s->ds41_graph_ready = true;
         s->ds41_graph.quality = e->quality;
         if (e->ds41_dspark &&
-            !ds41_draft_init(&s->ds41_graph, &e->dspark_weights,
-                             e->mtp_model.map ? &e->mtp_model : &e->model))
+            !ds41_draft_init(&s->ds41_graph, &e->dspark_weights, &e->mtp_model))
             fprintf(stderr, "ds4: DSpark drafting unavailable for this V4.1 session\n");
         if (e->tp.active) {
             s->ds41_graph.tp_world = 2;
