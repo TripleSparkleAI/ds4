@@ -163,9 +163,9 @@ int ds4_gpu_dsv41_projection_rows(ds4_gpu_tensor *out,
                                  uint64_t weight_offset, uint32_t width,
                                  uint32_t outputs, uint32_t rows,
                                  const ds4_gpu_tensor *in);
-/* Gather 512-wide F32 KV rows; IDs must come from top-k over source_rows. */
-/* The HC mixer projection of one row with its norm fused (0: not fused). */
+/* A DSpark verify pass runs; its rows take decode's attention path. */
 void ds4_gpu_dsv41_verify_rows(int on);
+/* The HC mixer projection of one row with its norm fused (0: not fused). */
 int ds4_gpu_dsv41_hc_project(ds4_gpu_tensor *mix, const ds4_gpu_tensor *residual,
                              const void *model_map, uint64_t model_size, uint64_t fn_offset,
                              uint32_t n, uint32_t mix_dim, float eps);
@@ -206,8 +206,6 @@ int ds4_gpu_dsv41_shared_swiglu(ds4_gpu_tensor *mid, ds4_gpu_tensor *gate, ds4_g
                                 const ds4_gpu_tensor *x, float clamp, uint32_t rows);
 /* Rope, quantize and store one row into dst at dst_offset bytes; x may be
  * left roped and quantized in place. */
-/* The same for `rows` rows at positions start + r: with `ring` row r lands in
- * slot (start + r) % ring of dst, else in row r. */
 int ds4_gpu_dsv41_rope_quantize(const ds4_gpu_tensor *x, ds4_gpu_tensor *dst, uint64_t dst_offset,
                                 uint32_t width, uint32_t start, bool compressed,
                                 ds4_v41_activation_format format);
@@ -251,6 +249,7 @@ int ds4_gpu_dsv41_norm_pair_rows(ds4_gpu_tensor *out0, const ds4_gpu_tensor *x0,
 int ds4_gpu_dsv41_norm_pair(ds4_gpu_tensor *out0, const ds4_gpu_tensor *x0, uint64_t weight0_offset, uint32_t n0,
                             ds4_gpu_tensor *out1, const ds4_gpu_tensor *x1, uint64_t weight1_offset, uint32_t n1,
                             const void *model_map, uint64_t model_size, float eps);
+/* Gather 512-wide F32 KV rows; IDs must come from top-k over source_rows. */
 int ds4_gpu_dsv41_gather_kv(ds4_gpu_tensor *out, const ds4_gpu_tensor *source,
                            const ds4_gpu_tensor *ids, uint32_t source_rows,
                            uint32_t selected_rows);

@@ -142,8 +142,8 @@ struct ds4_metal_args_flash_kv_stage_f16 {
 // by an already-F16 compressed cache. Pack both regions into the contiguous
 // F16 FlashAttention scratch in one dispatch. The raw conversion expression
 // and compressed ushort4 transport exactly match the standalone copy kernels.
-/* GATHER reads the compressed rows as f32 through ids (DeepSeek V4.1's
- * cache) instead of contiguous f16 rows. */
+// GATHER reads the compressed rows as f32 through ids (DeepSeek V4.1's
+// cache) instead of contiguous f16 rows.
 template<bool GATHER>
 static inline void dsv4_flash_kv_stage_body(
         constant ds4_metal_args_flash_kv_stage_f16 & args,

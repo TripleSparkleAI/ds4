@@ -462,10 +462,10 @@ static __attribute__((always_inline)) inline void ds4_hc_comb_weights4_exact(
     *((device float4 *)(out + 20)) = r3;
 }
 
-/* V41 reproduces DeepSeek V4.1's separate kernels: the weighted sum's pre
- * weights come from pre_w (the previous block's split), the sigmoids follow
- * the standalone sinkhorn kernel, the sum and the norm round to bf16 and the
- * scale is formed as the standalone norm kernel forms it. */
+// V41 reproduces DeepSeek V4.1's separate kernels: the weighted sum's pre
+// weights come from pre_w (the previous block's split), the sigmoids follow
+// the standalone sinkhorn kernel, the sum and the norm round to bf16 and the
+// scale is formed as the standalone norm kernel forms it.
 template<bool V41>
 static inline void dsv4_hc_split_weighted_sum_norm_body(
         constant ds4_metal_args_dsv4_hc_split_weighted_sum_norm & args,
@@ -644,7 +644,7 @@ kernel void kernel_dsv4_hc_split_weighted_sum_norm4(
     dsv4_hc_split_weighted_sum_norm_body<false>(args, mixes, scale, base, x, split, dst, norm_weight, norm_dst, shared, row, tid, sgitg, tiisg, ntg, scale);
 }
 
-/* DeepSeek V4.1: the input of one HC block from the previous block's pre weights. */
+// DeepSeek V4.1: the input of one HC block from the previous block's pre weights.
 kernel void kernel_dsv41_hc_split_sum_norm(
         constant ds4_metal_args_dsv4_hc_split_weighted_sum_norm & args,
         device  const char  * mixes,
@@ -1184,9 +1184,9 @@ struct ds4_metal_args_hc_norm_mix {
 // rounds identically to the materialized normalized row.  The host wrapper
 // gates this to n == 16384 && out_dim == 24, where the virtual-thread count
 // is exactly 1024 and the mv tail loop is empty.
-/* Loads of what other threadgroups of the same dispatch wrote go through the
- * coherent atomic path: a plain load may return a line another threadgroup
- * on the same core cached before the writes. */
+// Loads of what other threadgroups of the same dispatch wrote go through the
+// coherent atomic path: a plain load may return a line another threadgroup
+// on the same core cached before the writes.
 static inline float dsv41_coherent_load(device const float *p) {
     return as_type<float>(atomic_load_explicit((device atomic_uint *)p, memory_order_relaxed));
 }
@@ -1287,7 +1287,7 @@ static inline void dsv4_hc_rms_norm_mix_body(
     // n == 16384 makes the scalar tail loop of the original empty.
     device float * dst_f32 = (device float *) dst;
     if (COHERENT) {
-        /* the same reduction, the outputs stored for another threadgroup to read */
+        // the same reduction, the outputs stored for another threadgroup to read
         threadgroup float * shmem_f32[NR0];
         for (short row = 0; row < NR0; ++row) {
             shmem_f32[row] = (threadgroup float *) mv_shmem + NW*row;
@@ -1321,12 +1321,12 @@ kernel void kernel_dsv4_hc_rms_norm_mix_f16(
     dsv4_hc_rms_norm_mix_body(args, x, weight, dst, shmem, tgpig, tiisg, sgitg);
 }
 
-/* DeepSeek V4.1: one block's whole HC input. The leading threadgroups
- * produce the mix rows as above while four more take the weighted sum with
- * the previous block's pre weights (kernel_dsv41_hc_split_sum_norm's
- * arithmetic, one virtual 256-thread slice of its 1024-thread reduction
- * each); everyone counts itself in and the last arrival runs the split and
- * the norm. */
+// DeepSeek V4.1: one block's whole HC input. The leading threadgroups
+// produce the mix rows as above while four more take the weighted sum with
+// the previous block's pre weights (kernel_dsv41_hc_split_sum_norm's
+// arithmetic, one virtual 256-thread slice of its 1024-thread reduction
+// each); everyone counts itself in and the last arrival runs the split and
+// the norm.
 template<short NR0>
 static inline void dsv41_hc_block_input_body(
         constant ds4_metal_args_hc_norm_mix & args,
@@ -1357,8 +1357,8 @@ static inline void dsv41_hc_block_input_body(
     if (tgpig.x < groups) {
         dsv4_hc_rms_norm_mix_body<NR0, true>(args, x, weight, mix, shmem, tgpig, tiisg, sgitg);
     } else {
-        /* one virtual 256-thread slice of the weighted sum: the per-lane walk
-         * and the partial sums of the single-threadgroup kernel */
+        // one virtual 256-thread slice of the weighted sum: the per-lane walk
+        // and the partial sums of the single-threadgroup kernel
         const uint v = tgpig.x - groups;
         device const float4 * x0 = (device const float4 *)(x + 0 * split_args.nb_x1);
         device const float4 * x1 = (device const float4 *)(x + 1 * split_args.nb_x1);
@@ -1392,7 +1392,7 @@ static inline void dsv41_hc_block_input_body(
     threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);
     if (flag[0] == 0.0f) return;
     atomic_thread_fence(mem_flags::mem_device, memory_order_seq_cst, thread_scope_device);
-    /* the continuation, on the last threadgroup */
+    // the continuation, on the last threadgroup
     device const float * mixes = (device const float *)mix;
     device       float * out = (device float *)split;
     if (tiisg == 0 && sgitg == 0) {
@@ -1476,7 +1476,7 @@ kernel void kernel_dsv41_hc_block_input(
         uint3  tgpig [[threadgroup_position_in_grid]],
         ushort tiisg [[thread_index_in_simdgroup]],
         ushort sgitg [[simdgroup_index_in_threadgroup]]) {
-    /* grid row = activation row; each row has its own completion count and partials */
+    // grid row = activation row; each row has its own completion count and partials
     const uint row = tgpig.y;
     const uint mix_hc = (uint)split_args.mix_hc, n_embd = (uint)split_args.n_embd;
     x += (ulong)row * (ulong)args.n * sizeof(float);

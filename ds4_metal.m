@@ -10360,7 +10360,6 @@ static volatile uint32_t *g_tp_poll_status;   /* per-slot poll result, GPU-writt
  * DS4_TP_INLINE_SPIN_ITERS bounds the spin (default 8M). */
 static id<MTLBuffer> g_tp_release_buffer;
 static volatile uint32_t *g_tp_release_ptr;
-int ds4_gpu_tp_decode_inline_gates(void);
 static uint32_t g_tp_spin_max_iters;
 static uint64_t g_tp_stat_spin_iters;
 static int g_tp_poll_prev_valid;
@@ -10966,8 +10965,8 @@ int ds4_gpu_tp_init(uint32_t rank,
     }
     pthread_attr_destroy(&attr);
     g_tp_thread_running = 1;
-    /* The spin kernel keeps the GPU busy; the keep-alive kernels would timeslice
-     * against it (measured ~10x decode regression on the prototype). */
+    /* The spin kernel keeps the GPU busy; the keep-alive kernels would
+     * timeslice against it. */
     if (getenv("DS4_TP_NO_KEEPALIVE") == NULL && !ds4_gpu_tp_decode_inline_gates()) {
         uint32_t ka_tgs = ds4_gpu_tp_keepalive_tgs_from_env();
         g_tp_keepalive_queue = [g_device newCommandQueue];
@@ -11043,9 +11042,7 @@ static bool ds4_gpu_tp_fold_ctl_ready(void) {
 }
 
 int ds4_gpu_tp_decode_inline_gates(void) {
-    static int on = -1;
-    if (on < 0) on = getenv("DS4_TP_DISABLE_DECODE_POLL_GATES") == NULL;
-    return on && g_tp_flag_gates && !g_tp_session_batch_mode && g_tp_release_ptr != NULL;
+    return g_tp_flag_gates && !g_tp_session_batch_mode && g_tp_release_ptr != NULL;
 }
 
 void ds4_gpu_tp_flag_fold_request(uint32_t layer, uint32_t gate) {
@@ -20017,12 +20014,7 @@ int ds4_gpu_matmul_q8_0_bf16io_tensor(
         if (!ds4_gpu_dsv41_quantize(x, (uint32_t)in_dim, (uint32_t)n_tok, DS4_V41_BF16)) return 0;
         return ds4_gpu_matmul_q8_0_bf16_tensor(out, model_map, model_size, weight_offset, in_dim, out_dim, x, n_tok);
     }
-    int fused = 0;
-    if (!ds4_gpu_matmul_q8_0_tensor_impl(out, model_map, model_size, weight_offset, in_dim, out_dim, x, 1, false, 2, &fused)) return 0;
-    if (fused) return 1;
-    /* not the plain single-row kernel: redo with explicit rounding passes */
-    return ds4_gpu_dsv41_quantize(x, (uint32_t)in_dim, 1, DS4_V41_BF16) &&
-           ds4_gpu_matmul_q8_0_bf16_tensor(out, model_map, model_size, weight_offset, in_dim, out_dim, x, 1);
+    return ds4_gpu_matmul_q8_0_tensor_impl(out, model_map, model_size, weight_offset, in_dim, out_dim, x, 1, false, 2, NULL);
 }
 
 int ds4_gpu_qwen4_matmul_q8_0_tensor(
@@ -20039,10 +20031,6 @@ int ds4_gpu_qwen4_matmul_q8_0_tensor(
         ds4_gpu_device_name_contains("M3 Ultra"), 0, NULL);
 }
 
-/* Two to eight rows share one pass over the weights (the rows kernels);
- * each row's arithmetic is the single-row matvec's. round_bf16 as in
- * ds4_gpu_matmul_q8_0_tensor_impl; rounding needs the rows kernel. */
-
 /* The matrix rows kernels round a few outputs differently from the row kernels. */
 static int ds4_gpu_v41_rows_mma_off(void) {
     static int off = -1;
@@ -20050,6 +20038,9 @@ static int ds4_gpu_v41_rows_mma_off(void) {
     return off;
 }
 
+/* Two to eight rows share one pass over the weights (the rows kernels);
+ * each row's arithmetic is the single-row matvec's. round_bf16 as in
+ * ds4_gpu_matmul_q8_0_tensor_impl; rounding needs the rows kernel. */
 static int ds4_gpu_matmul_q8_0_rows_tensor_impl(
         ds4_gpu_tensor       *out,
         const void           *model_map,
@@ -20221,7 +20212,6 @@ int ds4_gpu_dsv41_project_pair_q8(ds4_gpu_tensor *out_a, ds4_gpu_tensor *out_b,
         return ds4_gpu_finish_command_buffer(cb, owned, "V4.1 paired Q8_0 matvec");
     }
 }
-
 
 int ds4_gpu_matmul_q8_0_decode_mpp_tensor(
         ds4_gpu_tensor       *out,

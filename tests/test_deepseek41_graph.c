@@ -1232,7 +1232,7 @@ static int check_decode_control(const char *path, const char *prompt_path, bool 
         REQUIRE(ds4_session_sync(candidate, &input, err, sizeof(err)) == 0);
         for (int step = 0; step <= 64; step++) {
             ds41_gpu_graph *a = &control->ds41_graph, *b = &candidate->ds41_graph;
-            ds41_state_span sa[54], sb[54];
+            ds41_state_span sa[64], sb[64];
             const uint32_t n = ds41_state_spans(a, a->pos, sa);
             REQUIRE(a->pos == b->pos && n == ds41_state_spans(b, b->pos, sb));
             REQUIRE(!memcmp(&a->history, &b->history, sizeof(a->history)));

@@ -3,8 +3,8 @@
 constant short FC_mul_mv_nsg   [[function_constant(FC_MUL_MV + 0)]];
 constant short FC_mul_mv_nxpsg [[function_constant(FC_MUL_MV + 1)]];
 
-/* Round to the nearest bfloat16 value in f32 storage (DeepSeek V4.1 keeps its
- * activations at bf16 precision between operators). */
+// Round to the nearest bfloat16 value in f32 storage (DeepSeek V4.1 keeps its
+// activations at bf16 precision between operators).
 static inline float ds4_bf16_round(float v) {
     uint bits = as_type<uint>(v);
     if ((bits & 0x7f800000u) != 0x7f800000u) bits += 0x7fffu + ((bits >> 16u) & 1u);
@@ -126,9 +126,9 @@ static inline void helper_mv_reduce_and_write(
     }
 }
 
-/* Rope folded into a matvec: the last 64 columns of every `width`-wide head
- * rotate at position `start` (ROPE_IN on the activation as it loads, after
- * rounding it to bf16; ROPE_OUT on the bf16 outputs before they store). */
+// Rope folded into a matvec: the last 64 columns of every `width`-wide head
+// rotate at position `start` (ROPE_IN on the activation as it loads, after
+// rounding it to bf16; ROPE_OUT on the bf16 outputs before they store).
 struct ds4_metal_args_mv_rope {
     uint  width;
     uint  start;
@@ -194,9 +194,9 @@ static inline void helper_mv_reduce_and_write_rope(
     }
 }
 
-/* The HC expand (kernel_dsv4_hc_expand4, one token, four streams) applied to
- * each bf16 output as it is written: the row joins `add` when has_add and
- * spreads into the streams with the same per-stream accumulation order. */
+// The HC expand (kernel_dsv4_hc_expand4, one token, four streams) applied to
+// each bf16 output as it is written: the row joins `add` when has_add and
+// spreads into the streams with the same per-stream accumulation order.
 struct ds4_metal_args_mv_hc_expand4 {
     uint n_embd;
     uint has_add;
@@ -383,10 +383,9 @@ void kernel_mul_mv_q8_0_f32_impl(
         args, src0, src1, dst, shmem, tgpig, tiisg, sgitg, (constant ds4_metal_args_mv_rope *)nullptr);
 }
 
-
-/* One simdgroup group per activation row, each running the single-row
- * kernel's walk over the same weight blocks: every row's result matches the
- * one-row kernel, and the rows share the weight loads through the cache. */
+// One simdgroup group per activation row, each running the single-row
+// kernel's walk over the same weight blocks: every row's result matches the
+// one-row kernel, and the rows share the weight loads through the cache.
 template<short NR0, bool ROUND = false>
 static inline void helper_mv_reduce_and_write_rows(
         device float * dst_f32,
@@ -430,8 +429,8 @@ static inline void helper_mv_reduce_and_write_rows(
     }
 }
 
-/* A few rows side by side: one simdgroup group per row in the threadgroup,
- * each with the single-row K walk and reduction. */
+// A few rows side by side: one simdgroup group per row in the threadgroup,
+// each with the single-row K walk and reduction.
 template<short NR0, typename args_t, bool ROUND = false, bool ROUND_IN = false>
 void kernel_mul_mv_q8_0_f32_rows_impl(
         args_t args,
@@ -503,9 +502,9 @@ void kernel_mul_mv_q8_0_f32_rows_impl(
     helper_mv_reduce_and_write_rows<NR0, ROUND>(dst_f32, sumf, r0, args.ne01, tiisg, sg, (short)r1, shmem);
 }
 
-/* The rows one after another on the single-row simdgroup layout: the
- * threadgroup keeps the weight lines hot across rows and runs at the
- * single-row occupancy; every row's result matches the one-row kernel. */
+// The rows one after another on the single-row simdgroup layout: the
+// threadgroup keeps the weight lines hot across rows and runs at the
+// single-row occupancy; every row's result matches the one-row kernel.
 template<short NR0, typename args_t, bool ROUND = false, bool ROUND_IN = false, bool HC_OUT = false>
 void kernel_mul_mv_q8_0_f32_rows_seq_impl(
         args_t args,
@@ -610,11 +609,11 @@ kernel void NAME( \
 DS4_MUL_MV_Q8_0_HC_ROWS_SEQ(kernel_mul_mv_q8_0_f32_bf16io_hc_expand4_rows_seq4, 4)
 #undef DS4_MUL_MV_Q8_0_HC_ROWS_SEQ
 
-/* Two to eight activation rows through simdgroup matrices: the simdgroups
- * of a threadgroup each take a slice of K for the same eight weight rows,
- * dequantize a 32-wide block once and multiply it against the eight
- * (zero-padded) activation rows, then the partial tiles add in a fixed
- * order. The weights are read once whatever the row count. */
+// Two to eight activation rows through simdgroup matrices: the simdgroups
+// of a threadgroup each take a slice of K for the same eight weight rows,
+// dequantize a 32-wide block once and multiply it against the eight
+// (zero-padded) activation rows, then the partial tiles add in a fixed
+// order. The weights are read once whatever the row count.
 template<bool ROUND, bool ROUND_IN, bool HC_OUT = false, short NSG = 4,
          typename args_t = constant ds4_metal_args_mul_mv &>
 void kernel_mul_mv_q8_0_f32_mma_rows_impl(
@@ -632,7 +631,7 @@ void kernel_mul_mv_q8_0_f32_mma_rows_impl(
         device const float * hc_post = nullptr,
         device const float * hc_comb = nullptr) {
     constexpr short NR = 8, KC = QK8_0;
-    /* per simdgroup: 4 tiles of 8x8 for the activations, 4 for the weights */
+    // per simdgroup: 4 tiles of 8x8 for the activations, 4 for the weights
     threadgroup float * A = (threadgroup float *) shmem + sgitg * (2 * NR * KC);
     threadgroup float * W = A + NR * KC;
     const int r0 = (int)tgpig.x * NR;
@@ -645,7 +644,7 @@ void kernel_mul_mv_q8_0_f32_mma_rows_impl(
     threadgroup float * a = A + wq * 64 + wr * 8;
     threadgroup float * w = W + wq * 64 + wr * 8;
     simdgroup_float8x8 acc = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);
-    /* the next block's loads are issued before this block's matrix products */
+    // the next block's loads are issued before this block's matrix products
     float av[8];
     float4 q0, q1;
     float d;
@@ -675,7 +674,7 @@ void kernel_mul_mv_q8_0_f32_mma_rows_impl(
         }
         simdgroup_barrier(mem_flags::mem_threadgroup);
     }
-    /* the partial tiles, summed in simdgroup order */
+    // the partial tiles, summed in simdgroup order
     threadgroup float * P = (threadgroup float *) shmem + NSG * 2 * NR * KC + sgitg * 64;
     simdgroup_store(acc, P, 8, 0, false);
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -688,7 +687,7 @@ void kernel_mul_mv_q8_0_f32_mma_rows_impl(
                 float v = P0[i * 8 + j];
                 for (short g = 1; g < NSG; ++g) v += P0[g * 64 + i * 8 + j];
                 if (HC_OUT) {
-                    /* the rows kernel's expansion, one (row, output) pair per lane step */
+                    // the rows kernel's expansion, one (row, output) pair per lane step
                     const uint n_embd = hc->n_embd;
                     const uint64_t hc_dim = 4ull * n_embd, stride = hc->split_stride;
                     const int d = r0 + i;
@@ -825,7 +824,7 @@ kernel void kernel_mul_mv_q8_0_f32_bf16io(
     kernel_mul_mv_q8_0_f32_impl<N_R0_Q8_0, constant ds4_metal_args_mul_mv &, true, true>(args, src0, src1, dst, shmem, tgpig, tiisg, sgitg);
 }
 
-/* The q projection with its rope applied to the bf16 outputs. */
+// The q projection with its rope applied to the bf16 outputs.
 [[host_name("kernel_mul_mv_q8_0_f32_bf16_rope")]]
 kernel void kernel_mul_mv_q8_0_f32_bf16_rope(
         constant ds4_metal_args_mul_mv & args,
@@ -841,7 +840,7 @@ kernel void kernel_mul_mv_q8_0_f32_bf16_rope(
         args, src0, src1, dst, shmem, tgpig, tiisg, sgitg, &rope);
 }
 
-/* A bf16 in/out matvec whose outputs expand straight into the HC streams. */
+// A bf16 in/out matvec whose outputs expand straight into the HC streams.
 [[host_name("kernel_mul_mv_q8_0_f32_bf16io_hc_expand4")]]
 kernel void kernel_mul_mv_q8_0_f32_bf16io_hc_expand4(
         constant ds4_metal_args_mul_mv & args,
@@ -861,8 +860,8 @@ kernel void kernel_mul_mv_q8_0_f32_bf16io_hc_expand4(
         args, src0, src1, dst, shmem, tgpig, tiisg, sgitg, nullptr, &hc, add, residual, post, comb);
 }
 
-/* Two Q8_0 matrices over one activation row in one dispatch: the leading
- * threadgroups take the first matrix's row groups, the rest the second's. */
+// Two Q8_0 matrices over one activation row in one dispatch: the leading
+// threadgroups take the first matrix's row groups, the rest the second's.
 [[host_name("kernel_mul_mv_q8_0_f32_bf16_pair")]]
 kernel void kernel_mul_mv_q8_0_f32_bf16_pair(
         constant ds4_metal_args_mul_mv & args_a,
@@ -1817,8 +1816,8 @@ kernel void kernel_dsv4_shared_mid_swiglu_q8_0(
             clamp_value, shmem, tgpig, tiisg, sgitg);
 }
 
-/* The gate and up sums round to bf16 before the SwiGLU, as the separate
- * bf16 matvecs would have stored them. */
+// The gate and up sums round to bf16 before the SwiGLU, as the separate
+// bf16 matvecs would have stored them.
 [[host_name("kernel_dsv4_shared_mid_swiglu_q8_0_bf16")]]
 kernel void kernel_dsv4_shared_mid_swiglu_q8_0_bf16(
         constant ds4_metal_args_mul_mv & args,
@@ -1838,9 +1837,8 @@ kernel void kernel_dsv4_shared_mid_swiglu_q8_0_bf16(
             clamp_value, shmem, tgpig, tiisg, sgitg);
 }
 
-
-/* A few rows of the bf16 shared expert: grid x is the row so that the rows'
- * threadgroups for the same weight rows run back to back. */
+// A few rows of the bf16 shared expert: grid x is the row so that the rows'
+// threadgroups for the same weight rows run back to back.
 [[host_name("kernel_dsv4_shared_mid_swiglu_q8_0_bf16_rows")]]
 kernel void kernel_dsv4_shared_mid_swiglu_q8_0_bf16_rows(
         constant ds4_metal_args_mul_mv & args,
@@ -1860,8 +1858,8 @@ kernel void kernel_dsv4_shared_mid_swiglu_q8_0_bf16_rows(
             clamp_value, shmem, uint3(tgpig.y, tgpig.x, tgpig.z), tiisg, sgitg);
 }
 
-/* The matrix rows form of the bf16 shared expert: the gate and up rows
- * ride the same activation tiles, the SwiGLU follows the reduce. */
+// The matrix rows form of the bf16 shared expert: the gate and up rows
+// ride the same activation tiles, the SwiGLU follows the reduce.
 template<short NSG>
 void kernel_dsv4_shared_mid_swiglu_q8_0_bf16_mma_impl(
         constant ds4_metal_args_mul_mv & args,
@@ -2223,8 +2221,8 @@ typedef decltype(kernel_mul_mv_t_t_4_bf16<half, half4, half, half4>) mul_mv_t_t_
 
 template [[host_name("kernel_mul_mv_f16_f32_4_bf16")]] kernel mul_mv_t_t_4_bf16 kernel_mul_mv_t_t_4_bf16<half, half4, float, float4>;
 
-/* The rows form of the vectorized dense matvec: one simdgroup group per
- * activation row, each with the single-row kernel's K walk and reduction. */
+// The rows form of the vectorized dense matvec: one simdgroup group per
+// activation row, each with the single-row kernel's K walk and reduction.
 template<typename T0, typename T04, typename T1, typename T14, short NR0, typename args_t, bool ROUND = false>
 void kernel_mul_mv_t_t_4_rows_impl(
         args_t args,

@@ -7006,13 +7006,12 @@ kernel void kernel_dsv4_add2_f32_tp_flag_checked(
     }
 }
 
-// Inline decode gates (the spin release of the tp-fast-release work): the CPU
-// releases the GPU by a store to a system-coherent word that a one-thread
-// kernel spin-reads inside the open command buffer, so the stream neither
-// parks on a shared event nor ends a command buffer per gate.  Without that
-// buffer boundary the partial and the flag have to be pushed to system
-// visibility explicitly: both are re-stored through coherent(system) views
-// followed by a system-scope fence.
+// Inline decode gates: the CPU releases the GPU by a store to a system-coherent
+// word that a one-thread kernel spin-reads inside the open command buffer, so
+// the stream neither parks on a shared event nor ends a command buffer per
+// gate. Without that buffer boundary the partial and the flag have to be pushed
+// to system visibility explicitly: both are re-stored through coherent(system)
+// views followed by a system-scope fence.
 #pragma METAL internals : enable
 #ifndef __METAL_MEMORY_SCOPE_SYSTEM__
 #define __METAL_MEMORY_SCOPE_SYSTEM__ 3

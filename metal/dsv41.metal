@@ -47,11 +47,11 @@ struct ds4_metal_args_dsv41_router {
     float scale;
 };
 
-/* One-token router for up to 1024 experts in one dispatch: the softplus/sqrt
- * probability transform, the biased top-k through the same bitonic network as
- * kernel_argsort_f32_i32_desc (padding indices sort last), and the weights
- * normalised as the generic chain does: gather, SIMD sum over the top_k lanes,
- * clamp, divide, scale. Threadgroup memory holds nth ints and 2 * nth floats. */
+// One-token router for up to 1024 experts in one dispatch: the softplus/sqrt
+// probability transform, the biased top-k through the same bitonic network as
+// kernel_argsort_f32_i32_desc (padding indices sort last), and the weights
+// normalised as the generic chain does: gather, SIMD sum over the top_k lanes,
+// clamp, divide, scale. Threadgroup memory holds nth ints and 2 * nth floats.
 kernel void kernel_dsv41_router_one(
         constant ds4_metal_args_dsv41_router &args,
         device const float *logits,
@@ -99,7 +99,7 @@ kernel void kernel_dsv41_router_one(
         selected[col] = idx;
         const float w = prob[idx];
         const float total = clamp(simd_sum(w), 6.103515625e-5f, INFINITY);
-        /* two stores as in the generic chain: the quotient is rounded before the scale */
+        // two stores as in the generic chain: the quotient is rounded before the scale
         threadgroup volatile float *quotient = (threadgroup volatile float *)(prob + ntg) + col;
         *quotient = w / total;
         weights[col] = *quotient * args.scale;
@@ -160,9 +160,9 @@ struct ds4_metal_args_dsv41_rope_quantize {
     float frequencies[32];
 };
 
-/* One row's rope, quantization and store into a cache row: the rotation of
- * the last 64 columns as kernel_dsv41_rope applies it, then the block
- * quantization of kernel_dsv41_quantize, written to dst. */
+// One row's rope, quantization and store into a cache row: the rotation of
+// the last 64 columns as kernel_dsv41_rope applies it, then the block
+// quantization of kernel_dsv41_quantize, written to dst.
 kernel void kernel_dsv41_rope_quantize(
         constant ds4_metal_args_dsv41_rope_quantize &args,
         device const float *x,
@@ -181,7 +181,7 @@ kernel void kernel_dsv41_rope_quantize(
         const float s = args.inverse ? -precise::sin(theta) : precise::sin(theta);
         const float re = (column & 1u) ? other : value;
         const float im = (column & 1u) ? value : other;
-        /* the contraction kernel_dsv41_rope compiles to */
+        // the contraction kernel_dsv41_rope compiles to
         value = (column & 1u) ? dsv41_bf16(fma(im, c, re * s)) : dsv41_bf16(fma(re, c, -(im * s)));
     }
     value = dsv41_bf16(value);
@@ -204,8 +204,8 @@ struct ds4_metal_args_dsv41_norm_pair {
     float eps;
 };
 
-/* Two weighted RMS norms in one dispatch, each row on its own thread count
- * (ntg0 threads then ntg1), so every reduction matches the single-row kernel. */
+// Two weighted RMS norms in one dispatch, each row on its own thread count
+// (ntg0 threads then ntg1), so every reduction matches the single-row kernel.
 kernel void kernel_dsv41_norm_pair(
         constant ds4_metal_args_dsv41_norm_pair &args,
         device const float4 *x0,
