@@ -1,0 +1,133 @@
+2026-09-20 KP1 - PREREGISTERED RULE - sealed before any measurement
+==============================================================================
+Written by hand by lane KERNELPOOLSPARK in the R28/R29 shape (spark_arms.py seal takes
+triple-* arms only). Commit this file, THEN run. The spark lock is HELD by lane GLMTEST at
+sealing time; this round is QUEUED behind it and fires only under its own mkdir of
+~/spark_model.lock with an owner line naming KERNELPOOLSPARK KP1.
+
+THE CONTROL
+  TIP   kp-main         @8db1d1d1  antirez origin/main, fresh build in _worktrees/kp-main
+        ds4-server .text 24,862,747 (rc=0, 2026-09-19T01:57Z) - byte-equal to R28/R29's tip
+
+THE ARMS
+  PR1073FIX      kp-pr1073fix    @0bbca98ee  _worktrees/pr1073-cudafix
+         = PR #1073 head af7c02b59 + 577814f0d (three forward declarations in
+           ds4_deepseek41_cuda.cuh) + 0bbca98ee (two #if defined(__APPLE__) guards in ds4.c
+           on tp_world == 2 paths). Nothing else. `git diff af7c02b59 0bbca98ee` is the whole
+           difference and touches no kernel and no single-node path.
+         switches none (the binary's default env; DS4_METAL_V41_DECODE_FLUSH_LAYERS unset = 2)
+         args none
+  ⛔ PR1073 AS FETCHED (af7c02b59) IS NOT AN ARM: make cuda-spark exits 2 on the GB10
+     (six undefined identifiers; see BUILD_as-is-cuda_2026-09-20.md). Its rc IS a result and
+     is recorded there; it cannot be benched.
+
+THE DESIGN
+  one TIP bracket per cycle (cycle-edge); 3 cycles; 1 arm -> 3 arm runs + 4 TIP runs + 1
+  discarded TIP warm-up = 8 runs; frontiers 4096/6144 with ctx 2048 as discarded warmup;
+  5 s between runs; gen_steady_tps at min-across-frontiers.
+  argv: ds4-bench -m gguf/DeepSeek-V4.1-Flash-Q2.gguf --cuda --ssd-streaming
+  --ssd-streaming-cache-experts 90GB --prompt-file speed-bench/promessi_sposi.txt
+  --ctx-start 2048 --ctx-max 6144 --step-incr 2048 --gen-tokens 128
+  ⚠ THE FILE IS THE V4.1 Q2 FILE, NOT ds4flash.gguf. The brief named the daily driver;
+    ds4flash.gguf resolves to DeepSeek-V4-Flash-IQ2XXS-...-0731.gguf, a V4 file that never
+    enters the ds41_* graph #1073 changes. The V4.1 Q2 file is the one every flash41 round
+    (R28, R29, GLM-R1/R2) ran and the one the G1 references below were minted on. A run on
+    the V4 file measures nothing the PR touched, so it is refused here in writing.
+  Every run needs a CONT net keyed to the driving script's pid (the box SIGSTOPs new
+  processes); the net is killed by pid at the end. Every t/s stamps load (uptime 1-min before
+  and after), driver 580.159.03, context (the frontier), checkpoint (the gguf sha256 prefix,
+  read from the file, and the two build shas).
+  Wall estimate ~18 min (8 x ~122 s + sleep, warm-up included).
+
+THE BUILD GATE
+  Only arms whose build returns rc=0 enter the plan. An arm whose ds4-server .text differs from
+  the tip's by more than 0.2 MB is REFUSED and named (the JIT-vintage trap). Every binary's
+  .text is recorded in the runlog header before the first run. The tip's .text is already
+  recorded above; the arm's is recorded in BUILD_as-is-cuda_2026-09-20.md once its build
+  finishes and is copied into the runlog header at fire time.
+
+THE STATISTIC
+  Per repeat: the arm against the MEAN of its bracketing TIP runs, percent of gen_steady_tps.
+  Per frontier and at min-across-frontiers: paired MEDIAN, sign COUNT and RATE, SE, MAD, min,
+  max. In-run TIP floor = ALL adjacent live TIP pairs, median AND max; a TIP run is never
+  dropped. With 3 repeats no straggler rule applies (it needs 6); the no-drop reading is the
+  only reading. A killed run (rc != 0) is void: re-run it, never reweight the survivors.
+
+THE VERDICT RULE, per arm, at min-across-frontiers, floor_max = THIS round's own TIP floor max
+  BEATS   iff  D >= floor_max  AND  the positive sign RATE is 75 % or better (3/3 at n=3)
+  TIES    iff  |D| <= floor_max
+  LOSES   iff  D <= -floor_max
+  otherwise PARTIAL, with its number and no category word.
+  floor_max is computed from this round's TIP pairs, never imported, never chosen after D.
+  Prefill is reported and is never the verdict.
+
+THE QUESTION THIS ROUND ASKS
+  P1, in the navigator's words: does the CUDA header change move CUDA decode at all?
+  The census (CENSUS_pr1073_*.md) found that on the CUDA path every fused Metal entry is either
+  a composition of the ops main already ran (op count unchanged) or returns 0 so ds4.c runs the
+  unfused chain. So the header itself is predicted to move nothing. What CAN move CUDA decode
+  are two ENGINE-GENERIC commits that are not about Metal at all:
+    (a) 2a281b080: queue_layers becomes true for a single-node non-resident decode. On CUDA
+        ds4_gpu_end_commands and ds4_gpu_flush_commands are both cudaDeviceSynchronize. Main
+        drains after EVERY layer (~60 syncs/token); the PR at its default flush of 2 layers
+        syncs after layer 0 and every second layer (~31 syncs/token). The host-side encode of
+        the next layer's launches cannot overlap a sync, so each removed sync returns its
+        bubble (launch latency + the host's encode time for one layer).
+    (b) e76839617: at (n_comp + 7) / 8 <= 2048 blocks the two candidate-selection launches per
+        index-source layer per token are skipped. At 4096 and 6144 tokens this applies.
+  layer_resident = g->streaming && g->quality; the bench runs --ssd-streaming without --quality,
+  so layer_resident is false and (a) is live in this regime. Read the arm's own log for the
+  DS4_METAL_V41_DECODE_FLUSH_LAYERS default (unset -> 2) rather than assuming it.
+
+THE G1 GATE, run BEFORE run 1, under the round's lock, recorded as AMENDMENT A1 in this file
+  Same-process greedy identity by token ids and --dump-logprobs sha, ~/g1_clean.sh's own argv
+  copied as ~/kp1_g1.sh with exactly the R29 A1 changes (label prefix, no lock-owner write;
+  cache stays 90GB as g1_clean.sh has it): ./ds4 -m gguf/DeepSeek-V4.1-Flash-Q2.gguf --cuda
+  --ssd-streaming --ssd-streaming-cache-experts 90GB --ctx 32768 --temp 0 --dump-logprobs,
+  -n 32 on the inline short prompt, -n 16 on head -c 14000 of promessi_sposi.txt.
+  G1a  MINT from the TIP binary (kp-main), twice each prompt; both mints must agree in sha and
+       byte count. Expected to reproduce R29 A1's 90GB references short 5ed3e6dfe2177eca /
+       73515 B and long c5cb82566c628bed / 36655 B (same file, same sha, same regime); if they
+       do not, that is a finding and the round stops until it is understood.
+  G1b  the SAME argv on kp-pr1073fix (0bbca98ee), both prompts; PASS iff both shas match G1a's.
+  A G1b FAIL does NOT stop the round (the t/s is still read) but the arm's D is reported under
+  the words "NOT GREEDY-IDENTICAL" and the first divergent token index is recorded from the two
+  logprob dumps. The reason this seal does not stop on a G1b fail: d95f8b610 changes WHERE the
+  bf16 rounding happens on Metal only, but 2a281b080 changes the CUDA sync pattern and
+  e76839617 changes which launches run; neither should change a single fp32 reduction order
+  on CUDA, so a divergence would itself be the round's most important result and must be
+  written down with its index, not hidden by a halt.
+
+PREDICTIONS, sealed so they can be scored
+  P1  PR1073FIX TIES the tip on the CUDA HEADER alone (the mechanism the navigator asked
+      about): no fused kernel runs on CUDA, so the header contributes 0.0 %      confidence 0.85
+      Stated as a number: the header's own contribution is in -0.5 .. +0.5 %.
+  P2  PR1073FIX vs tip, whole branch, D at min-across-frontiers in +1 .. +6 %, central +3 %,
+      from (a) the ~29 removed device syncs per token at ~0.05-0.10 ms of bubble each on a
+      ~75 ms token (13.4 t/s @2k class; R28's 90GB tip read 9.5-9.8 t/s on this Q2 file with
+      streaming, so ~100 ms/token, which makes the same bubble a smaller share) plus (b) the
+      ~2 launches x index layers removed                                          confidence 0.55
+      D positive, sign 3/3                                                        confidence 0.65
+      D >= floor_max (BEATS by the rule)                                          confidence 0.45
+      D <= -floor_max (LOSES)                                                     confidence 0.10
+      (the LOSES mass is for the bf16 shim adding a launch where main fused the rounding
+      into ds41_bf16's single call; the census reads the op count as equal but it was read,
+      not profiled)
+  P3  the TIP floor max (a 90GB floor on this file) is under 3.0 (R28: 2.49)     confidence 0.6
+  P4  G1a reproduces 5ed3e6dfe2177eca / c5cb82566c628bed byte for byte           confidence 0.85
+  P5  G1b PASSES on both prompts                                                  confidence 0.8
+  P6  prefill D at min-across within 5 points of 0 (the wide-sweep changes at 2541/3072 tokens
+      touch prefill scheduling; the bench's prefill is 2048-token increments)     confidence 0.6
+  P7  zero runs lost to the OOM killer; zero SIGSTOP losses under the CONT net    confidence 0.9
+
+  WHAT WOULD FALSIFY THE READING ITSELF: the arm's log must show the V4.1 graph
+  ("ds4: V4.1" load lines as the tip prints them) and NOT print a fallback to a CPU path; a
+  "V4.1 layer %u failed" line voids that run. If the arm reads more than +10 % the census has
+  under-read the CUDA path and the seal says so before anyone celebrates: re-read
+  ds4_deepseek41_cuda.cuh for a fused entry that returns non-zero on CUDA.
+
+FOLLOW-UP SEALS NAMED HERE, NOT RUN HERE
+  KP2  PR1073FIX with DS4_METAL_V41_DECODE_FLUSH_LAYERS=0 (two syncs per token) vs the same
+       tip: the CUDA reading of 2a281b080 that the Metal default hides. Its own seal.
+  KP3  the first port (DESIGN_the-port-ranked-by-mechanism_2026-09-20.md names it): its own
+       seal with its own G1 gate, on a branch that is 8db1d1d1 + that one port.
