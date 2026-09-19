@@ -407,6 +407,38 @@ static int check_rope_stride(void) {
     return 1;
 }
 
+#ifdef __APPLE__
+/* The fused RoPE, quantize and store kernel against the three separate steps. */
+static int check_rope_quantize(void) {
+    enum { WIDTH = 512, TRIALS = 300 };
+    ds4_gpu_tensor *a = upload(NULL, WIDTH * sizeof(float));
+    ds4_gpu_tensor *b = upload(NULL, WIDTH * sizeof(float));
+    ds4_gpu_tensor *c = upload(NULL, (WIDTH + 1u) * sizeof(float));
+    CHECK(a && b && c);
+    float *x = ds4_gpu_tensor_contents(a), *y = ds4_gpu_tensor_contents(b);
+    float *z = ds4_gpu_tensor_contents(c);
+    for (uint32_t t = 0; t < TRIALS; t++) {
+        const ds4_v41_activation_format format = (ds4_v41_activation_format)(1 + t % 3);
+        const uint32_t width = format == DS4_V41_FP4_E8M0 ? 128 : WIDTH;
+        const bool compressed = (t / 3) & 1;
+        const uint32_t pos = (uint32_t)(fabsf(random_value()) * 15000);
+        for (uint32_t i = 0; i < width; i++) x[i] = y[i] = ldexpf(random_value(), (int)(t % 11) - 5);
+        z[width] = 12345;
+        CHECK(ds4_gpu_begin_commands());
+        CHECK(ds4_gpu_dsv41_rope(a, width, 1, 1, pos, compressed, false));
+        CHECK(ds4_gpu_dsv41_quantize(a, width, 1, format));
+        CHECK(ds4_gpu_dsv41_rope_quantize(b, c, 0, width, pos, compressed, format));
+        CHECK(ds4_gpu_end_commands());
+        CHECK(!memcmp(x, z, width * sizeof(float)) && z[width] == 12345);
+    }
+    ds4_gpu_tensor_free(c); ds4_gpu_tensor_free(b); ds4_gpu_tensor_free(a);
+    fprintf(stderr, "V4.1 fused RoPE quantize: bitwise match with the separate steps PASS\n");
+    return 1;
+}
+#else
+static int check_rope_quantize(void) { return 1; }
+#endif
+
 static int check_pool(void) {
     enum { D = 512, ROWS = 257, PAIRS = ROWS / 2 };
     float *kv = malloc(ROWS * D * sizeof(float)), *scores = malloc(ROWS * D * sizeof(float));
@@ -1536,6 +1568,11 @@ int main(int argc, char **argv) {
         ds4_gpu_cleanup();
         return ok ? 0 : 1;
     }
+    if (argc == 2 && !strcmp(argv[1], "--rope-quantize")) {
+        const int ok = ds4_gpu_init() && check_rope_quantize();
+        ds4_gpu_cleanup();
+        return ok ? 0 : 1;
+    }
     if (argc == 2 && !strcmp(argv[1], "--index-scores")) {
         const int ok = ds4_gpu_init() && check_indexer_batch();
         ds4_gpu_cleanup();
@@ -1567,11 +1604,12 @@ int main(int argc, char **argv) {
         return ok ? 0 : 1;
     }
     if (argc != 1) return 2;
-    int ok = ds4_gpu_init() && check_router() && check_quantization() && check_engram() && check_rope_stride() && check_pool() &&
-             check_candidates() && check_candidates_batch(16449, 17, 16400) &&
-             check_candidates_batch(17017, 17, 17000) && check_sparse_gather() && check_indexer_batch() && check_index_score_wide() &&
-             check_embedding() && check_index_projection() && check_general_topk() && check_topk_select() && check_causal_topk() && check_indexer_all() && check_compact_carry() && check_attention_output(false) &&
-             check_tp_attention();
+    int ok = ds4_gpu_init() && check_router() && check_quantization() && check_engram() && check_rope_stride() &&
+             check_rope_quantize() && check_pool() && check_candidates() && check_candidates_batch(16449, 17, 16400) &&
+             check_candidates_batch(17017, 17, 17000) && check_sparse_gather() && check_indexer_batch() &&
+             check_index_score_wide() && check_embedding() && check_index_projection() && check_general_topk() &&
+             check_topk_select() && check_causal_topk() && check_indexer_all() && check_compact_carry() &&
+             check_attention_output(false) && check_tp_attention();
     ds4_gpu_cleanup();
     return ok ? 0 : 1;
 }
