@@ -169,9 +169,17 @@ Measured Spark decode speeds for Q2, resident and SSD-streamed, are in the
 
 Q4 on CUDA is behind `DS4_GLM_Q4_GENERIC=1`, which sends the file's uniform
 Q4_K expert layers through the generic routed MoE launcher instead of the
-GLM-specific one (#907). It is off by default and unverified: the Q4_K
-fixture in `QA_BEFORE_RELEASES.md` and `make cuda-regression` have not
-been run on it yet. With the variable unset nothing changes.
+GLM-specific one (#907). It is off by default, and with the variable unset
+nothing changes: the file still exits one second into prefill with
+`glm routed moe: unsupported types 12/12/12`, which is #907 verbatim.
+
+`make cuda-regression` is green with the switch in the tree. The 100-case
+GLM 5.3 Flash Q4 fixture from section 3 of `QA_BEFORE_RELEASES.md` scores
+average NLL `0.300986170`, first-token match `90/100`, and average greedy
+prefix `9.970`, against that section's Q4 reference of `0.299917952`,
+`90/100`, and `9.66`. That fixture ran with the weights streamed from SSD.
+The QA CUDA section says not to attempt the 178 GiB Q4 artifact on one
+128 GB Spark, so the resident Q4 run it asks for has not been made here.
 
 Ordinary decode is the default. Enable the embedded draft block with `--mtp`:
 
