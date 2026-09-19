@@ -164,6 +164,14 @@ Q2_K down experts. Q4 is the higher-precision alternative.
 Q2 is close enough to a 128 GB machine's memory budget that other workloads
 and context size matter. Follow the [Metal](METAL.md), [Spark](DGX_SPARK.md),
 or [Strix Halo](STRIX_HALO.md) starting configuration for your host.
+Measured Spark decode speeds for Q2, resident and SSD-streamed, are in the
+[Spark guide](DGX_SPARK.md#glm-53-flash).
+
+Q4 on CUDA is behind `DS4_GLM_Q4_GENERIC=1`, which sends the file's uniform
+Q4_K expert layers through the generic routed MoE launcher instead of the
+GLM-specific one (#907). It is off by default and unverified: the Q4_K
+fixture in `QA_BEFORE_RELEASES.md` and `make cuda-regression` have not
+been run on it yet. With the variable unset nothing changes.
 
 Ordinary decode is the default. Enable the embedded draft block with `--mtp`:
 
