@@ -57,5 +57,11 @@ you 1.8x on the M3 Ultra is bounded to a few percent here even once ported; the 
 branch that helps CUDA is the scheduling, and `DS4_METAL_V41_DECODE_FLUSH_LAYERS=0` is the CUDA
 reading of it (a flush is a blocking sync on this backend).
 
+**Scope rule for this comment (navigator, 2026-09-20): SPARK ONLY.** The comment reports what worked on
+the DGX Spark GB10 with CUDA. Our M5 Max runs of this branch are NOT reported here: that box was
+contested (load 2.1 to 7.2 per cpu) and flipped power mode mid-session, so its ratio is not separable
+from the box. The one M5 fact clean enough to carry, as a footnote only: the branch builds and runs on
+Metal at a 25 GB expert cache on the q2 file, and the prefill logits are bit-identical to main.
+
 DSpark on CUDA: not measured yet (needs the support GGUF from your converter; our V4.1 Q2 file was
 built before a60edc61f).
