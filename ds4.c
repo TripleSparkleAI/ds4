@@ -1393,6 +1393,33 @@ static bool ds41_engram_layer(uint32_t il) {
     return il == 1 || il == 14;
 }
 
+/* DS4_KP_* switches: each mechanism ported from antirez/ds4 PR #1073 (kernelpool)
+ * onto this branch sits behind its own environment flag, default OFF, so any
+ * subset can be tested against the unflagged path. DS4_KP_<NAME>=1 turns one on,
+ * DS4_KP_<NAME>=0 turns it off explicitly, and DS4_KP_ALL=1 turns on every flag
+ * that is not explicitly 0. With nothing set the graph runs main's operator
+ * sequence. The flags, their upstream commits and their CUDA status are listed
+ * in flash41-kernelpool-spark/README.md. */
+static bool ds41_kp_env_on(const char *name, int *cached) {
+    if (*cached < 0) {
+        const char *v = getenv(name);
+        if (v && *v) *cached = atoi(v) != 0;
+        else {
+            const char *all = getenv("DS4_KP_ALL");
+            *cached = all && *all && atoi(all) != 0;
+        }
+    }
+    return *cached != 0;
+}
+#define DS41_KP_FLAG(fn, env) \
+    static DS4_MAYBE_UNUSED bool fn(void) { static int c = -1; return ds41_kp_env_on(env, &c); }
+DS41_KP_FLAG(ds41_kp_queue_layers, "DS4_KP_QUEUE_LAYERS")     /* 2a281b080 */
+DS41_KP_FLAG(ds41_kp_skip_select, "DS4_KP_SKIP_SELECT")       /* e76839617 */
+DS41_KP_FLAG(ds41_kp_round_in_kernel, "DS4_KP_ROUND_IN_KERNEL") /* d95f8b610 */
+DS41_KP_FLAG(ds41_kp_select_batch, "DS4_KP_SELECT_BATCH")     /* ce5a812fd */
+DS41_KP_FLAG(ds41_kp_short_rows, "DS4_KP_SHORT_ROWS")         /* 3b7f8f224 */
+DS41_KP_FLAG(ds41_kp_head_early, "DS4_KP_HEAD_EARLY")         /* 4fbbc4a45 */
+
 static void ds4_die_errno(const char *what, const char *path) {
     fprintf(stderr, "ds4: %s '%s': %s\n", what, path, strerror(errno));
     exit(1);
