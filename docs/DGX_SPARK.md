@@ -116,14 +116,16 @@ The first run after a load reads a few percent low; discard at least two
 warm-up runs before taking numbers. Each load builds its aligned CUDA
 artifacts in memory (about 15 seconds) before the first token.
 
-The same file forced to stream with a 24 GB expert cache, same day and
-same harness, medians of four runs after three discarded warm-ups:
+The same file forced to stream with a 24 GB expert cache measures the
+hits-first split on a second model family. Same day, same harness,
+medians of four ordinary runs and three hits-first runs after three
+discarded warm-ups, each hits-first run taken between two ordinary runs:
 
-| Context | SSD streaming decode |
-| --- | ---: |
-| 2048 | 4.50 t/s |
-| 4096 | 4.32 t/s |
-| 6144 | 3.79 t/s |
+| Context | SSD streaming, ordinary | SSD streaming, hits-first |
+| --- | ---: | ---: |
+| 2048 | 4.50 t/s | 5.28 t/s |
+| 4096 | 4.32 t/s | 5.20 t/s |
+| 6144 | 3.79 t/s | 4.74 t/s |
 
 ```sh
 ./ds4-bench --cuda --ssd-streaming --ssd-streaming-cache-experts 24GB \
@@ -132,8 +134,12 @@ same harness, medians of four runs after three discarded warm-ups:
   --ctx-start 2048 --ctx-max 6144 --step-incr 2048 --gen-tokens 128
 ```
 
+Prefill under streaming went from about 90 t/s to about 166 t/s at 4096
+and 6144, and time to first token fell from about 560 ms to about 315 ms.
 Streaming this file is a measurement configuration, not a recommendation:
-resident decode is 3.9 times the streamed speed at 6144.
+resident decode is 3.9 times the ordinary streamed speed and 3.1 times the
+hits-first streamed speed at 6144. The greedy output was byte-identical
+with hits-first on and off, ten dumps.
 
 ## Vision and speculative decoding
 
