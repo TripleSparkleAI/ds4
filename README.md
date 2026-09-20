@@ -273,78 +273,79 @@ it rock.
   the card below is ours; the README above is antirez's, unchanged
 
   ┌─ triple-kernelpool-spark ──────────────────────────────── WORTH ZERO
-  │  WHAT     antirez's PR 1073, his DeepSeek V4.1 Flash Metal speedup, 50
+  │  WHAT     kernelpool's PR 1073, a DeepSeek V4.1 Flash Metal speedup, 50
   │           commits at head a15028ee4, built and measured on our DGX Spark
-  │           GB10. It built with nothing of ours: the branch is his commits
-  │  SWITCH   none: the branch is unmodified upstream, no flag of ours
+  │           GB10. It built with nothing of ours: every commit is kernelpool's
+  │  SWITCH   none: the branch is PR 1073 unmodified, no flag of ours
   │  OUTPUT   NOT greedy-identical to main on CUDA. G1 tip short 5ed3e6dfe2177eca
   │           long c5cb82566c628bed · arm short 4db2aca7f0814259 long 97149a6aeed01181
   │           control main vs main 0.000000 over 32 steps, so the arm is the cause
   │  BASE     antirez main @8db1d1d1
   └─
+```
 
-  RESULTS   DGX Spark GB10 sm_121 · driver 580.159.03 · ds4-bench gen_steady_tps at
-            ctx 6144, 128 gen tokens · DeepSeek V4.1 Flash Q2, 365,713,686,528 B,
-            SSD-streamed · every arm run taken between two main runs, n=3, floor from
-            that round's own adjacent main pairs, never inherited
+**RESULTS** DGX Spark GB10 sm_121 · driver 580.159.03 · ds4-bench gen_steady_tps at ctx 6144, 128 gen tokens · DeepSeek V4.1 Flash Q2, 365,713,686,528 B, SSD-streamed · every arm run taken between two main runs, n=3, floor from that round's own adjacent main pairs, never inherited
 
-  what is measured            cache   slots   delta   floor   verdict  round
-  his branch, a15028ee4       90GB    8,941   +0.21%  2.27%   TIES     KPS
-  his branch, 0bbca98ee       90GB    8,941   +1.74%  3.10%   TIES     KP1
-  our port, off (the null)    90GB    8,941   -1.26%  3.23%   TIES     KP3
-  our port, QUEUE_LAYERS      90GB    8,941   -0.10%  3.23%   TIES     KP3
-  our port, ROUND_IN_KERNEL   90GB    8,941   -0.13%  3.23%   TIES     KP3
-  our port, SKIP_SELECT       90GB    8,941   -0.84%  3.23%   TIES     KP3
-  our port, HEAD_EARLY        90GB    8,941   -0.26%  3.23%   TIES     KP3
-  our port, ALL SIX TOGETHER  90GB    8,941   -0.08%  3.23%   TIES     KP3
+| what is measured | cache | slots | delta | floor | verdict | round |
+|---|---|---:|---:|---:|---|---|
+| PR 1073, a15028ee4 | 90GB | 8,941 | +0.21% | 2.27% | TIES | KPS |
+| PR 1073, 0bbca98ee | 90GB | 8,941 | +1.74% | 3.10% | TIES | KP1 |
+| our port, off (the null) | 90GB | 8,941 | -1.26% | 3.23% | TIES | KP3 |
+| our port, QUEUE_LAYERS | 90GB | 8,941 | -0.10% | 3.23% | TIES | KP3 |
+| our port, ROUND_IN_KERNEL | 90GB | 8,941 | -0.13% | 3.23% | TIES | KP3 |
+| our port, SKIP_SELECT | 90GB | 8,941 | -0.84% | 3.23% | TIES | KP3 |
+| our port, HEAD_EARLY | 90GB | 8,941 | -0.26% | 3.23% | TIES | KP3 |
+| our port, ALL SIX TOGETHER | 90GB | 8,941 | -0.08% | 3.23% | TIES | KP3 |
 
-  objects   the KPS and KP1 rows measure HIS branch whole, against antirez main.
-            the KP3 rows measure OUR re-implementation of six of his mechanisms,
-            each behind its own DS4_KP_* flag, on branch flash41-kernelpool-spark
-            against a different tip. they are not his commits toggled one by one.
+```
+objects   the KPS and KP1 rows measure PR 1073's branch whole, against antirez main.
+          the KP3 rows measure OUR re-implementation of six of PR 1073's mechanisms,
+          each behind its own DS4_KP_* flag, on branch flash41-kernelpool-spark
+          against a different tip. they are not PR 1073's commits toggled one by one.
 
-  t/s       gen_steady_tps medians at ctx 6144, the number the deltas are taken on:
-            KPS main 9.745, his branch 9.710 · KP1 main 9.550, his branch 9.670 ·
-            KP3 tip 9.750. every delta is against its own round's bracket mean.
+t/s       gen_steady_tps medians at ctx 6144, the number the deltas are taken on:
+          KPS main 9.745, PR 1073 9.710 · KP1 main 9.550, PR 1073 9.670 ·
+          KP3 tip 9.750. every delta is against its own round's bracket mean.
 
-  build     make cuda-spark at a15028ee4 in a clean worktree: rc=0, 205 s, 0 errors.
-            nothing of ours was needed. the two fixes our 0bbca98ee arm carried are
-            both upstream now: 4fe6a7802 guards the tensor-parallel flag folds for
-            non-Apple, ed43e1a56 moves the CUDA stubs above the bf16 helpers.
-            4 warnings, all in ds4.c, all the branch's own: main builds with 0.
+build     make cuda-spark at a15028ee4 in a clean worktree: rc=0, 205 s, 0 errors.
+          nothing of ours was needed. the two fixes our 0bbca98ee arm carried are
+          both in PR 1073 now, kernelpool's own commits: 4fe6a7802 guards the
+          tensor-parallel flag folds for non-Apple, ed43e1a56 moves the CUDA
+          stubs above the bf16 helpers.
+          4 warnings, all in ds4.c, all the branch's own: main builds with 0.
 
-  cache     every row asked 90GB and the engine gave 8,941 slots, 82.88 GiB, on all
-            four rounds and both arms, so no delta here measures memory.
-            at --ctx 32768 the same request delivers 8,649: the count is a function
-            of the context reservation, reproducible, not run-to-run noise.
+cache     every row asked 90GB and the engine gave 8,941 slots, 82.88 GiB, on all
+          four rounds and both arms, so no delta here measures memory.
+          at --ctx 32768 the same request delivers 8,649: the count is a function
+          of the context reservation, reproducible, not run-to-run noise.
 
-  identity  the divergence is UNCHANGED at head: cmp says our four dumps are
-            byte-identical to the four taken at 0bbca98ee a day earlier.
-            short prompt, index 6 of 32: main takes '.' over ' why' by 0.904201
-            logits, the branch reverses it. long prompt: same 16 tokens, peak
-            top-20 delta 0.136036. our port, by contrast, is byte-identical to
-            its tip on 20 of 20 G1 runs, so none of the six ported mechanisms
-            is what breaks identity.
+identity  the divergence is UNCHANGED at head: cmp says our four dumps are
+          byte-identical to the four taken at 0bbca98ee a day earlier.
+          short prompt, index 6 of 32: main takes '.' over ' why' by 0.904201
+          logits, the branch reverses it. long prompt: same 16 tokens, peak
+          top-20 delta 0.136036. our port, by contrast, is byte-identical to
+          its tip on 20 of 20 G1 runs, so none of the six ported mechanisms
+          is what breaks identity.
 
-  length    post-hoc, not sealed. same text, growing prefix, n=4, tip vs arm:
-            81 tokens DIFFER median 1.560051 · 280 IDENTICAL · 1,040 IDENTICAL ·
-            4,391 DIFFER median 0.058922 · 17,706 IDENTICAL. three exact zeros and
-            two non-zeros, so this is a code path selected by prefill length, not
-            floating-point noise. n=1 per length, grid coarse, transitions unresolved.
+length    post-hoc, not sealed. same text, growing prefix, n=4, tip vs arm:
+          81 tokens DIFFER median 1.560051 · 280 IDENTICAL · 1,040 IDENTICAL ·
+          4,391 DIFFER median 0.058922 · 17,706 IDENTICAL. three exact zeros and
+          two non-zeros, so this is a code path selected by prefill length, not
+          floating-point noise. n=1 per length, grid coarse, transitions unresolved.
 
-  prefill   KPS -4.25% median, sign 0/3, against a main prefill floor of 11.95%:
-            not separable. KP1 read +1.74% on the same measurand a day earlier.
+prefill   KPS -4.25% median, sign 0/3, against a main prefill floor of 11.95%:
+          not separable. KP1 read +1.74% on the same measurand a day earlier.
 
-  files     kernelpool-spark/2026-09-20-KPS-RESULT-*.md (this round, sealed)
-            flash41-kernelpool-spark/2026-09-20-KP1-RESULT-*.md (the 0bbca98ee round)
-            flash41-kernelpool-spark/RESULT_KP3_*.md · RESULT_KP2M_*.md (the port)
+files     kernelpool-spark/2026-09-20-KPS-RESULT-*.md (this round, sealed)
+          flash41-kernelpool-spark/2026-09-20-KP1-RESULT-*.md (the 0bbca98ee round)
+          flash41-kernelpool-spark/RESULT_KP3_*.md · RESULT_KP2M_*.md (the port)
 ```
 
 NOTES
 **WHAT THIS IS**
-- antirez's PR 1073 at head `a15028ee4`, unmodified, built and measured on our DGX Spark GB10.
-  The branch tip is his own commit and we added nothing to make it compile.
-- Two of his newer commits close the two build failures our earlier arm had to patch around:
+- kernelpool's PR 1073 at head `a15028ee4`, unmodified, built and measured on our DGX Spark
+  GB10. The branch tip is kernelpool's own commit and we added nothing to make it compile.
+- Two of kernelpool's newer commits close the two build failures our earlier arm patched around:
   `4fe6a7802` guards the tensor-parallel flag folds for non-Apple, which is the patch we wrote
   plus the slab flag, and `ed43e1a56` moves the CUDA stubs above the bf16 helpers.
 
@@ -356,9 +357,10 @@ NOTES
   sent as PR 1083.
 
 **THE DIVERGENCE, AND IT IS THE HEADLINE**
-- Not greedy-identical to main on CUDA, and unchanged by 14 upstream commits: `cmp` says our four
-  dumps at `a15028ee4` are byte-identical to the four taken at `0bbca98ee` a day earlier. Short
-  prompt, index 6 of 32, main takes `.` over ` why` by 0.904201 logits and the branch reverses it.
+- Not greedy-identical to main on CUDA, and unchanged by 14 more of kernelpool's commits: `cmp`
+  says our four dumps at `a15028ee4` are byte-identical to the four taken at `0bbca98ee` a day
+  earlier. Short prompt, index 6 of 32, main takes `.` over ` why` by 0.904201 logits and the
+  branch reverses it.
 - `ed43e1a56` stubs 14 CUDA entry points that the first-measured version implemented, and it
   removed no device code: `.nv_fatbin` is 20,395,664 bytes at both heads, the four new `dsv41_*`
   kernels are still there and `dsv41_candidates_kernel` still carries a fifth uint main lacks.
@@ -370,11 +372,11 @@ NOTES
   exactly zero three times. `head -c 200 speed-bench/promessi_sposi.txt` shows it in 20 seconds.
   Post-hoc, not in the seal, n=1 per length, and the transitions are unresolved.
 
-**THE PORT IS A DIFFERENT OBJECT FROM HIS BRANCH**
-- The six `DS4_KP_*` arms are our re-implementation of six of his mechanisms on
-  `flash41-kernelpool-spark`, not his commits toggled individually. All six are byte-identical to
-  their tip on 20 of 20 G1 runs, `cmp` 18 of 18 with a positive control that differs, so none of
-  the six is what breaks identity on his branch.
+**THE PORT IS A DIFFERENT OBJECT FROM PR 1073**
+- The six `DS4_KP_*` arms are our re-implementation of six of PR 1073's mechanisms on
+  `flash41-kernelpool-spark`, not kernelpool's commits toggled individually. All six are
+  byte-identical to their tip on 20 of 20 G1 runs, `cmp` 18 of 18 with a positive control that
+  differs, so none of the six is what breaks identity on PR 1073.
 
 **METHOD**
 - Bracket every arm run between two main runs, take the delta against the bracket mean, and compute
@@ -393,5 +395,5 @@ NOTES
 ```
   ALSO TRIED
   triple-hitsfirst            +26.0%  the scheduling half, the part that helps CUDA
-                                      sent as PR 1083: his fused kernels are Metal only
+                                      sent as PR 1083: PR 1073's fused kernels are Metal only
 ```
