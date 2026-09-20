@@ -1,0 +1,44 @@
+# ternary-bonsai/.gitignore - THE LARGE FILES ONLY
+#
+# The navigator's rule, 2026-09-20: "we keep the weights in there locally, but gitignored"
+# and "the final weights we make too all gitignored, the large files only".
+#
+# So this file ignores BY EXTENSION, never by wildcarding a directory. Every small thing
+# inside an artifact directory stays TRACKED: its README.md, its INDEX.md, its .gitkeep,
+# its run manifests, its checksum files, its configs, its logs. A gitignored tree clones
+# as nothing, so the SKELETON has to survive a fresh clone or the next person rebuilds a
+# different structure.
+#
+# Checked against the repo root .gitignore before writing: that file ignores /gguf and
+# models/ and neither rule reaches ternary-bonsai/, verified with
+#   git check-ignore -v ternary-bonsai/artifacts/ternary-gguf/     -> exit 1, no rule
+#   git check-ignore -v gguf/                                      -> exit 0, .gitignore:12
+# so this is a new rule and not a second overlapping one.
+
+# model weights and quantised outputs
+*.safetensors
+*.gguf
+*.ggml
+*.bin
+*.pt
+*.pth
+*.ckpt
+
+# calibration matrices and captured tensors
+*.imatrix
+*.npy
+*.npz
+*.dat
+
+# archives that would carry any of the above
+*.tar
+*.tar.gz
+*.tar.zst
+*.tgz
+*.zip
+*.7z
+
+# NOT ignored, deliberately, because they are small and they are the ledger:
+#   *.md  *.json  *.csv  *.txt  *.sha256  *.log  *.sh  *.py  .gitkeep
+# A safetensors shard index (model.safetensors.index.json) is a few hundred KB of JSON
+# and is the file that answers the P0 subset question. It stays tracked.
