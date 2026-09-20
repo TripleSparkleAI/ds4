@@ -76,7 +76,7 @@ are in `measured/ISSUE_1085_bonsai-style-ternary-ptq-for-v41-flash_what-we-measu
 | engram tensor dims | **(264, 384006168)** and **(264, 384016682)** | same job |
 | vocab | **99,092** | same job |
 | ggml type 142 `PQ2_0` | **2.125 bpw**, on mainline | `wiki/02-the-ggml-types.md` |
-| ggml type 143 `PTQ1_0` | **1.75 bpw**, separate gguf, **40 instructions of stub** in this tree | same |
+| ggml type 143 `PTQ1_0` | **1.75 bpw**, separate gguf. ⚠ **40 instructions of stub - HAND-READ, NEVER CHECKED** | `wiki/02-the-ggml-types.md` |
 | `ffn_gate_inp.weight` dtype | **F16 on ds4flash, F32 on V4.1** | jobs `110/111-router-tensor-census` |
 | `exp_probs_b.bias` absent at | **layers 0, 1, 2 of 43** | same jobs |
 | router bias spread is per-layer | **p = 0.00100**, sealed | cell `121-router-bias-centred-null` |

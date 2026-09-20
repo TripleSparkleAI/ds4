@@ -12,7 +12,7 @@ The output of a quantisation run: a **type 143 `PTQ1_0`** gguf at **1.75 bpw**.
 | **143** | **`PTQ1_0`** | **1.75** |
 
 ⚠ **The issue's 1.72 bpw is 1.75 in the type we hold**, and that number is what the whole size
-argument multiplies. ⚠ **And in this tree the 143 kernel body is 40 instructions of stub**, so a
+argument multiplies. ⚠ **And in this tree the 143 kernel body is 40 instructions of stub** (⚠ **hand-read, never checked** - `../../wiki/02-the-ggml-types.md`), so a
 file here is unreadable at speed until P4 - which is fine, because P1's quality measurement needs a
 **correct** read and not a fast one. `../../wiki/02-the-ggml-types.md`.
 

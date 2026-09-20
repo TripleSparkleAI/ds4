@@ -16,6 +16,13 @@
     [ ] profile with --cuda-graph-trace=node or THE DECODE IS INVISIBLE
         ^ measured: without it, 150,106 rows all read launchType=REGULAR, graphNodeId=NULL,
           and every kernel after the first cudaGraphInstantiate is missing
+    [ ] ⚠ READ THE ARCH FROM THE CARD, never assume one
+        ^ sm_120 on a consumer Blackwell 5090, sm_121 on the GB10
+        ^ a SASS mix is PER-ARCHITECTURE, so a wrong arch answers a different question SILENTLY
+        ^ the pattern to copy: `nvidia-smi --query-gpu=compute_cap`, and REFUSE if it is absent
+    [ ] ⚠ and count the 143 kernel body rather than quoting our own hand-read 40
+        ^ ../wiki/02-the-ggml-types.md - that figure has never been checked by any instrument
+        ^ a static cuobjdump disassembly settles it, with no model and no lock
     [ ] the activation transform must match the rotation the weights were quantised in
         ^ PrismML's own loader REFUSES a mismatched calibration bias by design, for the KV path
         ^ ../wiki/01-the-method-*.md - a mismatch here produces wrong numbers, not an error
