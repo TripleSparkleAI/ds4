@@ -2,6 +2,9 @@
 #define DS4_SERVER_TEST_NO_MAIN
 #include <inttypes.h>
 #include "../ds4_server.c"
+/* The prefill expert schedule needs no GPU, and its test registers outside the GPU section, so the
+ * header is included unconditionally. */
+#include "../ds4_prefill_sched.h"
 #ifndef DS4_NO_GPU
 #include "../ds4_gpu.h"
 #include <math.h>
@@ -7196,6 +7199,111 @@ static void test_server_unit_group(void) {
     ds4_server_unit_tests_run();
 }
 
+/* The layer-major prefill expert schedule (ds4_prefill_sched.c).  No model, no GPU: the demand is
+ * a table, so every claim here is checkable by hand.
+ *
+ * The central case is the one where Belady and LRU must disagree.  Two slots, four layers, demand
+ * 0, 1, 2, 0:
+ *   LRU   evicts 0 at layer 2 because it is the oldest, then must read 0 again at layer 3 - four
+ *         reads.
+ *   Belady evicts 1 at layer 2 because 1 is never needed again while 0 is needed at layer 3, so
+ *         layer 3 is a hit - three reads.
+ * One read of nine and a half mebibytes is the difference, and it is the whole point of the file. */
+static void test_prefill_expert_schedule(void) {
+    /* 0, 1, 2, 0 across four layers, one expert per layer, two slots. */
+    const uint16_t experts[]   = {0, 1, 2, 0};
+    const uint32_t layer_off[] = {0, 1, 2, 3, 4};
+    ds4_prefill_demand d = {experts, layer_off, 4, 8, 2, 1};
+
+    ds4_prefill_sched_stats opt = {0}, lru = {0};
+    ds4_prefill_act acts[32];
+    uint32_t n_opt = 0, n_lru = 0;
+
+    TEST_ASSERT(ds4_prefill_schedule(&d, acts, 32, &n_opt, &opt) == 0);
+    TEST_ASSERT(ds4_prefill_schedule_lru(&d, NULL, 0, &n_lru, &lru) == 0);
+
+    /* The hand-checked numbers. */
+    TEST_ASSERT(opt.needed == 4 && lru.needed == 4);
+    TEST_ASSERT(opt.fetches == 3);
+    TEST_ASSERT(lru.fetches == 4);
+    TEST_ASSERT(opt.hits == 1 && lru.hits == 0);
+    TEST_ASSERT(opt.evictions == 1 && lru.evictions == 2);
+
+    /* Belady is optimal for a known sequence, so it can never read more than LRU. */
+    TEST_ASSERT(opt.fetches <= lru.fetches);
+
+    /* The accounting closes: every demand was either resident or read. */
+    TEST_ASSERT(opt.hits + opt.fetches == opt.needed);
+    TEST_ASSERT(lru.hits + lru.fetches == lru.needed);
+
+    /* Every act is well formed, a fetch is issued no later than the layer that consumes it, and
+     * with a lead window of one it is issued a layer early wherever a layer early exists. */
+    uint32_t seen_fetch = 0;
+    for (uint32_t i = 0; i < n_opt; i++) {
+        TEST_ASSERT(acts[i].for_layer < d.n_layer);
+        TEST_ASSERT(acts[i].expert < d.n_expert);
+        TEST_ASSERT(acts[i].at_layer <= acts[i].for_layer);
+        if (acts[i].act == DS4_PREFILL_ACT_FETCH) {
+            seen_fetch++;
+            if (acts[i].for_layer >= d.lead_layers) {
+                TEST_ASSERT(acts[i].at_layer == acts[i].for_layer - d.lead_layers);
+            }
+        }
+    }
+    TEST_ASSERT(seen_fetch == opt.fetches);
+
+    /* Layer 0 cannot be covered by a lead window, and says so instead of pretending. */
+    TEST_ASSERT(opt.late == 1);
+
+    /* Sizing pass: no buffer, same count. */
+    uint32_t n_size = 0;
+    TEST_ASSERT(ds4_prefill_schedule(&d, NULL, 0, &n_size, NULL) == 0);
+    TEST_ASSERT(n_size == n_opt);
+
+    /* A buffer one act short reports -2 and the length required, rather than writing past it. */
+    uint32_t n_short = 0;
+    TEST_ASSERT(ds4_prefill_schedule(&d, acts, n_opt - 1, &n_short, NULL) == -2);
+    TEST_ASSERT(n_short == n_opt);
+
+    /* Determinism: the same demand gives a byte-identical schedule, so two boxes agree. */
+    ds4_prefill_act again[32];
+    uint32_t n_again = 0;
+    TEST_ASSERT(ds4_prefill_schedule(&d, again, 32, &n_again, NULL) == 0);
+    TEST_ASSERT(n_again == n_opt);
+    TEST_ASSERT(memcmp(acts, again, n_opt * sizeof(acts[0])) == 0);
+
+    /* A layer needing more distinct experts than the cache holds is REFUSED, not thrashed: a
+     * schedule that evicts what the current layer still needs is not a floor. */
+    const uint16_t wide[]      = {0, 1, 2};
+    const uint32_t wide_off[]  = {0, 3};
+    ds4_prefill_demand too_wide = {wide, wide_off, 1, 8, 2, 1};
+    TEST_ASSERT(ds4_prefill_schedule(&too_wide, NULL, 0, NULL, NULL) == -1);
+
+    /* An expert id outside the model's expert count is refused by name rather than read. */
+    const uint16_t bad[]     = {9};
+    const uint32_t bad_off[] = {0, 1};
+    ds4_prefill_demand oob = {bad, bad_off, 1, 8, 2, 1};
+    TEST_ASSERT(ds4_prefill_schedule(&oob, NULL, 0, NULL, NULL) == -1);
+
+    /* A null demand is refused rather than dereferenced. */
+    TEST_ASSERT(ds4_prefill_schedule(NULL, NULL, 0, NULL, NULL) == -1);
+
+    /* A repeated expert inside one layer is one residency, not two reads. */
+    const uint16_t rep[]     = {3, 3, 3};
+    const uint32_t rep_off[] = {0, 3};
+    ds4_prefill_demand dup = {rep, rep_off, 1, 8, 2, 1};
+    ds4_prefill_sched_stats ds = {0};
+    TEST_ASSERT(ds4_prefill_schedule(&dup, NULL, 0, NULL, &ds) == 0);
+    TEST_ASSERT(ds.needed == 1 && ds.fetches == 1 && ds.evictions == 0);
+
+    /* A cache large enough for the whole model reads each expert once and evicts nothing, which is
+     * the resident case and the floor's floor. */
+    ds4_prefill_demand roomy = {experts, layer_off, 4, 8, 8, 1};
+    ds4_prefill_sched_stats rs = {0};
+    TEST_ASSERT(ds4_prefill_schedule(&roomy, NULL, 0, NULL, &rs) == 0);
+    TEST_ASSERT(rs.fetches == 3 && rs.evictions == 0 && rs.hits == 1);
+}
+
 typedef void (*test_fn)(void);
 
 typedef struct {
@@ -7227,6 +7335,7 @@ static const ds4_test_entry test_entries[] = {
     {"--dspark-verify-depth", "dspark-verify-depth", "DSpark speculative verify commits autoregressive-identical tokens at draft depth > 2", test_dspark_verify_depth},
 #endif
     {"--server", "server", "server parser/rendering/cache unit tests", test_server_unit_group},
+    {"--prefill-expert-schedule", "prefill-expert-schedule", "layer-major prefill expert schedule is optimal and beats LRU on a known demand", test_prefill_expert_schedule},
 };
 
 static void test_print_help(const char *prog) {

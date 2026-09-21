@@ -267,3 +267,64 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before sending a pull request.
 The DwarfStar logo was designed by hand by Salvatore Sanfilippo, made more
 graphical with AI, and manually reworked by Ben Gnomino, whose human touch made
 it rock.
+
+```
+✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦
+      ★   T R I P L E S P A R K L E      ·  the fork note begins below
+           ↑  above this line: upstream's README, byte-for-byte UNCHANGED
+           ↓  below: this branch's own notes - the change, the why, the numbers
+✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦ · ✦
+```
+
+## TripleSparkle: prefill knows its experts exactly, so schedule them optimally
+
+Guide: [docs/PREFILL_EXPERT_SCHEDULING.md](docs/PREFILL_EXPERT_SCHEDULING.md) ·
+code `ds4_prefill_sched.{c,h}` · test `./ds4_test --prefill-expert-schedule`
+
+- **Theory.** Prefill is layer-major: every prompt token passes through layer 0, then layer 1, and
+  so on, which is what `prefill_layer_major_cpu` says and what the batch matmul depends on. That
+  ordering gives prefill something decode never has. When layer L-1 has finished for every token,
+  the router for layer L can run for every token at once, and the set of experts layer L will
+  consult is then **exactly known before a single expert byte is read**. The router is a small
+  per-layer F32 projection, so learning the demand is nearly free next to the expert weights it
+  decides. Prefill therefore is not a prediction problem at all. It is an arithmetic one, and the
+  optimum is computable.
+- **Why decode cannot use the same trick, measured rather than assumed.** During decode the router
+  for layer L+1 can only run after layer L's experts are done, so it buys one layer of warning. At
+  9.70 t/s over 40 layers a layer is **2.58 ms**, a token is **103.1 ms**, and one 9,953,280-byte
+  slot reads in **2.03 ms** on a single NVMe at 4,914.7 MB/s. So a layer of lead is **1.27 slots**
+  and a token of lead is **50.9**. Decode's lookahead is not a schedule. Prefill spends a whole
+  prompt's compute per layer, so there is real time to spend.
+- **This branch** adds one unit: `ds4_prefill_schedule()`, which takes the per-layer expert demand
+  and returns the optimal fetch and evict order. **Evict by Belady MIN** - drop the resident expert
+  whose next use is furthest away, or never. **Fetch just in time** - issue each read in the order
+  its layer consumes it, no earlier than the lead window allows. Belady MIN is optimal for a fixed
+  capacity under a known request sequence, so the fetch count is a **floor**: nothing online can beat
+  it on the same demand. `ds4_prefill_schedule_lru()` runs the identical walk with LRU eviction, so
+  a difference in the statistics is a difference in the eviction rule and in nothing else.
+- **What exists upstream is an advisory, not a schedule.** The prefill layer read-ahead
+  (`DS4_METAL_ENABLE_STREAMING_PREFILL_LAYER_READAHEAD` and its ROCm twin) hints byte ranges through
+  `F_RDADVISE` and the kernel decides the rest. It makes no victim choice and imposes no order.
+  That is the gap this fills, and the two are complementary rather than competing.
+- **Result, this branch alone, measured on an Apple M5 Max, macOS 26.5, Metal backend,
+  `cc -O3 -std=c99`.** On the hand-checkable case - two slots, four layers, demand `0, 1, 2, 0` -
+  **LRU reads 4 and the schedule reads 3**, because LRU evicts 0 at layer 2 as the oldest and must
+  read it again at layer 3, while Belady evicts 1 there because 1 is never needed again. One read of
+  **9.49 MiB** is the difference. The accounting closes on both arms
+  (`hits + fetches == needed`: 1+3 and 0+4 against 4). Build is **zero warnings**; the test
+  **passes, exit 0**; the unit compiles and links **standalone with no `ds4` objects and with
+  `-DDS4_NO_GPU`**, since it depends on neither.
+- **Red-proven rather than asserted.** Flipping the Belady comparison to pick the nearest next use
+  instead of the furthest turns **three assertions red** - the read count, the hit count and the
+  eviction count - and restoring it returns the test to green. The test also holds the schedule
+  byte-identical across runs, so two machines agree; refuses a layer needing more distinct experts
+  than the cache holds rather than thrashing; counts a repeated expert inside one layer as one read;
+  and reports the required length instead of overflowing a short output buffer.
+- **What is owed, and it is not in this file.** The unit is **not wired to the router or to
+  `ds4_ssd`'s reads**, so no inference backend changes and there is no correctness or speed
+  regression surface here. **There is no end-to-end prefill number yet** - the 3-against-4 above is
+  the algorithm on a known demand, not a wall-clock win on a checkpoint. Wiring it and measuring a
+  real 2,048-token prefill against a deliberately small expert cache is the next step, and it should
+  be measured before it is believed. A bracketed note for sizing that step: the router stack for all
+  40 layers is **240 to 420 MiB**, so **25 to 44 slots of a 1,928-slot cache**, under 3 percent
+  either way. The bracket is `n_embd`, which this branch did not pin.
