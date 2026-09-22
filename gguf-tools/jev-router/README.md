@@ -38,7 +38,19 @@ construction (the hook moves reads, never math):
    read; `replay_three_tier.py` prints the same per-source HIT / MISS / WASTE table and the
    worst windows from it.
    `<token>` is a counter that advances when a layer at or below the last seen layer arrives, so
-   it is per process, not the sampler's position. Prefill batches (more than 8 ids) are not
+   it is per process, not the sampler's position.
+
+   THE AHEAD SOURCE HAS ARRIVED (beat 14, 2026-09-22): with
+   `DS4_CUDA_PREFETCH_HEAD=<pred.jsonl>` (or `ds4-bench --prefetch-head <file>`, default OFF)
+   the host prefetcher reads the offline head's per-(t+1, L) top-M set - the SAME pred file the
+   ruler's `src=file;horizon=token` policy replays - and at (t, L) issues reads for token t+1's
+   layer-L experts into the hits-first batch, strictly after every demand and scout task, into
+   victims the ledger frees anyway (the scout's own victim rule). The `f` line for it is keyed
+   by its TARGET `(t+1, L)` so the `o` line pairs with it, and reads `ahead` in the source
+   field. Prefetch hits ride `jev_hits=`; `[prefetch-ahead] reads=/bytes=/wasted_bytes=` report
+   the issue totals. By construction a prediction can only decide WHICH unused expert bytes
+   become resident and in WHICH free slot - it never reaches a matmul input or a router id
+   (the G1 gate). Prefill batches (more than 8 ids) are not
    logged. About 1.3 KB per token as text on Flash (V4.1: 40 layers, top-6 of 384; one expert is 9,953,280 B = 9.49 MiB on disk, gate 3,041,280 + up 3,041,280 IQ2_XXS + down 3,870,720 Q2_K). Lane FORECASTLEARN's guesser
    reads this same format.
 2. **`train_next_layer.py`** (numpy): one held-out split (the last 20 % of tokens, in order),

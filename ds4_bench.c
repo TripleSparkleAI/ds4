@@ -305,6 +305,15 @@ static bench_config parse_options(int argc, char **argv) {
             c.dump_frontier_logits_dir = need_arg(&i, argc, argv, arg);
         } else if (!strcmp(arg, "--expert-profile")) {
             c.expert_profile_path = need_arg(&i, argc, argv, arg);
+        } else if (!strcmp(arg, "--prefetch-head")) {
+            /* The offline head's pred file, read by the engine's host-side
+             * prefetcher (DS4_CUDA_PREFETCH_HEAD).  Default OFF: without the
+             * flag the engine behaves exactly as shipped. */
+            const char *ph = need_arg(&i, argc, argv, arg);
+            if (setenv("DS4_CUDA_PREFETCH_HEAD", ph, 1)) {
+                fprintf(stderr, "ds4-bench: --prefetch-head setenv failed\n");
+                exit(2);
+            }
         } else if (!strcmp(arg, "-t") || !strcmp(arg, "--threads")) {
             c.threads = parse_int(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--backend")) {

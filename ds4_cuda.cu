@@ -209,6 +209,23 @@ static int g_jev_state = -1;                        /* -1 unread, 0 off, 1 loade
 struct cuda_jev_forecast { uint32_t n; int32_t id[DS4_SCOUT_MAX_IDS]; float conf[DS4_SCOUT_MAX_IDS]; char source; };
 static cuda_jev_forecast g_jev_guess[DS4_SCOUT_MAX_LAYERS];
 static uint64_t g_jev_hits, g_jev_guessed;
+/* PREFETCH-AHEAD (DS4_CUDA_PREFETCH_HEAD=<pred.jsonl>, or ds4-bench
+ * --prefetch-head <file>): the OFFLINE head's per-(t+1, L) top-M expert set
+ * (the same jsonl the ruler's src=file;horizon=token policy replays), issued
+ * as reads into the hits-first batch at ONE FULL TOKEN of lookahead, strictly
+ * after every demand and scout task.  Reads and victim choices only - never
+ * math (G1): a prediction can only decide WHICH unused expert bytes become
+ * resident and in WHICH slot the ledger frees anyway.  Off unless the file
+ * loads; the shipped path is untouched when it is off. */
+#define DS4_PRED_MAX_M 12
+struct cuda_pred_entry { uint32_t n; int32_t id[DS4_PRED_MAX_M]; float conf[DS4_PRED_MAX_M]; };
+static std::unordered_map<uint64_t, cuda_pred_entry> g_pred_map;   /* key = (t << 6) | layer */
+static int g_pred_state = -1;                       /* -1 unread, 0 off, 1 loaded */
+static uint64_t g_ahead_reads, g_ahead_bytes, g_ahead_wasted_bytes; /* stats line */
+/* The forecast made for a (token, layer) ONE TOKEN ahead - the route-trace
+ * format's reserved 'ahead' source - per layer, scored and traced when that
+ * arrival routes, exactly as the jev forecast is. */
+static cuda_jev_forecast g_ahead_guess[DS4_SCOUT_MAX_LAYERS];
 /* ROUTE TRACE (DS4_CUDA_ROUTE_TRACE=<file>): per single-token streaming call
  * one line `<token> <layer> <ids...>`, one `m <token> <layer> <0|1...>` (1 =
  * miss, read from the SSD, aligned to the ids) and, when the hits-first batch
@@ -278,6 +295,7 @@ static void cuda_stream_selected_cache_release(void) {
     g_stream_prefill_slots.clear();
     memset(g_scout_mem, 0, sizeof g_scout_mem);   /* SCOUT: a new model, no memory */
     memset(g_jev_guess, 0, sizeof g_jev_guess);   /* JEV ROUTER: nor a pending guess */
+    memset(g_ahead_guess, 0, sizeof g_ahead_guess);   /* PREFETCH-AHEAD: nor one */
     if (g_route_trace) fflush(g_route_trace);      /* ROUTE TRACE: a released cache keeps its tail */
     g_route_token_id = -1;                         /* ROUTE TRACE: a new model, no token id until one embeds */
     g_route_t_written = UINT64_MAX;
@@ -27851,6 +27869,72 @@ static int cuda_jev_router_enabled(void) {
     }
     return g_jev_state == 1;
 }
+/* PREFETCH-AHEAD loader: one json object per line,
+ * {"t": <target token>, "L": <layer>, "pred": [[<expert>, <conf>], ...]},
+ * '#' lines are comments (the file the offline head writes and the ruler
+ * replays verbatim).  Returns the number of (t, L) targets kept; 0 = refused
+ * (a refused file means OFF, it never half-loads). */
+static long cuda_pred_json_field(const char *key, const char *s) {
+    const char *k = strstr(s, key);
+    if (!k) return -1;
+    const char *c = strchr(k + strlen(key), ':');
+    if (!c) return -1;
+    return strtol(c + 1, NULL, 10);
+}
+static uint32_t cuda_pred_head_load(const char *path) {
+    FILE *fp = fopen(path, "r");
+    if (!fp) return 0;
+    char line[4096];
+    uint32_t kept = 0;
+    while (fgets(line, sizeof line, fp)) {
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '#' || *p == '\n' || !*p) continue;
+        const long t = cuda_pred_json_field("\"t\"", p);
+        const long L = cuda_pred_json_field("\"L\"", p);
+        const char *d_s = strstr(p, "\"pred\"");
+        if (t < 0 || L < 0 || L >= DS4_SCOUT_MAX_LAYERS || t > (1L << 40) || !d_s) continue;
+        const char *q = strchr(d_s + 6, '[');
+        if (!q) continue;
+        cuda_pred_entry e;
+        memset(&e, 0, sizeof e);
+        q++;                                   /* into the pred array */
+        while (e.n < DS4_PRED_MAX_M) {
+            q = strchr(q, '[');
+            if (!q) break;
+            char *end = NULL;
+            const long id = strtol(q + 1, &end, 10);
+            if (!end || end == q + 1 || id < 0) break;
+            const char *c = strchr(end, ',');
+            const char *close = strchr(end, ']');
+            if (!c || !close || c > close) break;
+            e.id[e.n] = (int32_t)id;
+            e.conf[e.n] = (float)strtod(c + 1, NULL);
+            e.n++;
+            q = close + 1;
+        }
+        if (e.n) { g_pred_map[((uint64_t)t << 6) | (uint64_t)L] = e; kept++; }
+    }
+    fclose(fp);
+    return kept;
+}
+static int cuda_pred_head_enabled(void) {
+    if (g_pred_state < 0) {
+        const char *path = getenv("DS4_CUDA_PREFETCH_HEAD");
+        g_pred_state = 0;
+        if (path && path[0]) {
+            const uint32_t kept = cuda_pred_head_load(path);
+            if (kept) {
+                g_pred_state = 1;
+                fprintf(stderr, "ds4: [prefetch-ahead] loaded %s: %u (t, L) targets, top %u ids each, capped at the scout's %u reads per layer\n",
+                        path, kept, (unsigned)DS4_PRED_MAX_M, (unsigned)DS4_SCOUT_MAX_IDS);
+            } else {
+                fprintf(stderr, "ds4: [prefetch-ahead] DS4_CUDA_PREFETCH_HEAD=%s did not load; OFF\n", path);
+            }
+        }
+    }
+    return g_pred_state == 1;
+}
 /* ROUTE TRACE: open once, append; an unopenable path means no trace and one line on stderr. */
 static FILE *cuda_route_trace(void) {
     if (g_route_state < 0) {
@@ -28128,7 +28212,8 @@ static int cuda_stream_selected_cache_begin_load(
          * is a wash).  No eligible victim: the scout does nothing. */
         std::vector<cuda_expert_pread_task> scout_tasks;
         std::vector<uint32_t> scout_victim;
-        if (slot_count <= 8u && cuda_hits_first_enabled() && cuda_scout_enabled() &&
+        if (slot_count <= 8u && cuda_hits_first_enabled() &&
+            (cuda_scout_enabled() || cuda_pred_head_enabled()) &&
             table->layer < DS4_SCOUT_MAX_LAYERS) {
             cuda_scout_layer &here = g_scout_mem[table->layer];
             if (here.ids.n && here.table.model_map == table->model_map &&
@@ -28263,6 +28348,121 @@ static int cuda_stream_selected_cache_begin_load(
                 }
             }
         }
+        /* PREFETCH-AHEAD.  The offline head's forecast for (t+1, L), issued
+         * into this batch after the scout's own tasks: same victim rule
+         * (used < stamp, not prefetch-protected, never a slot this layer
+         * keeps), same task shape, same destinations.  With the loader off
+         * none of this runs and the path above is byte-for-byte the shipped
+         * one (G1, flag-OFF side). */
+        if (cuda_pred_head_enabled()) {
+            /* OUTCOME of the forecast made one token ago for THIS (t, L):
+             * prefetch hits ride the jev counters (the stats line's
+             * jev_hits=); forecast-and-not-routed bytes are WASTED. */
+            cuda_jev_forecast &af = g_ahead_guess[table->layer];
+            if (af.n) {
+                ds4_scout_score(af.id, af.n, unique.data(), (uint32_t)unique.size(),
+                                &g_jev_hits, &g_jev_guessed);
+                const uint64_t expert_bytes = table->gate_expert_bytes * 2u + table->down_expert_bytes;
+                if (g_route_state == 1 && g_route_trace) {
+                    fprintf(g_route_trace, "o %llu %u", (unsigned long long)g_route_token, table->layer);
+                    for (uint32_t i = 0; i < af.n; i++) {
+                        int hit = 0;
+                        for (size_t j = 0; j < unique.size(); j++) if (unique[j] == af.id[i]) { hit = 1; break; }
+                        fprintf(g_route_trace, " %d=%s", af.id[i], hit ? "HIT" : "WASTE");
+                        if (!hit) g_ahead_wasted_bytes += expert_bytes;
+                    }
+                    for (size_t j = 0; j < unique.size(); j++) {
+                        int fore = 0;
+                        for (uint32_t i = 0; i < af.n; i++) if (af.id[i] == unique[j]) { fore = 1; break; }
+                        if (!fore) fprintf(g_route_trace, " %d=MISS", unique[j]);
+                    }
+                    fputc('\n', g_route_trace);
+                }
+                af.n = 0;
+            }
+            /* ISSUE for (t+1, L): the pred file is keyed by the TARGET
+             * token's counter.  Same slot table and offsets - a layer's
+             * expert offsets do not change between tokens. */
+            const uint64_t pkey = ((uint64_t)(g_route_token + 1u) << 6) | (uint64_t)table->layer;
+            const auto pf = g_pred_map.find(pkey);
+            if (pf != g_pred_map.end() && pf->second.n) {
+                const cuda_pred_entry &pe = pf->second;
+                const uint32_t n = pe.n < DS4_SCOUT_MAX_IDS ? pe.n : (uint32_t)DS4_SCOUT_MAX_IDS;
+                uint8_t resident[DS4_SCOUT_MAX_IDS] = {0};
+                uint32_t keep[DS4_SCOUT_MAX_IDS], n_keep = 0;
+                for (uint32_t i = 0; i < n; i++) {
+                    const int32_t id = pe.id[i];
+                    if (id < 0 || (uint32_t)id >= table->n_total_expert) continue;
+                    const auto f = g_stream_expert_by_gate.find(table->gate_offset + (uint64_t)(uint32_t)id * table->gate_expert_bytes);
+                    if (f == g_stream_expert_by_gate.end()) continue;
+                    const auto &sl = g_stream_expert_slots[f->second];
+                    if (sl.up != table->up_offset + (uint64_t)(uint32_t)id * table->gate_expert_bytes ||
+                        sl.down != table->down_offset + (uint64_t)(uint32_t)id * table->down_expert_bytes) continue;
+                    resident[i] = 1;
+                    keep[n_keep++] = f->second;
+                }
+                uint32_t victims_available = 0;
+                for (uint32_t j = 0; j < g_stream_expert_slots.size() && victims_available < DS4_SCOUT_MAX_IDS; j++)
+                    if (g_stream_expert_slots[j].used < stamp && !cuda_stream_prefetch_protects(g_stream_expert_slots[j]))
+                        victims_available++;
+                int32_t pick[DS4_SCOUT_MAX_IDS];
+                const uint32_t n_pick = ds4_scout_select(pe.id, n, resident, table->n_total_expert,
+                                                         victims_available, DS4_SCOUT_MAX_IDS, pick);
+                /* ROUTE TRACE: the 'ahead' source the format reserved, keyed
+                 * by its TARGET (t+1, L) so the `o` line pairs with it. */
+                if (g_route_state == 1 && g_route_trace) {
+                    fprintf(g_route_trace, "f %llu %u ahead %u", (unsigned long long)(g_route_token + 1u),
+                            table->layer, n_pick);
+                    for (uint32_t i = 0; i < n; i++) fprintf(g_route_trace, " %d:%.3f", pe.id[i], pe.conf[i]);
+                    fputc('\n', g_route_trace);
+                }
+                for (uint32_t k = 0; k < n_pick; k++) {
+                    uint32_t victim = UINT32_MAX;
+                    uint64_t oldest = stamp;
+                    for (uint32_t j = 0; j < g_stream_expert_slots.size(); j++) {
+                        if (cuda_stream_prefetch_protects(g_stream_expert_slots[j]) ||
+                            g_stream_expert_slots[j].used >= oldest) continue;
+                        bool kept = false;
+                        for (uint32_t q = 0; q < n_keep; q++) if (keep[q] == j) { kept = true; break; }
+                        if (kept) continue;
+                        oldest = g_stream_expert_slots[j].used; victim = j;
+                        if (!oldest) break;
+                    }
+                    if (victim == UINT32_MAX) break;
+                    auto &slot = g_stream_expert_slots[victim];
+                    if (slot.used) { g_stream_expert_by_gate.erase(slot.gate); g_stream_expert_evictions++; }
+                    slot.used = 0;
+                    const uint64_t e = (uint32_t)pick[k];
+                    const uint64_t gate = table->gate_offset + e * table->gate_expert_bytes;
+                    const uint64_t up = table->up_offset + e * table->gate_expert_bytes;
+                    const uint64_t down = table->down_offset + e * table->down_expert_bytes;
+                    cuda_expert_pread_task t;
+                    memset(&t, 0, sizeof t);
+                    t.model_map = table->model_map; t.model_size = table->model_size;
+                    t.offset = gate; t.bytes = table->gate_expert_bytes;
+                    t.dst = cache.gate_ptr + (uint64_t)victim * table->gate_expert_bytes;
+                    t.what = "ahead gate"; scout_tasks.push_back(t);
+                    t.offset = up; t.dst = cache.up_ptr + (uint64_t)victim * table->gate_expert_bytes;
+                    t.what = "ahead up"; scout_tasks.push_back(t);
+                    t.offset = down; t.bytes = table->down_expert_bytes;
+                    t.dst = cache.down_ptr + (uint64_t)victim * table->down_expert_bytes;
+                    t.what = "ahead down"; scout_tasks.push_back(t);
+                    scout_victim.push_back(victim);
+                    g_ahead_reads++;
+                    g_ahead_bytes += table->gate_expert_bytes * 2u + table->down_expert_bytes;
+                    /* Claimed at this layer's stamp so a later pick in this
+                     * batch cannot take it; published at used=1 on landing by
+                     * the scout's own wait path (n_scout covers the tail). */
+                    slot = {gate, up, down, stamp};
+                    g_stream_expert_by_gate[gate] = victim;
+                }
+                /* The forecast as made, scored at (t+1, L). */
+                cuda_jev_forecast &next = g_ahead_guess[table->layer];
+                next.n = n;
+                for (uint32_t i = 0; i < n; i++) { next.id[i] = pe.id[i]; next.conf[i] = pe.conf[i]; }
+                next.source = 'a';
+            }
+        }
         int hits_first_started = 0;
         if (!tasks.empty() && slot_count <= 8u && cuda_hits_first_enabled()) {
             g_hits_first.staged = 0;
@@ -28350,6 +28550,13 @@ static int cuda_stream_selected_cache_begin_load(
                     (unsigned long long)g_scout_reads, (unsigned long long)g_scout_hits,
                     (unsigned long long)g_scout_guessed, (unsigned long long)g_jev_hits,
                     (unsigned long long)g_jev_guessed);
+        /* PREFETCH-AHEAD totals: silent unless the prefetcher issued
+         * something, so the flag-OFF stderr is byte-identical. */
+        if (g_ahead_reads && cuda_expert_cache_stats_enabled() && g_stream_expert_lookups &&
+            g_stream_expert_lookups / 4000u != (g_stream_expert_lookups - unique.size()) / 4000u)
+            fprintf(stderr, "ds4: [prefetch-ahead] reads=%llu, bytes=%llu, wasted_bytes=%llu (hits ride jev_hits=)\n",
+                    (unsigned long long)g_ahead_reads, (unsigned long long)g_ahead_bytes,
+                    (unsigned long long)g_ahead_wasted_bytes);
         g_stream_prefill_ids = remap;
         g_stream_prefill_slots = slots;
         for (auto &id : remap) id = slots[id];
